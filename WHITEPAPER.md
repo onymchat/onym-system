@@ -276,6 +276,12 @@ pretending contradictory ledgers are simultaneously canonical.
 
 ## 5. The identity seat
 
+The technology-neutral vault boundary—custody, capability requests, consent,
+descriptors, rotation, and recovery—is specified in
+[identity/UI-Identity.md](identity/UI-Identity.md). The current BIP-39
+mnemonic and multi-curve derivation implementation is specified separately in
+[identity/UI-Identity-BIP39.md](identity/UI-Identity-BIP39.md).
+
 ### 5.1 Root secret and recovery
 
 The current Onym clients generate a twelve-word BIP-39 mnemonic locally. BIP-39
