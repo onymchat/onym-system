@@ -399,6 +399,11 @@ an identity.
 The name is not the identity. The registry is not the owner of the identity.
 It is the issuer of one assertion that a client may choose to trust.
 
+The proposed contract boundary for this seat—issuance, subject acceptance,
+qualified resolution, disavowal, and membership-conditioned naming—is
+specified in
+[association/Association-Naming.md](association/Association-Naming.md).
+
 ### 6.1 Qualified names
 
 Onym should not begin with one universal namespace. Different associations
