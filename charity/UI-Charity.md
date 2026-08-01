@@ -22,6 +22,11 @@ The status of this document is **proposed**. It describes the boundary that an
 Onym Messenger implementation should satisfy; it is not a claim that every
 screen, adapter, contract, or audit described here is already deployed.
 
+A non-public July 2026 draft memorandum informed some responsibility and
+implementation examples below. It is non-normative design input, is not
+incorporated by reference, and is not required to implement or interpret this
+public profile.
+
 ## 1. Decision
 
 Onym Messenger implements charity as a removable application module above the
@@ -33,11 +38,10 @@ identity, message, blob, and notary boundaries:
   user-selected documents too large for messages.
 - [UI-Notary.md](../notary/UI-Notary.md) reads or proposes public committed
   state through a replaceable notary.
-- the local identity vault creates only operation-scoped signatures,
-  presentations, addresses, or financial authorizations;
-- an association registry may supply signed organization names and records;
-  and
-- a `CharityFinancialAdapter` quotes and submits value-moving operations to the
+- The local identity vault creates only operation-scoped signatures,
+  presentations, addresses, or financial authorizations.
+- An association registry may supply signed organization names and records.
+- A `CharityFinancialAdapter` quotes and submits value-moving operations to the
   user-selected financial provider.
 
 The charity module is not part of the identity root. Disabling or uninstalling
@@ -233,7 +237,9 @@ The receipt is stored locally in the user's encrypted application storage. A
 portable export contains the receipt and verification material selected by
 the user, excluding local contacts and unrelated messages. A public proof link
 is optional and must contain no intentional PII. “Finalized” means only the
-pinned financial profile's finality rule was satisfied.
+pinned financial profile's finality rule was satisfied. Before showing that
+state, Onym verifies that the receipt's `intentDigest` matches the exact local
+intent bytes the donor authorized.
 
 ### 5.5 Request a refund or dispute an outcome
 
@@ -258,8 +264,9 @@ The beneficiary flow starts from a signed `EligibilityPolicy` and explains:
 The app constructs a derived presentation locally where the proof profile
 supports it. It never uploads the complete identity vault or unrelated
 credentials as a convenience. The user previews the predicate, campaign,
-epoch, public inputs, nullifier scope, and delivery disclosure before
-authorization.
+campaign revision, epoch, public inputs, nullifier scope, and delivery
+disclosure before authorization. A newer campaign revision requires a new
+presentation and a fresh decision; it cannot reinterpret the existing proof.
 
 The beneficiary UI does not expose public search, leaderboards, shareable
 claim links, or notification text containing aid status. Failed proof details
@@ -396,8 +403,11 @@ intent digest and provider evidence for reconciliation.
 
 ### 8.3 Soroban/Stellar selection
 
-The memorandum proposes Soroban on Stellar for the first physical contract
-surface. If adopted, the implementation profile must separately define:
+A non-public July 2026 draft memorandum considered Soroban on Stellar for a
+first physical contract surface. It is non-normative design input, not a
+resolvable protocol dependency or evidence that the parties adopted that
+choice. If a deployment selects Stellar/Soroban, its implementation profile
+must separately define:
 
 - network and contract deployment IDs;
 - contract code, interface, and deployment hashes;
@@ -502,11 +512,11 @@ system, and network path.
 For the proposed collaboration, “funds attracted through Onym” is implemented
 as follows:
 
-1. a campaign opts into the `onym-messenger` interface channel in its signed
-   deployment or campaign record;
-2. the financial quote and donor-authorized intent bind that shared channel;
-3. a finalized receipt proves qualifying funds reached the pinned campaign
-   destination;
+1. a signed financial quote proposes the shared `onym-messenger` interface
+   channel for an exact campaign revision;
+2. the donor-authorized intent pins that quote and repeats the same channel;
+3. a finalized receipt copies the channel and proves qualifying funds reached
+   the pinned campaign destination;
 4. duplicates, refunds, reversals, failed, pending, and expired operations do
    not count;
 5. the report declares gross and net amounts separately, with net finalized
@@ -588,7 +598,14 @@ Charity flows often serve people under stress. Onym therefore:
 Human-readable translations are signed resources or clearly labeled local
 renderings. The canonical operation preview remains inspectable.
 
-## 15. MoU requirement mapping
+## 15. Non-normative MoU design-input mapping
+
+This traceability table records how a non-public July 2026 draft memorandum
+influenced the authors' separation of responsibilities. The memorandum is not
+required to implement or interpret this profile, is not incorporated by
+reference, and does not establish that its placeholders, targets, technology
+choice, or legal terms were accepted. `Charity.md` and this document are the
+complete public architecture sources for the described boundary.
 
 | MoU concept | Protocol/UI treatment |
 |---|---|
@@ -625,19 +642,23 @@ An Onym Messenger implementation of this profile must test:
    mutation invalidates prior authorization;
 5. the identity vault rejects seed export and unscoped signing requests;
 6. uncertain submission reconciles without creating a second intent;
-7. pending, final, refunded, reversed, and failed receipts survive restart;
-8. eligibility proofs bind campaign, policy, epoch, public inputs, and scoped
-   nullifier;
-9. public events, deep links, notifications, logs, and reports pass negative
+7. pending, final, refunded, reversed, and failed receipts survive restart,
+   and every final receipt matches the locally authorized `intentDigest`;
+8. eligibility proofs bind campaign revision, policy, epoch, public inputs,
+   and scoped nullifier;
+9. aid claims bind the exact presentation, campaign revision, entitlement,
+   expiry, and private delivery binding, while public receipts omit recipient
+   details;
+10. public events, deep links, notifications, logs, and reports pass negative
    PII fixtures;
-10. blobs enforce digest, size, media, decompression, and active-content rules;
-11. inaccessible, expired, revoked, malformed, oversized, replayed, and
+11. blobs enforce digest, size, media, decompression, and active-content rules;
+12. inaccessible, expired, revoked, malformed, oversized, replayed, and
     unknown-critical-field inputs fail safely;
-12. aggregate volume excludes duplicates, pending operations, refunds, and
+13. aggregate volume excludes duplicates, pending operations, refunds, and
     reversals under declared arithmetic;
-13. the same campaign and receipt verify through an independent conforming UI;
+14. the same campaign and receipt verify through an independent conforming UI;
     and
-14. a mock non-Stellar adapter can satisfy the local Charity and financial
+15. a mock non-Stellar adapter can satisfy the local Charity and financial
     ports, proving ledger independence.
 
 ## 17. Acceptance criteria

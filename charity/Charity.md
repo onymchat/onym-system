@@ -411,6 +411,7 @@ eligibility, price, or service.
   "receiptVersion": 1,
   "receiptId": "<stable-id>",
   "intentId": "<intent-id>",
+  "intentDigest": "<digest-of-canonical-authorized-intent>",
   "quoteId": "<quote-id-and-digest>",
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
@@ -441,6 +442,8 @@ eligibility, price, or service.
 The receipt identifies its issuer. A private tax receipt or regulated payment
 record may require additional personal data and must use a separate, explicit
 flow with its own controller, purpose, retention, and disclosure terms.
+`intentDigest` binds the receipt to the exact canonical intent bytes the donor
+authorized; matching a human-readable `intentId` alone is insufficient.
 
 When `interfaceChannelId` is present, the quote proposes it, the donation
 intent pins the quote and repeats the same value, and the receipt copies that
@@ -459,6 +462,7 @@ the underlying credential when the selected proof system supports it.
 {
   "presentationVersion": 1,
   "campaignId": "<campaign-id>",
+  "campaignRevision": 1,
   "policyId": "<eligibility-policy-id-and-version>",
   "epoch": "<policy-defined-claim-window>",
   "publicInputs": "<canonical-policy-defined-inputs>",
@@ -468,23 +472,102 @@ the underlying credential when the selected proof system supports it.
 }
 ```
 
-The nullifier prevents the same entitlement being claimed twice only within
-its declared campaign and epoch. It must not become a cross-campaign or
+The presentation binds the exact campaign revision so it cannot be reinterpreted
+under a later eligibility, allocation, or privacy policy. Its nullifier remains
+stable across revisions within the same campaign and epoch to prevent a policy
+update from enabling a second claim. It must not become a cross-campaign or
 permanent beneficiary identifier. If a proof profile cannot avoid revealing
 identity, the UI must state that before submission and require explicit user
 choice.
 
 ### 6.8 Aid Claim and Disbursement Receipt
 
-An `AidClaim` pins the campaign, eligibility policy, presentation digest,
-requested entitlement, private delivery binding, expiry, and claimant
-authorization. The delivery binding must reveal no more than the chosen
-financial or physical delivery rail requires.
+An `AidClaim` pins the exact campaign revision, eligibility policy,
+presentation digest, requested entitlement, private delivery binding, expiry,
+and claimant authorization:
 
-An `AidDisbursementReceipt` records the claim outcome, entitlement amount or
-class, fees, finality, and evidence. Public evidence uses the nullifier or an
-unlinked commitment—not the beneficiary's name, contact, messenger identity,
-government identifier, or private delivery address.
+```json
+{
+  "claimVersion": 1,
+  "claimId": "<claimant-generated-random-id>",
+  "campaignId": "<campaign-id>",
+  "campaignRevision": 1,
+  "eligibilityPolicyId": "<policy-id-and-version>",
+  "presentationDigest": "<digest-of-eligibility-presentation>",
+  "nullifier": "<campaign-and-epoch-scoped-nullifier>",
+  "entitlement": {
+    "class": "<policy-defined-entitlement-class>",
+    "amount": "<optional-canonical-amount>",
+    "asset": "<optional-asset-and-network-id>"
+  },
+  "deliveryBinding": {
+    "bindingVersion": 1,
+    "provider": "onym:key:<delivery-provider>",
+    "railProfileId": "<financial-or-physical-delivery-profile>",
+    "recipientCommitment": "<randomized-claim-scoped-recipient-commitment>",
+    "encryptedRecipient": "<recipient-details-sealed-to-provider>",
+    "disclosures": ["<declared-field-or-category>"],
+    "expiresAt": "<timestamp>"
+  },
+  "expiresAt": "<timestamp>",
+  "authorization": "<scoped-claimant-authorization>"
+}
+```
+
+The claimant authorization covers the canonical digest of every field,
+including the delivery binding. `recipientCommitment` is randomized and scoped
+to this claim so repeated delivery coordinates do not intentionally create a
+public correlation key. `encryptedRecipient` contains only the payout address,
+pickup capability, shipping coordinate, or other recipient data required by
+the selected rail. It is sealed to the named delivery provider and is never
+copied into public notary state. Public state may contain only the claim
+digest, scoped nullifier, and recipient commitment required by the profile.
+The binding must reveal no more than the chosen financial or physical delivery
+rail requires.
+
+An `AidDisbursementReceipt` records the exact claim, outcome, entitlement,
+fees, finality, and evidence without repeating private delivery details:
+
+```json
+{
+  "disbursementReceiptVersion": 1,
+  "receiptId": "<stable-id>",
+  "claimId": "<claim-id>",
+  "claimDigest": "<digest-of-canonical-authorized-claim>",
+  "campaignId": "<campaign-id>",
+  "campaignRevision": 1,
+  "eligibilityPolicyId": "<policy-id-and-version>",
+  "presentationDigest": "<digest-of-eligibility-presentation>",
+  "publicClaimReference": "<scoped-nullifier-or-unlinked-commitment>",
+  "entitlement": {
+    "class": "<policy-defined-entitlement-class>",
+    "amount": "<optional-canonical-amount>",
+    "asset": "<optional-asset-and-network-id>"
+  },
+  "fees": [
+    {
+      "kind": "delivery",
+      "amount": "<canonical-amount>",
+      "rate": "<canonical-rate-or-zero>",
+      "basis": "<declared-basis>",
+      "recipient": "onym:key:<declared-party>"
+    }
+  ],
+  "deliveryBindingDigest": "<digest-of-private-delivery-binding>",
+  "status": "disbursed",
+  "finalizedAt": "<timestamp>",
+  "deliveryEvidence": "<profile-defined-private-or-committed-evidence>",
+  "notaryEvidence": "<optional-profile-defined-public-evidence>",
+  "issuer": "onym:key:<receipt-issuer>",
+  "signature": "<receipt-issuer-signature>"
+}
+```
+
+The receipt declares whether `deliveryEvidence` is private to the claimant and
+provider or safely publishable as a commitment. Public evidence uses the
+scoped nullifier or an unlinked commitment—not the beneficiary's name,
+contact, messenger identity, government identifier, private payout address,
+pickup secret, or physical delivery location.
 
 ### 6.9 Aggregate Fund-Flow Report
 
@@ -702,10 +785,11 @@ limits, refund terms, and settlement destination. Payment never makes an
 issuer trusted, a campaign valid, an operation authorized, or a report true.
 
 Any fee or revenue share deducted from a donor's value appears in the signed
-quote as an amount, rate, recipient, and basis. It is included in the gross-to-
-net arithmetic and finalized receipt. No UI, registry, transport, notary,
-financial provider, lead generator, or app publisher receives an undisclosed
-cut. A payment may reward a completed operation or aggregate campaign outcome;
+quote as an amount, rate, recipient, and basis. It is included in the finalized
+receipt and in arithmetic from gross amount to net amount. No UI, registry,
+transport, notary, financial provider, lead generator, or app publisher
+receives an undisclosed cut. A payment may reward a completed operation or
+aggregate campaign outcome;
 it must not attach a permanent royalty identity to the donor or beneficiary.
 
 Provider settlement can use aggregate signed statements or qualifying receipt

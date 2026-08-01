@@ -6,8 +6,8 @@
 
 > Onym is not one messenger owned by one company. It is a set of compatible
 > roles that can be owned and operated by different people: identity,
-> interface, transport, notary, naming, lead generation, acquisition, and
-> sponsorship, with recruitment across every seat and an open application
+> interface, transport, notary, naming, lead generation, acquisition, charity,
+> and sponsorship, with recruitment across every seat and an open application
 > layer.
 > Anyone may build a component, operate a service, or assemble a complete
 > route. Users decide which participants earn from their use.
@@ -264,6 +264,7 @@ different.
 | Notary contract and ledger | Group at creation | By an explicit group migration operation |
 | Association registry | Viewer and identity holder | Per displayed name or credential |
 | Application module | Individual or group | Per capability grant or session |
+| Charity deployment, credential-issuer policy, and financial binding | User or application under the campaign profile | Per campaign resolution or value-moving authorization |
 | Lead-generation placement | Campaign sponsor and generator | Per funded campaign order |
 | Acquisition landing provider | Campaign sponsor, publisher, and provider | Per funded acquisition order |
 | Foundation sponsorship | Sponsor and foundation under its legal policy | Per contribution, status term, or board term |
@@ -1352,6 +1353,7 @@ trust, compromised endpoints, collusion, or global observation.
 | Store and billing broker | Link a platform purchase to a seat offer; delay or reverse entitlement and settlement | Learn message plaintext or become mandatory for direct/free seat access |
 | Acquisition landing host | Observe direct connection metadata; alter creative or store target; fabricate its own counters | Receive the store's person-level acquisition event or attach a cohort to the app |
 | Store acquisition oracle | Misreport a proprietary aggregate; expose unrelated publisher reports | Learn an Onym identity or prove a universal retained install |
+| Charity operator, credential issuer, or financial provider | Misstate a campaign or credential; correlate disclosed data; censor, delay, or refuse an operation | Receive identity root secrets or unrelated chats; silently substitute trust policy, destination, or authorized terms; make fund flow prove impact |
 | Foundation or sponsor director | Misallocate controlled resources; hide conflicts; overstate recognition | Own user identities, rewrite protocol conformance, or force independent resources to display recognition |
 | Recruiter or fake requester | Scrape candidates; misstate an opening; spam; expose applications; claim duplicate referrals | Own a candidate, appoint for a seat, request identity secrets, or acquire future participant revenue |
 | Automated selection provider | Encode bias, infer sensitive traits, produce opaque rankings, or drift | Become an unnamed final authority or bypass correction, accommodation, and appeal |
@@ -1413,6 +1415,12 @@ deployment.
 
 ### 20.2 Proposed by this paper
 
+The abstract charity contract and Onym Messenger profile are now published in
+[charity/Charity.md](charity/Charity.md) and
+[charity/UI-Charity.md](charity/UI-Charity.md). Their deployed implementations
+remain proposed, but publishing those specifications is no longer a roadmap
+item.
+
 - A stable, implementation-independent identity descriptor.
 - A capability API that extensions can use without receiving root secrets.
 - Competing association registries and qualified name resolution.
@@ -1436,7 +1444,8 @@ deployment.
   candidate-consented introductions, progressive disclosure, declared
   selection authority, private outcomes, and finite recruiter milestones.
 - Conformance suites for every open seat.
-- Application profiles for charitable coordination and financial services.
+- A non-custodial payment capability profile and additional financial-services
+  application profiles.
 - Group-state migration between notary deployments.
 - Stronger recovery, operational-key rotation, and post-quantum migration.
 - A reviewed ratcheting messaging profile with forward secrecy and
@@ -1498,8 +1507,9 @@ deployment.
 
 ### Phase 4 — application ecosystem
 
-- Publish a charity coordination profile as the first non-messaging reference
-  application.
+- Implement and test the published [abstract charity contract](charity/Charity.md)
+  and [Onym Messenger charity profile](charity/UI-Charity.md) as the first
+  non-messaging reference application.
 - Publish a non-custodial payment capability profile.
 - Define the additional duties of regulated or custodial financial providers.
 - Allow applications to compose identity, association, transport, notary, and
