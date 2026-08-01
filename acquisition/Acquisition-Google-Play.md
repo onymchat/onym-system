@@ -1,3 +1,9 @@
+---
+status: draft
+proposed: Claude, Codex & @rinat-enikeev
+date: 01.08.2026
+---
+
 # Onym Acquisition: Google Play Implementation
 
 **Implementation profile draft 0.1 — August 2026**

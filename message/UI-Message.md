@@ -1,3 +1,9 @@
+---
+status: draft
+proposed: Claude, Codex & @rinat-enikeev
+date: 01.08.2026
+---
+
 # Onym UI ↔ Message Transport Boundary
 
 **Architecture draft 0.2 — August 2026**
