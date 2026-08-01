@@ -86,7 +86,8 @@ marketing.
 
 | Seat or function | Example participants | Actual selection authority |
 |---|---|---|
-| Identity | wallet implementer, recovery specialist, custody provider, security reviewer | user, product owner, or provider governance |
+| Identity | vault implementer, hardware integrator, derivation specialist, security reviewer | user, product owner, or provider governance |
+| Recovery trustee | cloud-custody operator, trustee-app author, institutional trustee, recovery reviewer | identity holder for enrollment; trustee operator for personnel |
 | UI | client author, designer, accessibility reviewer, publisher | UI project or publisher |
 | Message transport | relay operator, protocol maintainer, SRE | relay owner or service organization |
 | Blob transport | storage operator, CDN specialist, implementation maintainer | blob-service owner |
@@ -107,6 +108,8 @@ Recruitment cannot change the destination authority. For example:
 - recruiting a Sponsor Director candidate does not bypass the Sponsor Council
   election or legal appointment;
 - recruiting an acquisition provider does not authorize an app-store cohort;
+- recruiting a recovery trustee does not enroll it for any identity or give it
+  a share;
 - recruiting a registry issuer does not make its credentials trusted; and
 - recruiting a relay operator does not add the relay to a user's route.
 

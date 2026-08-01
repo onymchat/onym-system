@@ -22,6 +22,9 @@ wallet, an operating-system keystore, a threshold custody service, or another
 mechanism that satisfies the profile's custody, derivation, consent,
 disclosure, and rotation semantics. The current BIP-39 implementation is
 specified separately in [UI-Identity-BIP39.md](UI-Identity-BIP39.md).
+Optional external recovery custody is a separate open seat defined in
+[../recovery/Recovery-Trustee.md](../recovery/Recovery-Trustee.md); enrolling a
+trustee does not add it to this normal capability port.
 
 Here **UI** means the frontend application layer, not a screen calling a key
 store. Views send intent to flows, view-models, repositories, or interactors.
@@ -506,6 +509,12 @@ necessarily to solve identically:
 - **Catastrophic scope.** What is lost when the root itself is exposed? A
   profile must state this plainly; "restore from backup" is not an answer to
   theft.
+
+An implementation that supports external trustees uses the
+[Recovery Trustee boundary](../recovery/Recovery-Trustee.md). It declares
+whether the ceremony restores the same secret or authorizes a replacement,
+and it keeps trustee enrollment, shares, release factors, and reconstruction
+outside the ordinary requester interface.
 
 Until a profile implements graduated rotation, its documentation must state
 that root compromise is total and unrecoverable, and clients must present

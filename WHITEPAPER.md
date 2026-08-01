@@ -8,13 +8,13 @@ date: 01.08.2026
 
 ## A Protocol for Divided Ownership
 
-**Discussion draft 0.5 — August 2026**
+**Discussion draft 0.6 — August 2026**
 
 > Onym is not one messenger owned by one company. It is a set of compatible
 > roles that can be owned and operated by different people: identity,
-> interface, transport, notary, naming, lead generation, acquisition, charity,
-> and sponsorship, with recruitment across every seat and an open application
-> layer.
+> recovery trustees, interface, transport, notary, naming, lead generation,
+> acquisition, charity, and sponsorship, with recruitment across every seat
+> and an open application layer.
 > Anyone may build a component, operate a service, or assemble a complete
 > route. Users decide which participants earn from their use.
 
@@ -36,6 +36,8 @@ server behavior, or make the service disappear.
 Onym separates these powers.
 
 - **Identity** belongs to the person or organization controlling its keys.
+- **Recovery trustees** hold only the provider-wrapped key or threshold share
+  the identity holder enrolled; they do not receive normal identity authority.
 - **Messenger and UI** are interchangeable clients, not account authorities.
 - **Transport** carries encrypted envelopes and media without owning identity
   or group rules.
@@ -59,18 +61,18 @@ Onym separates these powers.
 
 The result is a division of ownership as well as a division of labor. No role
 is an exclusive franchise. Anyone can publish a compatible UI, operate a
-transport, deploy a notary contract, maintain a name registry, or create a new
-application. Anyone may also offer an audience for a funded lead-generation
-campaign or host a conforming landing experience for a funded acquisition
-order. Anyone may also apply to support a foundation under its published
-sponsor and endowment policy. Every seat may publish an opening, and anyone may
-self-apply or offer candidate-consented recruiting under a funded order. Each
-seat defines its own offers, payment models, credentials, and commercial
-terms. A messenger may adapt user-facing service offers to Apple In-App
-Purchase, Google Play Billing, or another rail; a campaign sponsor may pay lead
-and acquisition providers directly for agreed aggregate outcomes. These
-payments are service consideration and voluntary revenue shares, not a tax on
-permissionless use of open-source code.
+transport, deploy a notary contract, maintain a name registry, offer a
+recovery-trustee service, or create a new application. Anyone may also offer
+an audience for a funded lead-generation campaign or host a conforming landing
+experience for a funded acquisition order. Anyone may also apply to support a
+foundation under its published sponsor and endowment policy. Every seat may
+publish an opening, and anyone may self-apply or offer candidate-consented
+recruiting under a funded order. Each seat defines its own offers, payment
+models, credentials, and commercial terms. A messenger may adapt user-facing
+service offers to Apple In-App Purchase, Google Play Billing, or another rail;
+a campaign sponsor may pay lead and acquisition providers directly for agreed
+aggregate outcomes. These payments are service consideration and voluntary
+revenue shares, not a tax on permissionless use of open-source code.
 
 Onym begins as a private messenger because messaging exercises every important
 boundary: identity, local secrets, shared groups, delivery, storage,
@@ -83,6 +85,9 @@ one owner.
 Onym uses the word **ownership** in an operational sense.
 
 - A user owns an identity by controlling its private keys.
+- A recovery trustee owns and operates its custody service or protects its
+  enrolled share. It earns for that declared duty without owning the recovered
+  identity or acquiring ordinary signing authority.
 - A client author owns and publishes a UI implementation.
 - A courier operator owns its relay and storage infrastructure.
 - A notary provider owns its deployment, funding, service policy, and support
@@ -135,6 +140,10 @@ account address or request a transaction signature. Neither application needs
 the recovery phrase, nor should it learn every other address derived from the
 same identity.
 
+Recovery is a separate, optional identity-lifecycle path rather than a
+capability exercised by every message. A holder may enroll a provider or
+trustee threshold before loss and invoke it only during a recovery ceremony.
+
 Onym is therefore better understood as a **composition protocol**: a way to
 assemble user-owned identity, independently operated infrastructure, public
 verification, and specialized applications into one route.
@@ -158,9 +167,10 @@ state-transition costs.
 ### 3.2 Secrets stay at the edge
 
 Private keys and recovery material belong in the user's device, hardware
-wallet, or explicitly chosen custody system. UI snapshots, transports,
-registries, notaries, plugins, logs, and analytics must not receive raw secret
-material.
+wallet, or explicitly chosen custody system. A recovery trustee receives only
+the provider-wrapped key or threshold share its implementation profile
+requires. UI snapshots, transports, registries, notaries, plugins, logs, and
+analytics must not receive raw secret material.
 
 ### 3.3 Public identity is not a public dossier
 
@@ -240,6 +250,13 @@ around an open-ended application layer.
          Service seats publish offers and accepted payment rails.
          Acquisition campaigns reserve finite direct-payment budgets.
 
+         +-------------------------------------------------------+
+         | Recovery trustees: cloud custody · threshold shares   |
+         | selected by holder; active only during recovery       |
+         +-------------------------------------------------------+
+                      | contribution to fresh recovery device
+                      `--------------------> Identity vault
+
          Foundation sponsorship is a governance/support path outside
          message, identity, notary, and provider authority.
          +-------------------------------------------------------+
@@ -263,6 +280,7 @@ different.
 | Decision | Selected by | Normal replacement boundary |
 |---|---|---|
 | Identity vault or custody mode | Individual | Key rotation, recovery, or migration |
+| Recovery trustee or threshold set | Individual | Per enrollment sequence through full rotation/re-sharing |
 | UI/client | Individual | At any time, if wire and local export formats match |
 | Message relay | Individual or group policy | At any time; multiple relays may be used together |
 | Media/blob server | Sender, group, or client policy | Per object or configuration epoch |
@@ -377,7 +395,7 @@ without becoming custodians of the whole person.
 ### 5.5 Recovery and compromise
 
 One mnemonic controlling many domains is convenient but increases blast
-radius. A later identity profile should support:
+radius. The identity profile should support:
 
 - key rotation without changing every public relationship at once;
 - device-specific operational keys beneath an offline recovery authority;
@@ -389,6 +407,45 @@ radius. A later identity profile should support:
 Recovery design is protocol work, not a phrase on a backup screen. Until such
 work is implemented, loss or compromise of the recovery phrase must be treated
 as catastrophic.
+
+### 5.6 Recovery Trustee seat
+
+Recovery is an open service seat with three published boundaries:
+
+- [recovery/Recovery-Trustee.md](recovery/Recovery-Trustee.md), the technology-
+  neutral enrollment, session, destination-binding, rotation, payment, and
+  abuse contract;
+- [recovery/Recovery-Trustee-Cloud.md](recovery/Recovery-Trustee-Cloud.md), a
+  simple 1-of-1 hosted custody profile; and
+- [recovery/Recovery-Trustee-Shamir.md](recovery/Recovery-Trustee-Shamir.md), a
+  holder-selected `t`-of-`n` Shamir trustee profile using SLIP-0039 shares.
+
+Anyone may offer a compatible trustee service, and a holder may choose paid
+providers, organizations, hardware, people, or a mixture. Permissionless
+compatibility is not automatic trust or directory endorsement.
+
+The abstract contract distinguishes **secret restoration**, which recovers the
+same root and cannot neutralize another surviving copy, from **authority
+migration**, which authorizes a new key but works only where downstream groups,
+registries, seats, and chains recognize the rotation. A recovery policy proves
+that its enrolled conditions were satisfied; it does not prove an objective
+human identity beyond that policy.
+
+The cloud profile stores an encrypted artifact and provider-wrapped unlock
+key. Because the operator can unwrap that key, it remains a custodian even
+when storage and release use HSMs, encryption, dual control, and audit logs.
+
+The Shamir profile encrypts the artifact with a random unlock key and divides
+that key among independently selected trustees. Fewer than the threshold
+cannot recover; any threshold can collude; and the system tolerates only
+`n - t` unavailable trustees. Contributions are encrypted to a fresh key on
+the recovering device, so a coordinator can relay them without learning the
+shares or reconstructed secret.
+
+Every trustee defines its own offer: free, reciprocal, per enrollment,
+subscription, per recovery, or institution-funded. Payment purchases declared
+custody and availability. It grants no identity ownership, normal signing
+authority, guaranteed approval, or claim on future activity.
 
 ## 6. Association registries: names without identity capture
 
@@ -1359,6 +1416,7 @@ trust, compromised endpoints, collusion, or global observation.
 |---|---|---|
 | Malicious UI build | Misrepresent intent; attempt to steal local secrets | Be trusted merely because it uses the Onym name |
 | Identity compromise | Impersonate the identity within compromised key scopes | Be silently repaired by an operator that never held recovery authority |
+| Recovery trustee or candidate | Withhold a contribution; observe recovery metadata; collude or deceive enough trustees to recover under the enrolled policy | Gain ordinary signing authority before recovery, lower the enrolled threshold, or receive plaintext through the coordinator |
 | Message relay | Observe network metadata; delay, drop, replay, or retain ciphertext | Read correctly encrypted plaintext or authorize notary state |
 | Blob server | Observe access patterns; withhold encrypted media | Read media without its separately delivered content key |
 | Transaction relayer | Observe IP, time, target, size; censor submissions | Forge a valid zero-knowledge witness or rewrite deployed rules |
@@ -1378,6 +1436,9 @@ trust, compromised endpoints, collusion, or global observation.
 Important current limitations include:
 
 - endpoint security remains decisive;
+- the proposed Recovery Trustee profiles are not deployed, audited recovery
+  systems, and neither cloud encryption nor a Shamir threshold cures a root
+  secret that was already copied;
 - traffic analysis is not solved;
 - small groups have small anonymity sets;
 - directly visited landing hosts and app stores still observe data needed to
@@ -1436,6 +1497,13 @@ The abstract charity contract and Onym Messenger profile are now published in
 remain proposed, but publishing those specifications is no longer a roadmap
 item.
 
+The abstract Recovery Trustee contract and its first cloud-custody and Shamir
+profiles are now published in
+[recovery/Recovery-Trustee.md](recovery/Recovery-Trustee.md),
+[recovery/Recovery-Trustee-Cloud.md](recovery/Recovery-Trustee-Cloud.md), and
+[recovery/Recovery-Trustee-Shamir.md](recovery/Recovery-Trustee-Shamir.md).
+Their implementations remain proposed.
+
 - A stable, implementation-independent identity descriptor.
 - A capability API that extensions can use without receiving root secrets.
 - Competing association registries and qualified name resolution.
@@ -1464,7 +1532,9 @@ item.
 - A non-custodial payment capability profile and additional financial-services
   application profiles.
 - Group-state migration between notary deployments.
-- Stronger recovery, operational-key rotation, and post-quantum migration.
+- Implementation and independent review of the Recovery Trustee profiles,
+  operational-key rotation, downstream authority migration, and post-quantum
+  migration.
 - A reviewed ratcheting messaging profile with forward secrecy and
   post-compromise security.
 
@@ -1491,6 +1561,9 @@ item.
 ### Phase 2 — identity and association layer
 
 - Specify `IdentityDescriptor`, rotation, revocation, and capability requests.
+- Implement the cloud-custody and Shamir Recovery Trustee profiles only after
+  canonical fixtures, independent review, provider/trustee applications, and
+  full recovery, rotation, lapse, and incident drills.
 - Implement qualified name resolution and one reference association registry.
 - Add selective-disclosure credential support only after a privacy review.
 - Specify chain-adapter derivation and address-control proofs.
@@ -1540,7 +1613,8 @@ The following questions require explicit community and implementation work:
 1. Which identity identifier and resolution method should become canonical?
 2. Should operational keys derive from one mnemonic, from an offline root, or
    from multiple independently recoverable roots?
-3. What exact recovery and rotation model preserves group membership?
+3. Which groups, registries, chains, and service seats recognize authority
+   migration after recovery, and under what anti-takeover delay or challenge?
 4. Which message-security protocol supplies forward secrecy and
    post-compromise security?
 5. What is the minimum privacy-preserving entitlement and revocation format?
@@ -1580,16 +1654,18 @@ The following questions require explicit community and implementation work:
 Onym's fundamental unit is not a company account. It is a route assembled from
 independently owned components around a user-controlled cryptographic identity.
 
-The identity holds the keys. The UI presents choices. Couriers move encrypted
-data. Notaries verify shared rules. Associations attach names and credentials.
-Applications request narrow capabilities. Settlement rewards the parties the
-user actually selected. Lead generators can earn for measurable distribution
-without becoming owners of the people who later install the app. Acquisition
-providers can improve a landing experience while learning only a store
-aggregate. Sponsors can receive recognition and a bounded path into foundation
-governance without purchasing the protocol or its users. Recruiters can help
-every seat find participants while candidates retain control of introductions
-and the destination seat retains appointment authority.
+The identity holds the keys. Recovery trustees protect only an enrolled
+provider-wrapped key or threshold share. The UI presents choices. Couriers move
+encrypted data. Notaries verify shared rules. Associations attach names and
+credentials. Applications request narrow capabilities. Settlement rewards the
+parties the user actually selected. Lead generators can earn for measurable
+distribution without becoming owners of the people who later install the app.
+Acquisition providers can improve a landing experience while learning only a
+store aggregate. Sponsors can receive recognition and a bounded path into
+foundation governance without purchasing the protocol or its users.
+Recruiters can help every seat find participants while candidates retain
+control of introductions and the destination seat retains appointment
+authority.
 
 This is the intended division of ownership: not one decentralized brand that
 still controls every default, but an interoperable economy in which anyone can
@@ -1667,3 +1743,11 @@ the system's ownership boundaries:
     promoting employees”:
     <https://www.eeoc.gov/employers/small-business/3-im-recruiting-hiring-or-promoting-employees>
 24. Onym source repositories: <https://github.com/onymchat>
+25. Adi Shamir, “How to Share a Secret,” *Communications of the ACM* 22(11),
+    1979: <https://doi.org/10.1145/359168.359176>
+26. SatoshiLabs, “SLIP-0039: Shamir's Secret-Sharing for Mnemonic Codes”:
+    <https://github.com/satoshilabs/slips/blob/master/slip-0039.md>
+27. NIST SP 800-63B-4, “Authentication and Authenticator Management”:
+    <https://pages.nist.gov/800-63-4/sp800-63b.html>
+28. IETF RFC 9180, “Hybrid Public Key Encryption”:
+    <https://www.rfc-editor.org/rfc/rfc9180>
