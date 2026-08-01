@@ -662,6 +662,11 @@ control, display verified counterparty claims, or ask the local vault to sign a
 transaction. It must not receive the mnemonic merely because both systems use
 BIP-39.
 
+The proposed contract boundary for this seat—accounts, custody classes,
+quoted payments, displayed-intent authorization, and settlement evidence—is
+specified in [bank/UI-Bank.md](bank/UI-Bank.md), with the Stellar mapping in
+[bank/UI-Bank-Stellar.md](bank/UI-Bank-Stellar.md).
+
 Onym is not itself a bank, deposit guarantee, exchange, lender, or compliance
 authority. A provider offering regulated or custodial services occupies its
 own application seat and remains responsible for licensing, disclosures,
