@@ -271,6 +271,7 @@ different.
 | Association registry | Viewer and identity holder | Per displayed name or credential |
 | Application module | Individual or group | Per capability grant or session |
 | Charity deployment, credential-issuer policy, and financial binding | User or application under the campaign profile | Per campaign resolution or value-moving authorization |
+| Bank provider, account, and settlement binding | Individual account holder | Per account selection or value-moving authorization; exit follows the custody class |
 | Lead-generation placement | Campaign sponsor and generator | Per funded campaign order |
 | Acquisition landing provider | Campaign sponsor, publisher, and provider | Per funded acquisition order |
 | Foundation sponsorship | Sponsor and foundation under its legal policy | Per contribution, status term, or board term |
@@ -661,6 +662,11 @@ A wallet or financial service may use an Onym identity to request proofs of
 control, display verified counterparty claims, or ask the local vault to sign a
 transaction. It must not receive the mnemonic merely because both systems use
 BIP-39.
+
+The proposed contract boundary for this seat—accounts, custody classes,
+quoted payments, displayed-intent authorization, and settlement evidence—is
+specified in [bank/UI-Bank.md](bank/UI-Bank.md), with the Stellar mapping in
+[bank/UI-Bank-Stellar.md](bank/UI-Bank-Stellar.md).
 
 Onym is not itself a bank, deposit guarantee, exchange, lender, or compliance
 authority. A provider offering regulated or custodial services occupies its
