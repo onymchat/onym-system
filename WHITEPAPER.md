@@ -965,6 +965,10 @@ Each seat needs:
 This is the practical foundation of “anyone can participate.” Source
 availability alone does not create interoperability.
 
+The proposed contract boundary for signed audit, conformance, provenance,
+and measurement statements—the attestations that notary bundles, directories,
+and clients can cite—is specified in [audit/Audit.md](audit/Audit.md).
+
 ## 16. Service manifests and seat-defined offers
 
 Every paid or discoverable component publishes a signed `ServiceManifest`.
