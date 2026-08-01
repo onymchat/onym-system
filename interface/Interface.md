@@ -1,0 +1,342 @@
+---
+status: draft
+proposed: Claude & @rinat-enikeev
+date: 01.08.2026
+---
+
+# Onym Interface Contract Boundary
+
+**Architecture draft 0.1 — August 2026**
+
+> The interface is a window, not a gatekeeper. It presents the network and
+> the user's choices honestly, holds no accounts, owns no users, and can
+> always be replaced without asking anyone.
+
+This document defines the technology-neutral boundary for the **interface
+seat**: the applications through which people use the Onym network. A
+conforming interface may be a native mobile app, desktop app, web client,
+command-line tool, accessibility-first interface, institutional console, or
+embedded component.
+
+The interface is the one seat that is party to every other UI ↔ seat
+boundary — [identity](../identity/UI-Identity.md),
+[message](../message/UI-Message.md), [blob](../blob/UI-Blob.md),
+[notary](../notary/UI-Notary.md), and the service and institutional seats.
+Those documents fix what the interface may ask of each counterparty. This
+document fixes the obligations the interface owes the **user**: honest
+presentation, bounded authority, disclosed economics, and a permanent exit.
+
+This contract does not require a platform, UI toolkit, distribution channel,
+programming language, update mechanism, or business model. A concrete
+implementation profile must define its supported seat profiles, release
+integrity mechanism, and conformance evidence.
+
+This is proposed architecture. The current Onym clients implement parts of
+this contract; §17 records the known gaps honestly.
+
+## 1. Decision
+
+Onym separates presenting the system from owning the user.
+
+- Anyone may build, distribute, and charge for an interface without
+  permission from the Foundation, the protocol authors, or any other seat.
+- An interface authenticates nothing about the person except what the
+  identity vault proves; it maintains no server-side account of its own as a
+  condition of use.
+- The user's identity, conversations, groups, funds, names, and service
+  selections survive the interface: switching or running several interfaces
+  concurrently requires no one's consent and loses no protocol state.
+- An interface earns from its own pricing and from disclosed marketplace
+  commissions — never from the user's data, attention, or captivity.
+
+The governing rule of the whitepaper applies with full force: the interface
+may exercise the minimum authority required to present choices and construct
+protocol objects, and it may earn only when a user chooses it.
+
+## 2. Roles and authority
+
+| Role | Holds | Must never hold |
+|---|---|---|
+| Interface publisher | Source, releases, pricing, its own brand and support channel | User accounts as a gate, root secrets, a veto over the user's seat selections |
+| Distribution channel | Store listing, payment processing for the app itself | Authority over protocol state or other seats' revenue |
+| Identity vault | Root secret and purpose keys (its [own boundary](../identity/UI-Identity.md)) | — |
+| User | Every selection: interface, couriers, notary, registries, services | — |
+| Other seats | Their own boundaries, invoked by the interface on the user's instruction | Influence over how the interface renders competitors |
+
+One organization may publish an interface and also operate other seats. The
+authorities remain separate: operating a courier gives its interface no right
+to preselect that courier silently, and publishing an interface gives its
+operator no right to read what the courier carries.
+
+## 3. What the interface does
+
+A conforming interface:
+
+1. presents identities and qualified claims without conflating them — a
+   display name, a registry claim, and a key are three different things and
+   are rendered as such;
+2. keeps secrets behind the identity-vault boundary and invokes typed vault
+   capabilities instead of handling raw key material;
+3. renders the exact transport, notary, registry, service route, and price
+   the user selected — what is shown is what will be used;
+4. constructs and validates protocol objects, and refuses to render invalid
+   ones as valid;
+5. maintains local state encrypted at rest;
+6. obtains meaningful consent for every signature and payment through
+   protected consent surfaces (§7);
+7. exposes export and migration paths (§10) in the running product, not in a
+   support document; and
+8. warns — plainly, before the action — when a selected component is
+   incompatible, unaudited, unavailable, or privacy-degrading relative to the
+   user's current selection.
+
+## 4. What the interface must not do
+
+1. **No account gate.** It must not require registration with the publisher,
+   a phone number, an email address, or any publisher-held identifier as a
+   condition of using the protocol.
+2. **No silent steering.** It must not redirect, reorder, default, or delay a
+   user's service choice to favor a commission, an affiliate, or the
+   publisher's own seats. A default must be labeled as a default and be
+   replaceable in place.
+3. **No surveillance revenue.** It must not collect, sell, or monetize
+   person-level behavioral data. Diagnostics are opt-in, aggregate,
+   documented, and off by default.
+4. **No dark patterns on protected surfaces.** Consent, payment, safety
+   warnings, recovery, and export surfaces carry no advertising, no
+   sponsorship placement, no urgency theater, and no design that makes
+   refusal harder than acceptance.
+5. **No retention hostage.** It must not degrade export, migration, or
+   concurrent use of another interface, and must not treat leaving as a
+   failure mode to be interrupted.
+6. **No invented authority.** It must not claim approval, verification, or
+   endorsement it does not have, and must not present a Discovery listing,
+   audit attestation, or registry claim as anything stronger than what the
+   signed object actually says.
+
+## 5. Boundary objects
+
+The interface's counterparty objects are defined by the seat boundaries it
+invokes. Two objects are its own:
+
+### 5.1 Release manifest
+
+Every distributed build is described by a signed release manifest:
+
+| Field | Meaning |
+|---|---|
+| `publisher` | Signing identity of the interface publisher |
+| `version` | Human-readable version and monotonic build identifier |
+| `artifacts` | Content hashes of the distributed binaries or bundles |
+| `sourceRef` | Source revision the build claims to correspond to, when source is published |
+| `profiles` | Seat implementation profiles this build supports |
+| `channels` | Distribution channels this release is published to |
+
+The manifest lets an auditor, a distribution channel, or a cautious user
+bind "the app I run" to "the code that was reviewed". Where reproducible
+builds are not yet achieved, the manifest must say so rather than imply
+verification that does not exist.
+
+### 5.2 Commission disclosure
+
+When the interface operates a billing channel for other seats, the
+commission is defined by the channel's signed offer (whitepaper §16–§17),
+and the interface renders it as a line item before consent. There is no
+undisclosed spread: the price the provider offered, the commission, and the
+total the user pays are all visible on the payment surface.
+
+## 6. Selection and presentation
+
+The interface is how competition between seats becomes real:
+
+- every replaceable component — courier, media store, notary, registry,
+  bank, discovery provider — is replaceable *from the interface*, by the
+  user, at any time;
+- comparison views show the signed facts (price, terms, attestations,
+  availability) and never a secretly weighted order;
+- Discovery catalogs may be integrated, with the provider and its inclusion
+  policy identified, and direct manual entry always available beside them;
+- warnings from §3.8 appear at selection time and again at first use, not
+  buried in settings.
+
+## 7. Consent surfaces
+
+Signatures move funds, change group state, enroll recovery trustees, and
+bind names. The surfaces that obtain this consent are **protected**:
+
+1. the object being signed is summarized in the user's language, with the
+   full canonical object one gesture away;
+2. the counterparty, the price, the commission, and the irreversibility of
+   the action are stated before the confirming gesture;
+3. nothing on the surface is sponsored, animated toward acceptance, or
+   defaulted to the more expensive choice; and
+4. a declined consent leaves no protocol trace and triggers no retaliation
+   in the interface's behavior.
+
+These are the same surfaces the sponsorship contract lists as prohibited
+resources — no recognition, placement, or payment may ever reach them.
+
+## 8. Data and privacy boundary
+
+The interface necessarily sees more than any other seat: plaintext after
+decryption, drafts, contact labels, usage rhythm. Therefore:
+
+- local state is encrypted at rest and excluded from cloud backup unless the
+  user explicitly includes it;
+- plaintext, keys, and social graphs never leave the device except as
+  protocol objects the user chose to send;
+- crash and performance diagnostics, if offered, are opt-in, stripped of
+  message content and identifiers, and documented field by field;
+- the interface adds no tracking pixels, third-party analytics SDKs, or
+  fingerprinting to any surface, including its web presence inside the app.
+
+What the interface cannot hide: the platform it runs on may observe app
+usage, notifications, and network timing. A conforming interface documents
+this honestly instead of promising privacy it cannot deliver.
+
+## 9. Economics
+
+An interface may earn from:
+
+| Source | Condition |
+|---|---|
+| App pricing | Purchase, subscription, or feature tiers for the interface itself |
+| Marketplace commission | Disclosed per §5.2, only on channels the user knowingly bills through |
+| Support and deployment services | Institutional contracts that grant no protocol privilege |
+
+An interface must not earn from selling defaults, ranking, user data,
+attention, or exclusivity. A publisher's other businesses buy no placement
+its competitors cannot have for free.
+
+## 10. Replaceability and exit
+
+1. Export produces the user's protocol state — identity material via the
+   vault's own ceremony, conversations, group descriptors, selections — in
+   documented formats, without fee, delay, or account.
+2. The same identity may run in several interfaces concurrently; the
+   interface must tolerate state it did not author.
+3. Uninstalling the interface deletes its local state and nothing else: no
+   server-side residue exists to delete, because none was created.
+4. A discontinued interface strands nothing: the publisher's disappearance
+   removes support, not access.
+
+## 11. Distribution and build integrity
+
+- Releases are signed; the signing identity is published and stable.
+- Source-available publication and reproducible builds are the goal; until
+  achieved, the release manifest records the gap (§5.1).
+- Distribution through app stores follows the
+  [acquisition](../acquisition/Acquisition.md) boundary's aggregate-only
+  measurement: the interface does not tell the publisher who installed it.
+- An update must not silently change the user's selections, weaken a privacy
+  default, or re-ask a consent the user already refused, without presenting
+  the change as a change.
+
+## 12. Error semantics
+
+The interface maps every counterparty error to an honest surface:
+
+| Situation | Rendering |
+|---|---|
+| Courier unavailable | Delivery state shown as pending/failed — never silently dropped |
+| Notary rejects a transition | The group state the notary actually holds, with the rejection reason |
+| Payment required (`402`) | The price and payee before retry — never an automatic payment |
+| Incompatible profile | Refusal with the version facts, not a generic failure |
+| Vault refuses a capability | The refusal verbatim — the interface never re-asks in a loop |
+
+An interface must not fabricate success, retry a signature without fresh
+consent, or blame a competitor's seat without evidence it renders.
+
+## 13. Threat model
+
+| Threat | Control |
+|---|---|
+| Malicious interface steals secrets | Vault boundary, hardware-backed keys, signed releases, source publication, independent distributions |
+| Interface lies about signing intent | Protected consent surfaces, canonical object inspection, conformance fixtures |
+| Commission steering | Disclosure line items, labeled and replaceable defaults, §4.2 prohibition |
+| Surveillance monetization | §4.3 prohibition, opt-in aggregate diagnostics, no third-party analytics |
+| Update attack | Signed releases, release manifests, change-presentation duty (§11) |
+| Lock-in by friction | Export/exit obligations (§10), concurrent-interface tolerance |
+| Fake endorsement | §4.6 — signed objects rendered no stronger than they are |
+
+No contract makes a compromised device or a hostile publisher harmless.
+Open source, reproducible builds, independent audits, and the ability to
+walk away remain the real controls; this boundary exists so that walking
+away is always possible.
+
+## 14. Obligations
+
+### 14.1 Interface publisher
+
+1. Honor every UI ↔ seat boundary this interface invokes.
+2. Publish signed release manifests for every distributed build.
+3. Keep protected surfaces free of any third-party or self-interested
+   influence.
+4. Disclose all revenue mechanics of §9 in the product, before they bind.
+5. Ship export, migration, and warning surfaces as working features.
+
+### 14.2 Distribution channel
+
+1. Carries the app under its own store contract; gains no authority over
+   protocol state, seat selection, or other seats' revenue.
+2. Measured only in aggregates, per the acquisition boundary.
+
+### 14.3 User-facing claims
+
+Marketing may claim conformance only for the profiles listed in the release
+manifest, and must repeat the unaudited/alpha status honestly while it is
+true.
+
+## 15. Security, privacy, and economic invariants
+
+- **I1.** No publisher-held account is required to use the protocol.
+- **I2.** Secrets stay behind the vault boundary; the interface handles
+  capabilities, not keys.
+- **I3.** What is rendered as selected is what is used; what is rendered as
+  a price is what is charged.
+- **I4.** Protected surfaces carry no sponsorship, placement, or steering —
+  at any price.
+- **I5.** Person-level behavioral data is neither collected by default nor
+  ever sold.
+- **I6.** Export and concurrent use of competing interfaces are permanent
+  capabilities, not negotiable features.
+- **I7.** The interface earns only when chosen: app pricing and disclosed
+  commissions, nothing structural.
+
+## 16. Versioning and conformance
+
+This boundary versions as `onym:interface:v1`. An implementation profile
+declares the seat profiles it supports, its release-integrity mechanism, and
+its conformance evidence. Conformance fixtures for consent surfaces, export,
+and error rendering are open work (whitepaper §19–§22); until they exist,
+claims of conformance are self-assessed and must say so.
+
+## 17. Known gaps
+
+The current Onym iOS and Android clients, honestly measured against this
+contract:
+
+- release manifests and reproducible builds are not yet implemented;
+- export exists for identity material via the vault ceremony, but full
+  conversation/state export formats are undocumented;
+- conformance fixtures for protected surfaces do not yet exist;
+- diagnostics are absent (which conforms), but so is the documented
+  opt-in mechanism this contract expects;
+- no independent audit of any client has occurred.
+
+## 18. Acceptance criteria
+
+An interface conforms when:
+
+1. it passes the boundary contracts of every seat profile it declares;
+2. a reviewer can bind a distributed artifact to a signed release manifest;
+3. protected surfaces satisfy §7 under the conformance fixtures, once they
+   exist, and under manual review until then;
+4. export and concurrent-use behaviors of §10 are demonstrable; and
+5. its pricing and commission disclosures match what users are actually
+   charged.
+
+## 19. Justification in one sentence
+
+The interface sees the most and must therefore own the least: a window with
+published prices, protected consent, and a door that always opens outward.
