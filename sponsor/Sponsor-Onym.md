@@ -35,9 +35,9 @@ receipts, promise recognition, appoint directors, or authorize spending.
 | Sponsor board class | Three of nine voting directors |
 | Other board classes | Three Ecosystem and three Independent Public-Interest Directors |
 | Recognition | Foundation-controlled acknowledgements inventory only |
-| Endowment | Segregated permanent, restricted, and board-designated funds |
+| Funds | Founding Fund (current-use), board-designated reserve, restricted funds, permanent endowment |
 | Ordinary spending rule | Six affirmative votes, including two non-sponsor directors |
-| Annual endowment draw | At most 4% of trailing twelve quarter-end values, subject to law/restriction/prudence |
+| Annual endowment draw | Targets 5% of trailing twelve quarter-end average values, subject to law/restriction/prudence |
 | Sponsor board votes | One director, one vote; never contribution-weighted |
 | Technical privilege | None |
 
@@ -284,13 +284,15 @@ sponsor's business.
 
 ### 9.1 Ordinary annual appropriation
 
-The maximum ordinary annual appropriation is:
+Ordinary annual distributions from the permanent endowment target 5% of its
+average value measured at the previous twelve quarter-ends. The maximum
+ordinary annual appropriation is:
 
 ```text
 spendingBase = average of the prior twelve calendar quarter-end
                endowment market values
 
-ordinaryMaximum = floor(spendingBase * 4%)
+ordinaryMaximum = floor(spendingBase * 5%)
 
 lawfulMaximum = amount permitted after donor restrictions, applicable law,
                 liquidity, prudence, and underwater-fund review
@@ -303,26 +305,35 @@ If fewer than twelve quarter-end values exist, the average uses every complete
 quarter, but no ordinary endowment appropriation occurs until four complete
 quarters exist. Direct operating contributions may fund earlier work.
 
+Unrestricted founding and supporting contributions are current-use funding
+held in the Founding Fund unless their accepted terms expressly designate
+them as permanent; they are not subject to this endowment rule. Donor
+restrictions and accepted gift terms override this general spending policy.
+
 Investment-management and custody fees are reported separately. The legal
-documents determine whether they count inside or outside the four-percent
+documents determine whether they count inside or outside the five-percent
 limit; the adopted profile must not hide the treatment.
 
 ### 9.2 Exceptional appropriation
 
-An additional draw above the ordinary maximum requires:
+By a two-thirds vote of disinterested directors, the board may approve
+distributions of up to 7% of the same spending base for one financial year
+to meet a time-limited strategic or emergency need. An exceptional
+appropriation additionally requires:
 
-1. a documented emergency or time-limited exceptional opportunity within the
+1. a documented emergency or time-limited strategic opportunity within the
    Foundation purpose;
 2. written legal, restriction, liquidity, and long-term-impact analysis;
 3. at least 14 days of public notice unless disclosure would worsen an actual
-   emergency;
-4. seven affirmative votes from the nine-seat board, including at least four
-   affirmative non-sponsor directors; and
-5. a separate public resolution and restoration plan.
+   emergency; and
+4. a separate public resolution stating the amount, the reasons, the expected
+   effect on the endowment, and a restoration plan.
 
-The additional draw may not exceed one percent of the same spending base in a
-fiscal year unless governing law requires or a court/regulator authorizes a
-different action.
+A director with a conflict of interest in the appropriation does not count as
+disinterested, must not participate in the related discussion or vote, and is
+not counted toward quorum for the matter. Distributions above the 5% target
+may not occur in more than two consecutive financial years, unless governing
+law requires or a court/regulator authorizes a different action.
 
 ## 10. Spending governance
 
@@ -482,7 +493,7 @@ being mistaken for a live fundraising offer.
 | Foundation sells technical favoritism | Recognition inventory and explicit prohibited resources |
 | Recognition becomes tracking | Static creative; no scripts, pixels, remote assets, or user identifiers |
 | Custodian or signer steals assets | Legal-name custody, separation, threshold signing, reconciliation, audit |
-| Board overspends endowment | 4% trailing-average cap and exceptional 1% supermajority rule |
+| Board overspends endowment | 5% trailing-average target; 7% one-year ceiling by disinterested supermajority, never more than two consecutive years above 5% |
 | Hidden restriction is ignored | Signed acceptance, fund accounting, proposal compatibility check |
 | Election becomes pay-weighted | One verified control group, one equal ranked ballot |
 | Protocol record fakes legal authority | `pending_legal_effect` plus governing-document precedence |
