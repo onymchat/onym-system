@@ -153,8 +153,8 @@ or transport route does not bind these roles unless a signed profile says so.
 ## 4. Logical topology
 
 ```text
-┌──────────────────────── user-controlled application ───────────────────────┐
-│ campaign UI · local identity capability · private messages · local receipt │
+┌──────────────────────── user-controlled application ────────────────────────┐
+│ campaign UI · local identity capability · private messages · local receipt  │
 └───────────────┬────────────────┬──────────────────┬─────────────────────────┘
                 │                │                  │
        resolve claims       move value       prove/observe state
@@ -199,6 +199,7 @@ backend:
     "request-refund",
     "present-eligibility",
     "claim-aid",
+    "read-aid-claim",
     "read-fund-flow"
   ],
   "schemas": "<content-addressed-schema-set>",
@@ -356,10 +357,17 @@ accepted.
   "asset": "<asset-and-network-id>",
   "grossAmount": "100.00",
   "fees": [
-    {"kind": "rail", "amount": "1.00", "recipient": "<declared-party>"}
+    {
+      "kind": "rail",
+      "amount": "1.00",
+      "rate": "0.010000",
+      "basis": "gross-amount",
+      "recipient": "onym:key:<declared-party>"
+    }
   ],
   "netAmount": "99.00",
   "destination": "<canonical-destination>",
+  "interfaceChannelId": "<optional-non-user-specific-channel>",
   "finalityRule": "<profile-defined-rule>",
   "refundRule": "<policy-id-and-digest>",
   "expiresAt": "<timestamp>",
@@ -403,12 +411,24 @@ eligibility, price, or service.
   "receiptVersion": 1,
   "receiptId": "<stable-id>",
   "intentId": "<intent-id>",
+  "quoteId": "<quote-id-and-digest>",
   "campaignId": "<campaign-id>",
+  "campaignRevision": 1,
   "organization": "onym:key:<organization-id>",
+  "organizationCredentialDigest": "<credential-digest>",
   "asset": "<asset-and-network-id>",
   "grossAmount": "100.00",
-  "fees": [{"kind": "rail", "amount": "1.00"}],
+  "fees": [
+    {
+      "kind": "rail",
+      "amount": "1.00",
+      "rate": "0.010000",
+      "basis": "gross-amount",
+      "recipient": "onym:key:<declared-party>"
+    }
+  ],
   "netAmount": "99.00",
+  "interfaceChannelId": "<optional-non-user-specific-channel>",
   "status": "finalized",
   "finalizedAt": "<timestamp>",
   "financialEvidence": "<profile-defined-settlement-evidence>",
@@ -421,6 +441,12 @@ eligibility, price, or service.
 The receipt identifies its issuer. A private tax receipt or regulated payment
 record may require additional personal data and must use a separate, explicit
 flow with its own controller, purpose, retention, and disclosure terms.
+
+When `interfaceChannelId` is present, the quote proposes it, the donation
+intent pins the quote and repeats the same value, and the receipt copies that
+value. A mismatch invalidates channel-based measurement. Omission from any of
+the three objects means the donation is not attributable to an interface
+channel under this profile.
 
 ### 6.7 Eligibility Policy and Presentation
 
@@ -487,18 +513,24 @@ than a profile-defined privacy threshold should be suppressed or bucketed.
 
 ## 7. Operations
 
-| Operation | Caller intent | Required checks | Success evidence |
+The canonical wire operation names are the kebab-case values in
+`CharityProfile.operations` and the table below. Camel-case names in local SDK
+or UI ports are non-wire aliases. In particular, a local `watchDonation`
+reconciliation loop invokes `read-donation`, and `watchAidClaim` invokes
+`read-aid-claim`; watching does not define additional wire operations.
+
+| Canonical wire operation | Caller intent | Required checks | Success evidence |
 |---|---|---|---|
-| `resolveCampaign` | inspect a campaign | profile, deployment, signatures, credential policy, status, freshness | verified view plus explicit warnings |
-| `quoteDonation` | request current terms | campaign revision, provider binding, asset, destination, arithmetic, expiry | signed quote |
-| `prepareDonation` | freeze exact operation | quote, privacy disclosure, authorization schema | canonical intent bytes/digest |
-| `submitDonation` | move declared value | local authorization, current quote, destination, idempotency | pending outcome/provider reference |
-| `readDonation` | reconcile state | evidence and finality rule | finalized, failed, refunded, or still pending |
-| `requestRefund` | invoke declared policy | requester authority, receipt, deadline, provider rule | decision and financial evidence |
-| `presentEligibility` | prove entitlement | policy, issuer, proof, scope, expiry, nullifier | verified presentation outcome |
-| `claimAid` | request aid | campaign state, presentation, duplicate rule, delivery binding | pending claim or rejection |
-| `readAidClaim` | reconcile claim | profile-defined finality and evidence | disbursement receipt or terminal refusal |
-| `readFundFlow` | inspect aggregate movement | report signature, source commitment, measurement profile | verified aggregate report |
+| `resolve-campaign` | inspect a campaign | profile, deployment, signatures, credential policy, status, freshness | verified view plus explicit warnings |
+| `quote-donation` | request current terms | campaign revision, provider binding, asset, destination, arithmetic, expiry | signed quote |
+| `prepare-donation` | freeze exact operation | quote, privacy disclosure, authorization schema | canonical intent bytes/digest |
+| `submit-donation` | move declared value | local authorization, current quote, destination, idempotency | pending outcome/provider reference |
+| `read-donation` | reconcile state | evidence and finality rule | finalized, failed, refunded, or still pending |
+| `request-refund` | invoke declared policy | requester authority, receipt, deadline, provider rule | decision and financial evidence |
+| `present-eligibility` | prove entitlement | policy, issuer, proof, scope, expiry, nullifier | verified presentation outcome |
+| `claim-aid` | request aid | campaign state, presentation, duplicate rule, delivery binding | pending claim or rejection |
+| `read-aid-claim` | reconcile claim | profile-defined finality and evidence | disbursement receipt or terminal refusal |
+| `read-fund-flow` | inspect aggregate movement | report signature, source commitment, measurement profile | verified aggregate report |
 
 Read operations must not require identifying the user unless the selected
 provider has a lawful, disclosed reason. Submission operations are
@@ -523,8 +555,9 @@ under its trust policy and preserves evidence for already finalized actions.
 
 ```text
 prepared -> submitted -> pending -> finalized
-                     \-> failed
-                     \-> expired
+prepared -> expired
+submitted -> failed | expired
+pending -> failed | expired
 finalized -> refund-pending -> refunded | refund-denied
 finalized -> reversed
 ```
@@ -536,10 +569,11 @@ are represented.
 ### 8.3 Aid claim
 
 ```text
-prepared -> submitted -> eligibility-verified -> approved -> disbursed
-                     \-> rejected
-                                      \-> rejected
-                                      \-> expired
+prepared -> submitted
+prepared -> expired
+submitted -> eligibility-verified | rejected | expired
+eligibility-verified -> approved | rejected | expired
+approved -> disbursed | expired
 ```
 
 Approval is not disbursement. Public evidence must not reveal which private

@@ -1,6 +1,6 @@
 # Onym Messenger ↔ Charity UI Profile
 
-**Implementation draft 0.1 — August 2026**
+**Architecture draft 0.1 — August 2026**
 
 > Onym Messenger gives a donor or beneficiary a private, self-custodied way to
 > interact with a charity system. It does not become the charity, custodian,
@@ -76,18 +76,18 @@ identity, app distribution, contacts, or unrelated conversations.
 
 ```text
 ┌──────────────────────────── Onym Messenger ───────────────────────────────┐
-│ Charity views                                                            │
+│ Charity views                                                             │
 │ discover · verify · preview · authorize · receipt · claim · report        │
-│          │                                                               │
-│          v                                                               │
-│ Charity flow / repository                                                │
-│    ├── Identity vault: scoped signature / eligibility presentation       │
-│    ├── Message port: encrypted invitation and receipt references         │
-│    ├── Blob port: sealed descriptions, evidence, or chosen documents     │
+│          │                                                                │
+│          v                                                                │
+│ Charity flow / repository                                                 │
+│    ├── Identity vault: scoped signature / eligibility presentation        │
+│    ├── Message port: encrypted invitation and receipt references          │
+│    ├── Blob port: sealed descriptions, evidence, or chosen documents      │
 │    ├── Notary port: campaign/fund-flow state and evidence                 │
-│    ├── Registry resolver: signed names and organization credentials      │
+│    ├── Registry resolver: signed names and organization credentials       │
 │    └── Charity financial port: quote · submit · reconcile                 │
-└──────────┬──────────────────┬──────────────────┬───────────────────────────┘
+└──────────┬──────────────────┬──────────────────┬──────────────────────────┘
            │                  │                  │
            v                  v                  v
   charity deployment   financial provider   issuer / notary / auditor
@@ -101,7 +101,10 @@ authorization, invokes adapters, and normalizes typed outcomes.
 ## 4. Local UI contract
 
 The charity feature consumes an implementation-neutral port. Illustrative
-types below describe meaning, not a required programming language:
+camel-case names below are local application aliases, not wire names or a
+required programming language. The mapping to canonical kebab-case operations
+in `CharityProfile` is explicit below; local-only helpers do not create wire
+operations.
 
 ```text
 resolveProfile(profileReference) -> VerifiedCharityProfile | CharityError
@@ -119,6 +122,23 @@ watchAidClaim(claimId) -> AidDisbursementReceipt | Pending | TerminalError
 readFundFlow(campaignId, period) -> VerifiedFundFlowReport
 reportIssue(objectReference, category, userSelectedEvidence) -> SupportHandoff
 ```
+
+| Local port method | Canonical wire operation or local behavior |
+|---|---|
+| `resolveProfile` | local verification of signed profile resources; no Charity wire operation |
+| `resolveCampaign` | `resolve-campaign` |
+| `quoteDonation` | `quote-donation` |
+| `prepareDonation` | `prepare-donation` |
+| `authorizeDonation` | local identity-vault authorization; no wire operation |
+| `submitDonation` | `submit-donation` |
+| `watchDonation` | repeated `read-donation` reconciliation |
+| `requestRefund` | `request-refund` |
+| `prepareEligibility` | local policy/proof preparation; no wire operation |
+| `authorizeEligibility` | local presentation authorization; no wire operation |
+| `submitAidClaim` | `present-eligibility`, then `claim-aid` if accepted |
+| `watchAidClaim` | repeated `read-aid-claim` reconciliation |
+| `readFundFlow` | `read-fund-flow` |
+| `reportIssue` | user-selected support handoff through the Message boundary; no Charity wire operation |
 
 The repository returns verified domain objects, typed warnings, and evidence.
 It never returns a remote provider's HTML, transaction builder, RPC response,
@@ -526,24 +546,26 @@ guaranteeing funds raised.
 
 ## 13. Errors presented to users
 
-Onym maps the abstract errors into stable user actions:
+Onym maps every abstract error code into a stable user action:
 
-- **Campaign cannot be verified:** state which signature, credential, issuer
-  policy, status, or freshness check failed; do not show a green action.
-- **Terms changed:** visually compare old and new amount, fee, recipient,
-  provider, privacy, or policy and require a new decision.
-- **Provider needs more information:** name the provider and preview its private
-  compliance handoff before the user continues.
-- **Outcome unknown:** keep one pending operation and reconcile; do not suggest
-  immediate duplicate payment.
-- **Eligibility could not be proven:** keep diagnostics private and offer the
-  authenticated issuer or operator support route.
-- **Already claimed in this period:** show the campaign/epoch scope without
-  exposing a public identifier.
-- **Finality pending:** explain the selected provider's rule without declaring
-  success.
-- **Privacy terms exceed your choice:** stop the flow and show the additional
-  disclosure; never downgrade silently.
+| Code | User-facing action |
+|---|---|
+| `PROFILE_UNSUPPORTED` | Explain that this app lacks the required profile and offer another installed or explicitly selected compatible adapter. |
+| `DEPLOYMENT_INVALID` | Block the action and identify the failed binding, signature, hash, status, or validity check. |
+| `CAMPAIGN_NOT_ACTIVE` | Disable new donations or claims, show whether the campaign is paused, closed, revoked, or unavailable, and preserve history. |
+| `CREDENTIAL_UNTRUSTED` | Show the issuer and policy mismatch; permit only a deliberate scoped policy override where policy allows it. |
+| `CREDENTIAL_REVOKED` | Block new action, show authenticated revocation status, and preserve already finalized evidence. |
+| `QUOTE_EXPIRED` | Fetch a fresh quote and re-present every term; never reuse the previous authorization. |
+| `TERMS_CHANGED` | Compare old and new amount, fee, recipient, provider, privacy, or policy and require a new decision. |
+| `AUTHORIZATION_INVALID` | Stop without blind retry, discard the invalid authorization, and return to the canonical preview. |
+| `PAYMENT_REQUIRED` | Show the provider's signed service offer separately from the donation or aid value and ask whether to accept it. |
+| `COMPLIANCE_REQUIRED` | Name the requesting provider and preview its private compliance handoff before continuing. |
+| `PROOF_INVALID` | Keep proof diagnostics private and offer the authenticated issuer or operator support route. |
+| `NULLIFIER_USED` | Show that the entitlement was already claimed in this campaign/epoch without exposing a public person identifier. |
+| `SUBMISSION_UNKNOWN` | Keep one pending operation and reconcile its stable identifier; do not suggest an immediate duplicate submission. |
+| `FINALITY_PENDING` | Explain the selected provider's finality rule without declaring success. |
+| `REFUND_DENIED` | Show the authenticated policy reason, original terms, and available dispute or support route. |
+| `PRIVACY_PROFILE_MISMATCH` | Stop and show the additional disclosure; never downgrade the user's privacy choice silently. |
 
 Remote error strings are escaped and treated as untrusted text. They cannot
 open links, change local trust, trigger authorization, or request a seed phrase.
