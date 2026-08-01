@@ -2,7 +2,7 @@
 
 ## A Protocol for Divided Ownership
 
-**Discussion draft 0.4 — August 2026**
+**Discussion draft 0.5 — August 2026**
 
 > Onym is not one messenger owned by one company. It is a set of compatible
 > roles that can be owned and operated by different people: identity,
@@ -591,18 +591,62 @@ identity root.
 
 ### 10.1 Charity systems
 
-A charitable association could:
+Charity is an open application seat with its own division of responsibility.
+Any party may build a donor interface, operate a humanitarian program, issue
+organization or eligibility credentials, provide a financial rail, deploy a
+notary, or publish audit and impact reports. Open participation does not make
+every issuer trusted or every campaign eligible for display: the user or
+application selects an explicit issuer and deployment policy.
 
-- issue names or roles through its association registry;
-- operate a group under a published governance policy;
-- publish campaign-specific receiving addresses;
-- require threshold approval for disbursements;
-- attach proofs, receipts, or audits to public actions; and
-- communicate privately with donors, workers, or beneficiaries.
+The boundary is defined in:
 
-Privacy requirements differ across these roles. A public donation address may
-be appropriate for a campaign but dangerous for a beneficiary. The application
-must request the minimum disclosure needed for each flow.
+- [charity/Charity.md](charity/Charity.md), the technology-neutral campaign,
+  donation, beneficiary eligibility, fund-flow evidence, privacy, and
+  responsibility contract; and
+- [charity/UI-Charity.md](charity/UI-Charity.md), the Onym Messenger user
+  interface, private-message, local-authorization, receipt, and aid-claim
+  profile.
+
+The split is strict. The user application presents authenticated claims and
+exact transaction intent, requests scoped local authorization, and verifies
+evidence. The charity side remains responsible for organization verification,
+campaign truth, beneficiary selection, allocation, custody, compliance,
+refunds, regulators, and real-world delivery. The notary can prove narrow
+public state; it cannot prove that an organization is benevolent or that aid
+created impact.
+
+“Verified organization” is therefore always qualified: a named issuer attested
+that a subject satisfied a named policy, version, scope, and validity period.
+Onym does not convert that issuer claim into an unqualified Onym endorsement.
+
+Privacy differs across roles. A campaign receiving address or aggregate fund
+flow may be public while a beneficiary identity, source credential, private
+conversation, or payout coordinate must not be. Eligibility profiles should
+use derived proofs and campaign-scoped nullifiers where possible. Financial
+rails may still reveal addresses, values, timing, or regulated identity data;
+the UI discloses those limits before authorization.
+
+The collaboration metric “funds through Onym” is defined as qualifying,
+finalized value received by verified campaigns under a pinned measurement
+profile, net of refunds and reversals by default. It is measured from financial
+and notary evidence without messenger PII or behavioral analytics. A shared
+`onym-messenger` channel marker can provide weak aggregate source evidence but
+cannot prove an install, a unique user, or causation and cannot support a
+person-level royalty.
+
+Stellar/Soroban may implement the financial or notary bindings, but it is not
+part of the abstract charity contract. A concrete adapter must separately pin
+network, contracts, code and deployment hashes, authorization coverage,
+events, privacy leakage, administrative powers, finality, and conformance
+vectors. Another compatible rail may occupy the same seat.
+
+Each charity participant may define a signed service offer: organization
+verification, proof computation, financial settlement, notary operation,
+audit, UI, or campaign work may be free, grant-funded, fixed-price,
+subscription-funded, or earn a disclosed operation share. Compensation is
+never automatic. An authorized buyer accepts it, every deduction appears in
+the donor's gross-to-net quote, and payment creates no trust authority or
+permanent royalty over a donor or beneficiary.
 
 ### 10.2 Payments and banking
 
