@@ -965,6 +965,10 @@ Each seat needs:
 This is the practical foundation of “anyone can participate.” Source
 availability alone does not create interoperability.
 
+The proposed contract boundary for signed audit, conformance, provenance,
+and measurement statements—the attestations that notary bundles, directories,
+and clients can cite—is specified in [audit/Audit.md](audit/Audit.md).
+
 ## 16. Service manifests and seat-defined offers
 
 Every paid or discoverable component publishes a signed `ServiceManifest`.
@@ -1444,6 +1448,8 @@ item.
   candidate-consented introductions, progressive disclosure, declared
   selection authority, private outcomes, and finite recruiter milestones.
 - Conformance suites for every open seat.
+- An audit-seat contract for signed, expiring, revocable attestations bound
+  to exact artifacts ([audit/Audit.md](audit/Audit.md)).
 - A non-custodial payment capability profile and additional financial-services
   application profiles.
 - Group-state migration between notary deployments.
@@ -1503,7 +1509,8 @@ item.
   appeal fixtures before operating a recruitment directory.
 - Add an Android billing adapter under its own current platform terms.
 - Fund audits and conformance infrastructure before promoting open paid
-  listings to non-technical users.
+  listings to non-technical users, issuing results as signed attestations
+  under [audit/Audit.md](audit/Audit.md).
 
 ### Phase 4 — application ecosystem
 
