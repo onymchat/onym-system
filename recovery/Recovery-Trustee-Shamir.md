@@ -105,7 +105,7 @@ The v1 profile uses:
 - a 256-bit `RUK` from a cryptographically secure random source;
 - AES-256-GCM with a fresh 96-bit nonce for the recovery artifact;
 - SHA-256 for protocol object and ciphertext digests;
-- SLIP-0039 for one-group `t`-of-`n` member sharing of `RUK`; and
+- SLIP-0039 for one-group `t`-of-`n` member sharing of `RUK`;
 - RFC 9180 HPKE Base mode using DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, and
   AES-256-GCM for transfers to trustees and recovery destinations; and
 - Ed25519 for fresh session proofs and signed outer enrollment/trustee
@@ -146,9 +146,11 @@ artifactCiphertext = AES-256-GCM-Seal(
 )
 ```
 
-The encrypted artifact may be replicated with every trustee or stored through
-one or more opaque blob locations. It is not a secret key, but its location
-and enrollment binding are private metadata. A recovery policy declares the
+The client places the ciphertext, nonce, every AAD field, and a digest over the
+canonical header and ciphertext into the abstract `ProtectedRecoveryArtifact`.
+That object may be replicated with every trustee or stored through one or more
+opaque blob locations. It is not a secret key, but its header, location, and
+enrollment binding are private metadata. A recovery policy declares the
 artifact availability rule separately from its share threshold.
 
 ### 4.3 SLIP-0039 parameters
@@ -197,6 +199,7 @@ SLIP-0039 words separated by one ASCII space and placed in a private envelope:
   "policyDigest": "<sha256>",
   "identityBindingCommitment": "<opaque-commitment-from-policy>",
   "artifactDigest": "<sha256>",
+  "artifactId": "<same-random-256-bit-id-as-protected-artifact>",
   "recoveryMode": "secret-restoration",
   "trusteeComponentId": "onym:component:<trustee-id>",
   "slot": "<random-opaque-slot-id>",
@@ -282,13 +285,16 @@ The healthy vault:
    trustee-issued challenge, and authorization-key digest in `info`;
 6. sends the protected artifact and only the intended sealed share to each
    selected trustee;
-7. collects and verifies all `n` signed enrollment receipts; and
-8. destroys plaintext shares and `RUK` from process memory on a best-effort
+7. collects and verifies all `n` signed enrollment receipts;
+8. creates and verifies the encrypted recovery map defined below; and
+9. destroys plaintext shares and `RUK` from process memory on a best-effort
    basis after activation.
 
 The enrollment is not active if fewer than `n` selected trustees acknowledge.
 The holder may deliberately create a revised policy with a lower `n`; the UI
 must not silently activate a partially enrolled set under the old policy.
+It is also not active until the holder confirms a usable recovery-map copy and
+its separate map key.
 
 ### 5.3 Trustee receipt
 
@@ -319,6 +325,7 @@ Each trustee:
   "enrollmentSequence": 1,
   "policyDigest": "<same-sha256>",
   "artifactDigest": "<same-sha256>",
+  "artifactId": "<same-artifact-id>",
   "slot": "<same-slot>",
   "sealedContributionDigest": "<digest-of-enrollment-ciphertext>",
   "storageClass": "<manifest-declared-class>",
@@ -345,16 +352,59 @@ A drill exercises real recovery authority and leaks recovery timing to the
 selected trustees. It is rate-limited, notified, and never run silently by
 telemetry or a background health check.
 
+### 5.5 Recovery map and fresh-device bootstrap
+
+The complete trustee roster cannot be public or sent to every trustee, but a
+fresh device still needs it. After enrollment, the healthy vault creates this
+private `ShamirRecoveryMap`:
+
+```json
+{
+  "recoveryMapVersion": 1,
+  "recoveryProfileId": "onym:recovery-profile:trustee-v1",
+  "implementationProfileId": "onym:recovery-implementation:shamir-trustees-slip39-v1",
+  "enrollmentId": "<current-enrollment-id>",
+  "enrollmentSequence": 1,
+  "policy": "<canonical-holder-private-RecoveryPolicy>",
+  "protectedArtifact": "<ProtectedRecoveryArtifact-or-private-locators>",
+  "trusteeManifests": ["<current-signed-manifest-for-each-trustee>"],
+  "trusteeReceipts": ["<signed-current-enrollment-receipts>"]
+}
+```
+
+The map contains no `RUK`, root secret, mnemonic, or trustee share. It does
+contain a sensitive social graph and recovery-routing metadata. The vault
+encrypts it with AES-256-GCM under a separate random 256-bit recovery-map key
+and fresh nonce, binding the implementation profile and a random map ID as
+associated data. The ciphertext may be replicated; the holder stores the map
+key offline as a recovery card, QR, hardware record, or another independently
+chosen private channel.
+
+On a fresh device, the candidate imports the map ciphertext and key. The vault
+authenticates and decrypts it, verifies policy and receipt signatures, rejects
+rollback, retrieves the current protected artifact, and constructs the
+abstract `RecoveryBootstrap`. The candidate can then address the current
+trustees and build `RecoverySession` without the old identity key.
+
+A trustee or paid provider may additionally offer authenticated lookup of its
+own slot, but the base profile has no public roster discovery. If the holder
+loses every recovery-map key and cannot rediscover enough trustees through
+prearranged relationships or provider accounts, recovery may fail even though
+the shares still exist. The enrollment UI tests recovery-map import and states
+this limitation explicitly.
+
 ## 6. Recovery session
 
 ### 6.1 Candidate request
 
-The recovering vault generates a fresh HPKE destination key, a fresh Ed25519
-session-proof key, and a random session ID, then builds and signs the abstract
-`RecoverySession`. The proof shows control of the request and binds the HPKE
-key; it does not authenticate the old identity. The request includes the
-desired enrollment sequence, artifact digest, both destination keys, expiry,
-and the factor evidence permitted for each trustee.
+Using the verified recovery map or a profile-compatible private lookup, the
+recovering vault obtains the enrollment ID, current sequence, policy digest,
+artifact ID, protected artifact and digest, and trustee routes. It then
+generates a fresh HPKE destination key, a fresh Ed25519 session-proof key, and
+a random session ID, and builds and signs the abstract `RecoverySession`. The
+proof shows control of the request and binds the HPKE key; it does not
+authenticate the old identity. The request includes the bootstrap bindings,
+both destination keys, expiry, and factor evidence permitted for each trustee.
 
 The old identity cannot be required to sign the request. Authentication comes
 from the pre-enrolled trustee policy: human recognition, an offline recovery
@@ -385,6 +435,7 @@ sessionId,
 enrollmentId,
 enrollmentSequence,
 policyDigest,
+artifactId,
 artifactDigest,
 trusteeComponentId,
 slot,
@@ -419,7 +470,8 @@ After receiving at least `t` valid contributions, the recovering vault:
    shares;
 5. combines exactly the profile-compatible shares locally to reconstruct
    `RUK`;
-6. opens the artifact using AES-256-GCM and the enrolled associated data;
+6. reconstructs the enrolled associated data from the verified protected-
+   artifact header and opens the artifact using AES-256-GCM;
 7. verifies the identity subject, descriptor digest, artifact schema, and
    recovery mode;
 8. imports or migrates inside the vault's holder-facing recovery ceremony;
@@ -454,6 +506,7 @@ share contents.
 |---|---|
 | `enroll` | Deliver one HPKE-sealed SLIP-0039 share per trustee and replicate artifact |
 | `read-enrollment` | Return signed per-trustee sequence, expiry, and non-secret readiness |
+| `bootstrap-recovery` | Decrypt and verify the holder's recovery map or use declared private trustee/provider lookup |
 | `begin-recovery` | Create one destination-bound request for the current trustee set |
 | `contribute-recovery` | Each approving trustee HPKE-seals its stored share to the destination |
 | `read-recovery` | Aggregate signed non-secret session and contribution status |
@@ -648,15 +701,17 @@ In addition to the abstract suite, the profile publishes and tests:
    negative cases;
 5. enrollment HPKE vectors for each trustee and recovery HPKE vectors for a
    fresh destination;
-6. rejection of a valid share response replayed into another session,
+6. recovery-map encryption, authenticated import, current-sequence bootstrap,
+   rollback refusal, and failure after all bootstrap paths are lost;
+7. rejection of a valid share response replayed into another session,
    destination, enrollment, or sequence;
-7. threshold completion with `t` contributions and non-completion with
+8. threshold completion with `t` contributions and non-completion with
    `t - 1`;
-8. malicious well-formed share and final artifact-integrity failure;
-9. cooldown, veto, refusal, timeout, duplicate trustee, and late contribution;
-10. full re-sharing on threshold or trustee-set change and refusal of every old
+9. malicious well-formed share and final artifact-integrity failure;
+10. cooldown, veto, refusal, timeout, duplicate trustee, and late contribution;
+11. full re-sharing on threshold or trustee-set change and refusal of every old
    contribution against the new artifact; and
-11. log, crash, UI snapshot, clipboard, notification, and analytics scans for
+12. log, crash, UI snapshot, clipboard, notification, and analytics scans for
     share words, `RUK`, artifact plaintext, candidate factors, and destination
     private keys.
 

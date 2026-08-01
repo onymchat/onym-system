@@ -88,11 +88,11 @@ The v1 client-side format uses:
 - a 256-bit recovery-unlock key (`RUK`) from a cryptographically secure random
   source;
 - AES-256-GCM for the protected recovery artifact, with a fresh 96-bit nonce;
-- SHA-256 for profile object and ciphertext digests; and
+- SHA-256 for profile object and ciphertext digests;
 - RFC 9180 HPKE Base mode for transit to the provider and to the recovery
   destination, using DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, and AES-256-GCM;
-  and Ed25519 for the fresh session proof and signed enrollment/trustee
-  objects.
+  and
+- Ed25519 for the fresh session proof and signed enrollment/trustee objects.
 
 All canonical encodings, byte order, HPKE `info`, AEAD associated data, and
 test vectors must be published before the profile is marked operational. An
@@ -129,10 +129,10 @@ artifactCiphertext = AES-256-GCM-Seal(
 )
 ```
 
-The client sends the ciphertext, nonce, AAD fields, and digest as ordinary
-non-secret enrollment data. It sends `RUK` only inside HPKE ciphertext sealed
-to the provider enrollment key, with the same enrollment and policy bindings
-in HPKE `info`.
+The client places the ciphertext, nonce, every AAD field, and a digest over the
+canonical header and ciphertext into the abstract `ProtectedRecoveryArtifact`.
+It sends `RUK` only inside HPKE ciphertext sealed to the provider enrollment
+key, with the same enrollment and policy bindings in HPKE `info`.
 
 The mnemonic, seed, root key, migration authority, plaintext artifact, and
 `RUK` never appear in an HTTP field, support form, log, analytics event, push
@@ -142,14 +142,19 @@ notification, or billing record.
 
 The provider opens the enrollment HPKE ciphertext in its controlled key
 service and immediately wraps `RUK` under a non-exportable provider key. The
-stored record contains only:
+artifact/key record contains at least the complete protected-artifact header
+and these custody fields:
 
 ```json
 {
+  "protectedArtifactVersion": 1,
   "implementationProfileId": "onym:recovery-implementation:cloud-custody-v1",
   "enrollmentId": "<random-256-bit-id>",
-  "sequence": 1,
+  "enrollmentSequence": 1,
   "policyDigest": "<sha256>",
+  "identityBindingCommitment": "<opaque-commitment-from-policy>",
+  "recoveryMode": "secret-restoration",
+  "artifactId": "<random-256-bit-id>",
   "artifactDigest": "<sha256>",
   "artifactCiphertext": "<aes-gcm-ciphertext>",
   "artifactNonce": "<96-bit-nonce>",
@@ -258,7 +263,23 @@ identity-assurance certification.
 
 ## 7. Recovery flow
 
-### 7.1 Begin
+### 7.1 Bootstrap
+
+On a fresh device, the candidate first presents an opaque provider-account
+locator and the profile's initial pre-enrolled factor over an authenticated
+protected channel. The provider resolves only the highest active enrollment
+sequence and returns a signed abstract `RecoveryBootstrap` containing the
+complete stored `ProtectedRecoveryArtifact`, its digest, current policy digest,
+and non-secret session requirements. It does not release `RUK`, satisfy the
+remaining factors, or start the cooldown merely by returning bootstrap data.
+
+Lookup failures are rate-limited and indistinguishable to an unauthorized
+caller, so the endpoint cannot enumerate enrollments. The provider account,
+offline recovery code, or other lookup method cannot depend solely on the
+Onym key being recovered. A candidate that cannot satisfy any declared lookup
+path cannot discover the private enrollment from this provider.
+
+### 7.2 Begin
 
 The new vault generates an ephemeral HPKE destination key pair and a fresh
 Ed25519 session-proof key pair. It signs the canonical `RecoverySession` with
@@ -286,7 +307,7 @@ The provider sends notifications independently of the candidate's current
 session. Notification payloads contain no secret, factor value, or automatic
 approval link.
 
-### 7.2 Veto and delay
+### 7.3 Veto and delay
 
 During cooldown, the enrolled holder or designee can cancel through the
 declared veto method. Updating notification destinations or factors cannot
@@ -294,7 +315,7 @@ shorten a session already in progress. Provider staff cannot bypass the delay
 without invoking a separately declared emergency policy whose use is logged
 and independently reviewed.
 
-### 7.3 Release
+### 7.4 Release
 
 After successful factors, cooldown, no veto, and final policy evaluation, the
 provider unwraps `RUK` inside its key service and immediately seals it to the
@@ -306,6 +327,8 @@ info = canonical(
   sessionId,
   enrollmentId,
   enrollmentSequence,
+  policyDigest,
+  artifactId,
   artifactDigest,
   destinationKeysDigest,
   expiresAt
@@ -322,14 +345,15 @@ The provider returns the abstract `TrusteeContribution`, protected artifact,
 and signed release receipt. It does not return `RUK` in plaintext and does not
 decrypt the artifact in an application server or support console.
 
-### 7.4 Local completion
+### 7.5 Local completion
 
 The recovering vault:
 
-1. verifies provider manifest, session, sequence, destination binding,
-   signatures, receipt, and artifact digest;
+1. verifies provider manifest, session, sequence, policy digest, artifact ID
+   and digest, destination binding, signatures, and receipt;
 2. opens the HPKE contribution using the ephemeral destination private key;
-3. opens the artifact with AES-256-GCM and the exact enrolled AAD;
+3. reconstructs the exact enrolled AAD from the signed protected-artifact
+   header and opens the artifact with AES-256-GCM;
 4. verifies the recovered identity subject and known descriptor fingerprint;
 5. imports or migrates under a holder-facing ceremony;
 6. binds fresh local authenticators; and
@@ -345,6 +369,7 @@ also warns that any previous copy of the root secret remains usable.
 |---|---|
 | `enroll` | Store protected artifact and provider-wrapped `RUK`; bind factors |
 | `read-enrollment` | Return signed status, sequence, expiry, readiness, and policy digests |
+| `bootstrap-recovery` | Resolve the current private enrollment after initial account/factor authorization |
 | `begin-recovery` | Verify candidate factors; create delayed destination-bound session |
 | `contribute-recovery` | Provider releases HPKE-sealed `RUK` after policy satisfaction |
 | `read-recovery` | Return non-secret session and notification state |
@@ -489,16 +514,18 @@ to validate its scoped entitlement.
 In addition to the abstract suite, this profile requires fixtures for:
 
 1. canonical AAD and SHA-256 digests;
-2. AES-256-GCM artifact encryption and corruption refusal;
-3. provider-enrollment and recovery-destination HPKE vectors;
-4. wrong profile, sequence, policy, identity, artifact, and destination
+2. authenticated bootstrap of the current sequence and complete protected-
+   artifact header, plus non-enumerating lookup refusal;
+3. AES-256-GCM artifact encryption and corruption refusal;
+4. provider-enrollment and recovery-destination HPKE vectors;
+5. wrong profile, sequence, policy, identity, artifact, and destination
    bindings;
-5. server wrapping-key rotation without changing enrollment semantics;
-6. factor throttling, cooldown, multi-channel notification, and veto;
-7. idempotent release and inability to release after cancellation or expiry;
-8. fresh holder recovery rotation and old-record refusal;
-9. export to a fresh destination; and
-10. lapse, closure, backup-retention, and deletion receipts.
+6. server wrapping-key rotation without changing enrollment semantics;
+7. factor throttling, cooldown, multi-channel notification, and veto;
+8. idempotent release and inability to release after cancellation or expiry;
+9. fresh holder recovery rotation and old-record refusal;
+10. export to a fresh destination; and
+11. lapse, closure, backup-retention, and deletion receipts.
 
 Test logs are scanned for artifacts, mnemonics, root keys, `RUK`, candidate
 factors, destination private keys, and unredacted notification destinations.

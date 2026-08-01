@@ -164,6 +164,7 @@ custody or threshold technology:
   "operations": [
     "enroll",
     "read-enrollment",
+    "bootstrap-recovery",
     "begin-recovery",
     "contribute-recovery",
     "read-recovery",
@@ -255,9 +256,7 @@ The holder approves a canonical, versioned policy before enrollment:
   "policyVersion": 1,
   "policyId": "<random-id>",
   "recoveryMode": "secret-restoration",
-  "identityBinding": {
-    "subjectAndDescriptorCommitment": "<enrollment-scoped-opaque-commitment>"
-  },
+  "identityBindingCommitment": "<enrollment-scoped-opaque-commitment>",
   "implementationProfileId": "onym:recovery-implementation:<technology>-v1",
   "trustees": [
     {
@@ -365,8 +364,30 @@ implementation:
 
 The plaintext form never crosses the recovery boundary. The vault serializes
 it canonically and immediately protects it under the implementation profile.
-Network objects carry only the encrypted artifact, its digest, and opaque
-locators.
+The portable network/storage form is a `ProtectedRecoveryArtifact`:
+
+```json
+{
+  "protectedArtifactVersion": 1,
+  "implementationProfileId": "onym:recovery-implementation:<technology>-v1",
+  "enrollmentId": "<random-256-bit-id>",
+  "enrollmentSequence": 1,
+  "policyDigest": "<digest-of-canonical-private-policy>",
+  "identityBindingCommitment": "<opaque-commitment-from-policy>",
+  "recoveryMode": "secret-restoration",
+  "artifactId": "<same-random-256-bit-id-as-plaintext-artifact>",
+  "protectionParameters": "<profile-defined-suite-nonce-and-version>",
+  "ciphertext": "<authenticated-encryption-of-RecoveryArtifact>",
+  "artifactDigest": "<digest-over-canonical-object-with-this-field-omitted>"
+}
+```
+
+Every field needed to reconstruct the implementation profile's associated
+data is outside the ciphertext in this object. The values are not secret keys,
+but they are private recovery metadata and are disclosed only through an
+authorized bootstrap path or opaque artifact location. After decryption, the
+vault requires the internal `artifactId`, recovery mode, subject commitment,
+and descriptor binding to match the protected header.
 
 The vault computes the policy's subject commitment from a domain separator,
 `identityBindingSalt`, `identitySubject`, and `descriptorDigest`. A recovering
@@ -385,6 +406,7 @@ the trustee construction independent of the vault's seed format.
   "enrollmentVersion": 1,
   "enrollmentId": "<random-256-bit-id>",
   "policy": "<canonical-RecoveryPolicy>",
+  "artifactId": "<same-id-as-ProtectedRecoveryArtifact>",
   "artifactDigest": "<digest-of-encrypted-artifact-and-associated-data>",
   "artifactLocators": ["<opaque-content-location>"],
   "contributions": [
@@ -394,7 +416,7 @@ the trustee construction independent of the vault's seed format.
       "contributionDigest": "<digest-of-sealed-contribution>"
     }
   ],
-  "sequence": 1,
+  "enrollmentSequence": 1,
   "status": "active",
   "createdAt": "2026-08-01T00:00:00Z",
   "expiresAt": "2027-08-01T00:00:00Z",
@@ -414,12 +436,44 @@ succeeded” is not equivalent to a recoverable enrollment.
 
 ### 5.7 Recovery Session
 
+A new device has no enrollment state from which to construct a session. Every
+implementation profile therefore defines an authorized bootstrap mechanism
+that returns this private `RecoveryBootstrap` object before `begin-recovery`:
+
+```json
+{
+  "bootstrapVersion": 1,
+  "recoveryProfileId": "onym:recovery-profile:trustee-v1",
+  "implementationProfileId": "onym:recovery-implementation:<technology>-v1",
+  "enrollmentLocator": "<opaque-account-offline-or-trustee-lookup-token>",
+  "enrollmentId": "<current-enrollment-id>",
+  "enrollmentSequence": 1,
+  "policyDigest": "<current-private-policy-digest>",
+  "artifactId": "<current-artifact-id>",
+  "artifactDigest": "<current-protected-artifact-digest>",
+  "protectedArtifact": "<ProtectedRecoveryArtifact-or-authorized-private-locator>",
+  "trusteeDiscovery": "<profile-defined-private-routes-or-provider-reference>",
+  "issuedAt": "2026-08-01T00:00:00Z",
+  "bootstrapProof": "<provider-signature-or-enrollment-time-holder-signed-map-proof>"
+}
+```
+
+The bootstrap path may be an authenticated provider-account lookup, an
+encrypted offline recovery map, or trustee-side resolution of an opaque token.
+It must define enumeration resistance, rate limits, privacy, rollback
+protection, and how the candidate obtains the current sequence and protected
+artifact without the old identity key. If every bootstrap copy and lookup path
+is lost, private trustee discovery may be impossible even when all shares
+still exist; the enrollment ceremony must test and disclose that failure mode.
+
 ```json
 {
   "sessionVersion": 1,
   "sessionId": "<random-256-bit-id>",
   "enrollmentId": "<opaque-enrollment-id>",
   "enrollmentSequence": 1,
+  "policyDigest": "<expected-private-policy-digest>",
+  "artifactId": "<expected-artifact-id>",
   "artifactDigest": "<expected-digest>",
   "destination": {
     "encryptionSuite": "<profile-defined-public-key-encryption-suite>",
@@ -438,9 +492,9 @@ Both destination keys are generated on the recovering device for this
 session. The proof signature demonstrates control of the request without
 pretending to authenticate the old identity; the encryption key receives the
 sealed contribution. Every trustee contribution is cryptographically bound to
-the exact session, enrollment sequence, artifact digest, and both destination
-keys. A coordinator or support agent must not receive plaintext recovery
-material.
+the exact session, enrollment sequence, policy digest, artifact ID and digest,
+and both destination keys. A coordinator or support agent must not receive
+plaintext recovery material.
 
 Trustees evaluate the enrolled factors and policy, apply rate limits and the
 cooldown, notify the holder or designees through independent channels, and
@@ -455,6 +509,9 @@ website or sent manually is not phishing-resistant merely because it expires.
   "sessionId": "<same-session-id>",
   "enrollmentId": "<same-enrollment-id>",
   "enrollmentSequence": 1,
+  "policyDigest": "<same-policy-digest>",
+  "artifactId": "<same-artifact-id>",
+  "artifactDigest": "<same-artifact-digest>",
   "componentId": "onym:component:<trustee-id>",
   "slot": "<opaque-slot>",
   "decision": "approved",
@@ -492,12 +549,13 @@ no undeclared copy.
 |---|---|---|
 | `enroll` | Healthy vault; policy, protected artifact, trustee contribution | Active or pending enrollment plus signed receipt |
 | `read-enrollment` | Holder or authorized recovery client; enrollment reference | Current sequence, status, policy digest, expiry, and service health |
+| `bootstrap-recovery` | Candidate; profile-defined account, offline map, or trustee lookup evidence | Private current `RecoveryBootstrap` or non-enumerating refusal |
 | `begin-recovery` | Candidate; fresh destination key and permitted factors | Pending session with cooldown and notification state |
 | `contribute-recovery` | Enrolled trustee; session decision | Destination-bound sealed contribution or refusal |
 | `read-recovery` | Candidate or trustee; session reference | Non-secret session state and contribution receipts |
 | `cancel-recovery` | Holder veto or authorized candidate | Cancelled terminal session |
 | `finalize-recovery` | Recovering vault; artifact verification evidence | Final receipt; never plaintext secret |
-| `rotate-enrollment` | Healthy or just-recovered vault; new sequence and contributions | New active enrollment; old sequence revoked |
+| `rotate-enrollment` | Healthy or just-recovered vault; new sequence and contributions | New active enrollment; old sequence superseded |
 | `revoke-enrollment` | Healthy vault or profile-defined recovery authority | Enrollment can no longer approve new sessions |
 | `export-enrollment` | Holder ceremony | Portable encrypted artifact, policy, and receipts where supported |
 | `close-enrollment` | Holder under retention policy | Closed state and deletion schedule/receipt |
@@ -510,16 +568,25 @@ billable recoveries.
 
 ### 7.1 Enrollment
 
-```text
-draft -> pending_receipts -> active -> rotating -> superseded
-                         |       |          |
-                         |       +--------> revoked
-                         +---------------> expired -> closed
-```
+| Current state | Event or operation | Next state |
+|---|---|---|
+| `draft` | First trustee accepts | `pending_receipts` |
+| `draft` or `pending_receipts` | Holder cancels/closes | `closed` |
+| `pending_receipts` | Activation rule and bootstrap test succeed | `active` |
+| `active` | Holder starts a fully authorized replacement sequence | `rotating` |
+| `rotating` | Replacement sequence becomes active | `superseded` |
+| `rotating` | Replacement is abandoned before activation | `active` |
+| `rotating` | Holder invokes `close-enrollment` | `closed` |
+| `active` | Revocation authority invokes `revoke-enrollment` | `revoked` |
+| `active` | Declared term ends without renewal | `expired` |
+| `active` | Holder invokes `close-enrollment` | `closed` |
+| `superseded`, `revoked`, or `expired` | Holder/provider records logical closure and deletion schedule | `closed` |
 
 Only one sequence is current. A client refuses rollback to a lower sequence,
 even when a trustee presents a valid old signature. Rotation creates fresh
-cryptographic contributions; renaming an old share is not rotation.
+cryptographic contributions; renaming an old share is not rotation. Entering
+`closed` blocks new recovery contributions immediately even when physical
+deletion continues under a declared retention schedule.
 
 ### 7.2 Recovery session
 
@@ -630,7 +697,7 @@ or recovery contributions.
 | Trustee unavailability | UI states the exact availability threshold and encourages independent failure domains |
 | Candidate phishing | Prefer session-bound cryptographic factors; manual codes are not labelled phishing-resistant |
 | Malicious contribution | Verify signatures and final artifact integrity; profile declares whether individual shares are verifiable |
-| Artifact substitution | AEAD associated data binds identity, policy, enrollment, mode, sequence, and artifact digest |
+| Artifact substitution | AEAD associated data binds identity, policy, enrollment, mode, sequence, and artifact ID; `artifactDigest` commits to the protected header and ciphertext |
 | Root compromise | Same-secret restoration cannot revoke an attacker's copy; migrate authority where supported |
 | Silent policy downgrade | Client compares the enrolled canonical policy and refuses weaker recovery behavior |
 | Metadata correlation | Keep enrollment/session records private and use scoped identifiers and minimal receipts |
@@ -702,15 +769,17 @@ fixtures that test at least:
 
 1. canonical object encoding and signatures;
 2. enrollment receipt and activation thresholds;
-3. stale sequence and artifact substitution refusal;
-4. duplicate trustee/slot rejection;
-5. fresh destination-key binding;
-6. retry idempotency and replay refusal;
-7. cooldown, veto, notification, attempt limit, expiry, and cancellation;
-8. successful recovery and corrupted-artifact failure;
-9. rotation and inability to use superseded contributions;
-10. lapse, export, closure, and declared retention outcomes; and
-11. redaction of secrets and factors from errors, logs, telemetry, and
+3. authorized fresh-device bootstrap, current-sequence discovery, privacy,
+   enumeration resistance, and bootstrap-loss behavior;
+4. stale sequence and artifact substitution refusal;
+5. duplicate trustee/slot rejection;
+6. fresh destination-key binding;
+7. retry idempotency and replay refusal;
+8. cooldown, veto, notification, attempt limit, expiry, and cancellation;
+9. successful recovery and corrupted-artifact failure;
+10. rotation and inability to use superseded contributions;
+11. lapse, export, closure, and declared retention outcomes; and
+12. redaction of secrets and factors from errors, logs, telemetry, and
     receipts.
 
 Security review must evaluate the concrete implementation profile. Passing
@@ -731,6 +800,7 @@ At minimum, implementations normalize failures to:
 - `stale_enrollment_sequence`
 - `artifact_mismatch`
 - `invalid_destination`
+- `bootstrap_unavailable`
 - `invalid_candidate_factor`
 - `recovery_cooling_down`
 - `recovery_rate_limited`
