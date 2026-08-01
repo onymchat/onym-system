@@ -1304,6 +1304,11 @@ service-level evidence, rate limits, independent directories, contractual
 onboarding for store channels, challenge periods, and reputation scoped to a
 directory. None should become a hidden gate on direct protocol use.
 
+The proposed contract boundary for deciding the disputes these challenge
+periods create—party-chosen arbiters with authority bounded to one order's
+escrowed stake—is specified in
+[arbitration/Arbitration.md](arbitration/Arbitration.md).
+
 ## 18. Governance of the protocol
 
 Onym needs governance of specifications, not governance of users.
