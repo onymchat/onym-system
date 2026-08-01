@@ -39,9 +39,10 @@ versioned interfaces.
   non-custodial classes they also own the funds at the ledger layer; in
   custodial classes they own a claim against the provider.
 - The **identity vault** holds the keys and executes typed capabilities:
-  sign this displayed transaction, prove control of this address, derive a
-  fresh receiving address. It never surrenders the root secret to a bank
-  (whitepaper §5.4).
+  `sign-transaction`, `prove-address-control`, and
+  `derive-context-address`. It never surrenders the root secret to a bank
+  (whitepaper §5.4). These names are the normative capability vocabulary from
+  [UI-Identity.md](../identity/UI-Identity.md).
 - The **bank provider** owns its product: account services, records, quotes,
   compliance program, support, and—in custodial classes—custody itself, with
   every legal duty that entails.
@@ -78,11 +79,12 @@ A conforming bank seat can:
 1. present one or more **accounts** bound to holder-controlled or
    provider-held addresses, each with a declared custody class;
 2. produce **receiving addresses** or payment coordinates for the holder,
-   fresh per context where the identity profile supports it;
+   fresh per context through `derive-context-address` where the identity
+   profile supports it;
 3. quote a **payment**: amount, asset, fees, rate, expiry, and the exact
    operation that will be submitted;
-4. obtain **authorization** exclusively through the vault's displayed-intent
-   signing capability;
+4. obtain **authorization** exclusively through the vault's
+   `sign-transaction` displayed-intent capability;
 5. submit authorized operations and report typed **outcomes** with
    settlement evidence;
 6. serve **balances and statements** with declared freshness and evidence
@@ -150,8 +152,8 @@ than to silence.
 │        │ application command                                         │
 │        v                                                             │
 │ Repository / Interactor                                              │
-│        ├────────> Identity vault: sign displayed intent,             │
-│        │          prove control, derive receiving address            │
+│        ├────────> Identity vault: sign-transaction,                  │
+│        │          prove-address-control, derive-context-address      │
 │        └────────> Bank port: accounts · quotes · authorized ops ·    │
 │                   outcomes · statements                              │
 └──────────────────────────────┬───────────────────────────────────────┘
@@ -194,7 +196,8 @@ solvency—unless the implementation profile defines stronger evidence.
     "submit-payment",
     "query-outcome",
     "balance",
-    "statement"
+    "statement",
+    "close-or-withdraw"
   ],
   "custodyClasses": ["non-custodial", "custodial", "escrow"],
   "intentBinding": "vault-displayed-intent-v1",
@@ -304,6 +307,7 @@ The UI constructs an intent; the provider answers with a binding quote:
   "amount": {"value": "25.00", "asset": "<asset-descriptor>"},
   "purpose": "<optional-user-visible-reference>",
   "quote": {
+    "quoteRevision": 1,
     "networkFee": {"value": "0.00001", "asset": "<asset>"},
     "providerFee": {"value": "0.10", "asset": "<asset>"},
     "rate": "<conversion-rate-or-null>",
@@ -325,6 +329,7 @@ expired quote authorizes nothing.
 {
   "authorizationVersion": 1,
   "intentId": "<same-id>",
+  "quoteRevision": 1,
   "operationHash": "<hash-of-quoted-operation>",
   "signature": "<vault-produced-signature>",
   "authorizedAt": "2026-08-01T00:00:03Z"
@@ -344,12 +349,14 @@ expired quote authorizes nothing.
 }
 ```
 
-Valid outcome classes are `quoted`, `authorized`, `submitted`, `pending`,
-`settled`, `failed`, `expired`, and `unknown`. `unknown` is a first-class
-state: an adapter that cannot determine a submitted payment's fate queries
-`query-outcome` before any resubmission, and idempotency keys make retries
-safe. A provider acknowledgement is not settlement unless the profile's
-evidence says so.
+Valid outcome classes are `quoted`, `authorized`, `revision_required`,
+`submitted`, `pending`, `settled`, `failed`, `expired`, and `unknown`.
+`quoteRevision` increases whenever canonical operation bytes change; an
+authorization covers exactly one revision. `unknown` is a first-class state:
+an adapter that cannot determine a submitted payment's fate queries
+`query-outcome` before any resubmission, and idempotency keys make retries safe.
+A provider acknowledgement is not settlement unless the profile's evidence
+says so.
 
 ### 5.7 Balance and Statement
 
@@ -373,7 +380,7 @@ statement of its own liability.
 | Operation | Input | Result |
 |---|---|---|
 | `list-accounts` | Verified manifest, holder session | Accounts with custody class and control proofs |
-| `derive-receiving-address` | Account, context | Fresh address or coordinates via vault capability |
+| `derive-receiving-address` | Account, context | Fresh coordinates via vault `derive-context-address` |
 | `quote-payment` | Draft intent | Signed quote with exact operation and expiry |
 | `authorize-payment` | Quote | Vault consent flow, then `PaymentAuthorization` |
 | `submit-payment` | Authorization | Typed outcome progression |
@@ -401,7 +408,9 @@ A conforming frontend and application layer must:
    fees, rate, destination, and expiry render before any signature request;
 4. pass only the quoted canonical operation to the vault, and submit only
    what the vault signed—no post-consent mutation, batching, or "equivalent"
-   substitution;
+   substitution. If a provider proposes revised operation bytes, invalidate
+   the prior authorization, issue a new quote revision, display every change,
+   and request fresh authorization before submission;
 5. render counterparty registry claims per the association-naming rules and
    never derive a destination from a display name alone;
 6. request fresh receiving addresses per context where the identity profile
@@ -436,8 +445,9 @@ A conforming adapter must:
    them for authorization;
 3. decode operations for display exactly per the implementation profile's
    `intentDecoding`, refusing operations it cannot render faithfully;
-4. bind submissions to authorizations: no unsigned, re-signed, or modified
-   operation ever leaves the adapter;
+4. bind submissions to authorizations: no unsigned, silently re-signed, or
+   modified operation ever leaves the adapter. A provider-proposed revision
+   returns to quote, display, and fresh authorization as new canonical bytes;
 5. track outcome state per intent with idempotency keys, and resolve
    `unknown` by query before resubmission;
 6. validate inbound records—balances, statements, settlement evidence—
@@ -458,7 +468,8 @@ A conforming provider must:
 1. publish and honor its manifest: custody class, assets, fees, regulatory
    self-declaration, KYC policy, withdrawal terms, and privacy profile;
 2. quote payments as exact operations with expiry, and settle exactly what
-   was authorized or fail the intent—no silent repricing or rerouting;
+   was authorized, fail the intent, or propose a new quote revision requiring
+   full re-display and fresh authorization—no silent repricing or rerouting;
 3. accept authorization only in the profile's signed form; a provider that
    asks the holder to "confirm" out-of-band is outside the contract;
 4. serve settlement evidence, balances, and statements per the declared
@@ -528,7 +539,9 @@ best.
 | `quote_mismatch` | Adapter verification | Drop provider quote; possible manipulation |
 | `consent_denied` | Vault/holder | Accept; the intent dies unsigned |
 | `insufficient_funds` | Provider/ledger | Report against declared balance basis |
-| `insufficient_reserve` | Ledger rules | Explain the ledger's minimum, not a generic failure |
+| `available_balance_restricted` | Provider/settlement rule | Show the named hold, reserve, collateral, or minimum-balance rule and resulting spendable amount |
+| `operation_conflict` | Provider/settlement concurrency | Re-read current state and re-quote; never resubmit stale authorized bytes blindly |
+| `authorization_revision_required` | Provider/compliance | Treat revised bytes as a new quote; compare, re-display, and obtain fresh authorization |
 | `compliance_hold` | Provider policy | Show the policy basis and the provider's process |
 | `destination_invalid` | Adapter/provider | Refuse before authorization, not after |
 | `rate_limited` | Provider | Back off with idempotent intent identity |
@@ -540,13 +553,11 @@ best.
 Payment lifecycle:
 
 ```text
-draft
-  -> quoted (signed, expiring, exact operation)
-  -> displayed (vault renders decoded intent)
-  -> authorized | consent_denied
-  -> submitted
-  -> pending -> settled | failed | unknown
-  -> receipt (evidence per profile)
+draft -> quoted -> displayed -> authorized
+displayed -> consent_denied
+authorized -> revision_required -> quoted (new revision)
+authorized -> submitted -> pending -> settled | failed | unknown
+settled -> receipt (evidence per profile)
 ```
 
 Only profile-defined settlement evidence produces `settled`. Failure or
@@ -560,7 +571,8 @@ adapter's idempotency and outcome queries decide, never a blind retry.
    is the only key surface (whitepaper §10.2).
 2. **What was displayed is what settles.** Signatures bind to the exact
    quoted operation through canonical encoding and profile-defined intent
-   decoding.
+   decoding. Provider revisions are new operations requiring fresh display
+   and authorization, never mutations of an accepted signature.
 3. **Custody class is always visible.** Non-custodial, custodial, and
    escrow are machine-readable, per account, and rendered at every decision
    point.
@@ -603,7 +615,8 @@ adapter's idempotency and outcome queries decide, never a blind retry.
   asset from a display symbol.
 - Cross-platform fixtures cover: canonical operation encoding and intent
   decoding (including adversarial operations that must refuse to render);
-  quote verification and expiry; authorization binding; idempotent retry
+  quote verification, revision, and expiry; authorization binding including
+  fresh consent after provider revision; idempotent retry, operation-conflict,
   and `unknown` resolution; settlement evidence and reorg handling;
   custody-class display decisions; compliance-hold attribution; statement
   export round-trips; and context isolation of addresses.

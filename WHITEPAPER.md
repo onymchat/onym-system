@@ -271,6 +271,7 @@ different.
 | Association registry | Viewer and identity holder | Per displayed name or credential |
 | Application module | Individual or group | Per capability grant or session |
 | Charity deployment, credential-issuer policy, and financial binding | User or application under the campaign profile | Per campaign resolution or value-moving authorization |
+| Bank provider, account, and settlement binding | Individual account holder | Per account selection or value-moving authorization; exit follows the custody class |
 | Lead-generation placement | Campaign sponsor and generator | Per funded campaign order |
 | Acquisition landing provider | Campaign sponsor, publisher, and provider | Per funded acquisition order |
 | Foundation sponsorship | Sponsor and foundation under its legal policy | Per contribution, status term, or board term |

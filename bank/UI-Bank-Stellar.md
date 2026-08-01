@@ -25,7 +25,7 @@ The document distinguishes:
 
 | Abstract concept | Stellar mapping |
 |---|---|
-| Settlement layer | A Stellar network, identified by its network passphrase |
+| Settlement layer | `stellar:<network-passphrase-hash>`, the shared namespace form for a Stellar network |
 | Non-custodial account | The identity's Ed25519 domain key as a funded Stellar account (`G…`) |
 | Account control proof | Vault signature over a challenge bound to the account and network |
 | Receiving coordinates | `G…` address; optionally a muxed `M…` sub-address (see §5.2) |
@@ -47,6 +47,12 @@ The implementation profile identifier is:
 onym:bank-implementation:stellar-v1
 ```
 
+Its `settlementLayer` is the same
+`stellar:<network-passphrase-hash>` namespace used by
+[UI-Notary-Stellar.md](../notary/UI-Notary-Stellar.md). The canonical hash is
+derived from the exact network passphrase; a display label such as `public` or
+`testnet` is not a network identity.
+
 It maps this portable profile:
 
 ```text
@@ -63,7 +69,8 @@ by virtue of speaking Stellar.
 
 - The **account holder**'s vault derives the Ed25519 key from the BIP-39
   root ([../identity/UI-Identity-BIP39.md](../identity/UI-Identity-BIP39.md))
-  and signs envelopes as a displayed-intent capability.
+  and signs envelopes through the identity profile's `sign-transaction`
+  displayed-intent capability.
 - The **bank provider** operates quoting, records, and (if an anchor)
   custody and compliance. For a purely non-custodial account, the "provider"
   may be as thin as a read service plus quoting logic.
@@ -83,7 +90,7 @@ by virtue of speaking Stellar.
 
 ```text
 UI flow / repository
-  |-- identity vault: Ed25519 sign (displayed intent), control proofs
+  |-- identity vault: sign-transaction, prove-address-control
   `-- bank port
         |
         v
@@ -126,6 +133,10 @@ The reuse has consequences this profile must state plainly:
 3. **Contract-flow adjacency.** The same key already authorizes Soroban
    group operations. An observer of the ledger can connect an identity's
    group activity and its payment activity through the shared account.
+4. **Account-control operations cross seats.** `AccountMerge` can remove the
+   account, while signer or threshold changes through `SetOptions` can disable
+   or transfer its authorization. Both affect bank payments and any Soroban
+   contract-flow transactions sourced by this account.
 
 A successor identity profile with per-context Ed25519 derivation upgrades
 this profile to real context isolation; the bank port is already shaped for
@@ -133,19 +144,26 @@ it (`context` on every account).
 
 ### 4.2 Account existence and reserves
 
-A Stellar account exists only after funding: the minimum balance is
-`(2 + subentries) × base reserve` (currently 0.5 XLM base reserve, so 1 XLM
-for a bare account, +0.5 XLM per trustline or other subentry). A conforming
-adapter:
+A Stellar account exists only after funding. Its reserve requirement is:
+
+```text
+(2 + numSubEntries + numSponsoring - numSponsored) * baseReserve
+```
+
+Selling liabilities also reduce the spendable balance. `baseReserve` is a
+live network parameter; clients read it rather than hard-code a nominal XLM
+value. A conforming adapter:
 
 1. distinguishes "key derived" from "account funded" and never renders an
    unfunded address as a working account;
-2. reports `insufficient_reserve` in the ledger's terms—spendable balance
-   is total minus reserve minus liabilities—rather than as generic
-   insufficient funds; and
-3. discloses who funds account creation (the holder, a provider's
-   `CreateAccount` service offer, or the relayer) as a declared offer, not
-   an invisible subsidy.
+2. maps `insufficient_reserve` to the abstract
+   `available_balance_restricted` error and shows total balance, reserve,
+   sponsorship counters, liabilities, and resulting spendable balance; and
+3. discloses who funds account creation and reserves as a declared offer, not
+   an invisible subsidy. CAP-33 sponsorship uses paired
+   `BeginSponsoringFutureReserves` / `EndSponsoringFutureReserves` operations
+   and changes `numSponsoring` / `numSponsored`; it does not erase the reserve
+   or turn a fee-bump relayer into a sponsor by implication.
 
 ### 4.3 Trustlines
 
@@ -191,8 +209,9 @@ memos by default.
 
 A quote's `operation` is one unsigned XDR `TransactionEnvelope` containing:
 
-- source account (the holder's, or the relayer flow of §7);
-- a pinned sequence number valid at quoting time;
+- the holder's account as the **inner transaction source**; a §7 fee-bump
+  relayer can become only the outer fee source and never replaces this value;
+- a pinned sequence number allocated under the serialization rule below;
 - `timeBounds.maxTime` equal to the quote's `expiresAt`, so expiry is
   enforced by every validator, not just client courtesy;
 - the payment operation: `Payment`, `CreateAccount` (when the destination
@@ -200,16 +219,57 @@ A quote's `operation` is one unsigned XDR `TransactionEnvelope` containing:
   conversions, with the path and minimum-received rendered; and
 - the network fee in stroops, distinct in the quote from any provider fee.
 
+#### 6.1.1 Sequence allocation and concurrency
+
+This profile permits at most one live quoted or authorized transaction per
+underlying `G…` source account. The adapter acquires a per-account sequence
+lease, reads the current sequence and observation ledger, assigns the next
+sequence, and holds the lease until the intent settles, fails, expires, or is
+explicitly cancelled. It does not issue several independent quotes with the
+same sequence or assume they will be submitted in order.
+
+The account is shared with current Soroban contract flows and may also be used
+by another wallet, so an operation outside the bank adapter can advance the
+sequence and invalidate the lease. The adapter re-reads account state before
+authorization and submission. On `tx_bad_seq`, it first queries the authorized
+transaction hash to rule out an already accepted submission; otherwise it
+returns abstract `operation_conflict`, discards the stale quote, and obtains a
+fresh quote and authorization. It never edits or blindly re-signs the old
+envelope.
+
+This lease rule applies to transactions intended for ledger submission.
+SEP-10 authentication challenges are deliberately non-submittable, use the
+protocol-required sequence number zero, and follow the separate validation
+path in §8.
+
 ### 6.2 Display and authorization
 
 The adapter decodes the envelope and renders every operation through a
-**whitelist renderer**: operation types it can display faithfully
-(`Payment`, `CreateAccount`, `ChangeTrust`, `PathPayment*`,
-`AccountMerge`—the last with maximal warning) are shown field by field;
-any envelope containing an operation outside the whitelist, more operations
-than displayed, or unexpected source accounts is refused before the vault
-is ever invoked. `intentDecoding` conformance means: there is no envelope
-the renderer displays as less than it does.
+**whitelist renderer**. The whitelist and minimum rendering rules are:
+
+| Operation | Required rendering and checks |
+|---|---|
+| `Payment` | source, destination, exact asset and amount |
+| `CreateAccount` | source, destination, starting balance, reserve and sponsorship effect |
+| `ChangeTrust` | holder, asset code and issuer, limit, reserve and public-linkability effect |
+| `PathPaymentStrictSend` / `PathPaymentStrictReceive` | source/destination assets and amounts, full path, limits, slippage, destination |
+| `ManageData` | key, value digest, source, and zero-value effect; accepted for SEP-10 only after full challenge validation and rendered as authentication, never payment |
+| `AllowTrust` | issuer source, trustor, asset, and authorization value; accepted only as an issuer-sourced SEP-8 compliance operation |
+| `BeginSponsoringFutureReserves` / `EndSponsoringFutureReserves` / `RevokeSponsorship` | every source, sponsored party or ledger entry, pairing, and reserve-liability change |
+| `SetOptions` | every signer addition/removal, signer weight, master weight, threshold, flag, home domain, and other changed field, with maximal account-control warning |
+| `AccountMerge` | source, destination, whole-balance transfer, account deletion, and maximal irreversible warning |
+
+Any envelope containing an operation outside the whitelist, more operations
+than displayed, an unexpected source account, or a whitelisted operation that
+fails its context-specific checks is refused before the vault is invoked.
+`intentDecoding` conformance means there is no envelope the renderer displays
+as less than it is.
+
+For the reused account, the maximal warnings for `SetOptions` and
+`AccountMerge` explicitly say that the operation can disable, transfer, or
+destroy both bank control and the identity's account-based authorization for
+Soroban contract-flow transactions. A generic “account settings” or “close
+account” label is nonconforming.
 
 The vault signs the envelope hash domain-separated by the network
 passphrase—so testnet signatures cannot replay on the public network—and
@@ -227,12 +287,22 @@ with a sequence error rather than double-paying.
   so `settled` is final and the abstract `settlement_reorged` error is
   structurally unreachable on this profile.
 - `failed`: a result code in a closed ledger (rendered by code:
-  underfunded, no trustline, missing destination, bad auth, too late).
+  underfunded, low reserve, no trustline, missing destination, bad auth, bad
+  sequence, too late).
 - `unknown`: submission timeout—resolved by querying for the transaction
   hash before any re-quote, never by re-signing blind.
 
 `expired` maps to `tx_too_late`: an envelope past its time bounds can never
 settle, so expiry is a safe terminal state.
+
+Stellar-specific result mapping extends the abstract errors:
+
+| Stellar result | Abstract result |
+|---|---|
+| `tx_bad_seq` | `operation_conflict`, after transaction-hash reconciliation |
+| `tx_insufficient_balance` or an operation-specific `*_low_reserve` | `available_balance_restricted` with reserve and sponsorship detail |
+| an operation-specific `*_underfunded` | `insufficient_funds` |
+| `tx_too_late` | `quote_expired` |
 
 ## 7. Fees and the relayer
 
@@ -268,10 +338,29 @@ redeemability is exactly the anchor's liability. Clients render that
 distinction—token in your account (non-custodial, ledger-observed) versus
 balance at the anchor (custodial claim)—without collapsing it.
 
-SEP-8 regulated assets, where an issuer's approval server must co-sign
-transactions, map to the abstract `compliance_hold`: attributed to the
-issuer's published policy, machine-readable, and rendered as a policy
-decision rather than a network failure.
+SEP-8 regulated assets require an explicit approval loop:
+
+1. The holder authorizes the initially displayed envelope, and the adapter
+   sends those exact bytes to the issuer's approval server rather than to the
+   network.
+2. A `success` response may add issuer signatures but must preserve the
+   transaction bytes and holder operations; the adapter verifies this before
+   submission.
+3. A `revised` response is `authorization_revision_required`, not approval of
+   the old intent. The adapter preserves it as a new quote revision, verifies
+   every original holder-sourced operation is byte-for-byte unchanged, rejects
+   any added holder-sourced operation, decodes and displays every added
+   issuer-sourced operation, compares the revisions, and requests a fresh
+   holder signature over the complete revised envelope.
+4. `pending`, `action_required`, and `rejected` remain attributed
+   `compliance_hold` states under the issuer's published policy. Resubmission
+   after action or delay reuses the same authorized bytes unless the server
+   returns a separately displayed revision.
+
+The revised envelope never inherits the original signature as consent. The
+fresh authorization covers the complete transaction, including SEP-8
+`AllowTrust` operations or other issuer-added compliance operations. This is a
+new authorization cycle, not post-consent mutation.
 
 ## 9. Escrow class: native multisignature
 
@@ -281,7 +370,13 @@ natively: an account whose declared movements need multiple signers
 manifest names signers, weights, thresholds, and the unilateral exit path
 if any. Setting signers and thresholds (`SetOptions`) is itself a
 displayed, authorized intent with maximal warning: it changes who controls
-the account, and a hostile threshold change is account theft.
+the account, and a hostile threshold change is account theft. Because this
+profile reuses the same account for current Soroban flows, the warning also
+states that changing master weight, signers, or thresholds can disable or hand
+another signer the account authorization used by those contract transactions.
+`AccountMerge` carries the corresponding warning that deleting the account
+also destroys that cross-seat authorization surface until a separately
+verified recovery or recreation flow succeeds.
 
 ## 10. Privacy
 
@@ -337,11 +432,12 @@ implementation:
 4. no `ServiceManifest` format exists for bank providers, anchors, or read
    services, so custody class, regulatory declarations, and fee schedules
    have no verified carrier;
-5. reserve handling (funding, trustline costs, spendable-vs-total) has no
-   UX or adapter logic;
+5. reserve handling (including CAP-33 sponsorship counters, trustline costs,
+   and spendable-vs-total calculation) has no UX or adapter logic;
 6. SEP-10/6/24/8 integrations, and the login-vs-payment rendering split for
    SEP-10 challenges, are unimplemented;
 7. statement export, `provider-attested` versus `ledger-observed` labeling,
+   sequence leasing across bank and Soroban flows, SEP-8 revision handling,
    and outcome idempotency logic do not exist; and
 8. there is no fixture suite: envelope rendering (including adversarial
    envelopes that must refuse), signature domain separation, sequence and
@@ -364,16 +460,23 @@ A shared fixture suite covers, at minimum:
 3. signature vectors: envelope hash, network-passphrase domain separation,
    and cross-network replay rejection;
 4. sequence and time-bounds vectors: stale sequence, future sequence,
-   expired bounds (`tx_too_late`), and duplicate-submission behavior;
+   expired bounds (`tx_too_late`), duplicate-submission behavior, concurrent
+   quote refusal, and invalidation by an external Soroban transaction;
 5. fee-bump wrapping: inner-envelope immutability under relayer fees;
 6. outcome mapping for the principal result codes, including
    `unknown`-then-query resolution;
-7. reserve arithmetic: minimum balance, per-subentry costs, spendable
-   calculation;
+7. reserve arithmetic: `numSubEntries`, `numSponsoring`, `numSponsored`,
+   selling liabilities, spendable calculation, and CAP-33 begin/end pairing;
 8. muxed address encode/decode and the `M…`-implies-`G…` disclosure rule;
-9. SEP-10 challenge rendering as zero-value authentication; and
-10. custody-class display decisions for ledger tokens versus anchor
-    claims.
+9. SEP-10 `ManageData` challenge validation and rendering as zero-value
+   authentication;
+10. `SetOptions` and `AccountMerge` rendering with the bank-and-Soroban
+    cross-seat authority warning;
+11. SEP-8 `success`, `revised`, `pending`, `action_required`, and `rejected`
+    flows, including byte comparison and fresh authorization of revisions;
+12. result mapping for `tx_bad_seq`, reserve restrictions, underfunding, and
+    expiry; and
+13. custody-class display decisions for ledger tokens versus anchor claims.
 
 ## 14. Acceptance criteria
 
@@ -391,9 +494,13 @@ This Stellar profile satisfies the abstract boundary when:
 5. anchor balances, ledger tokens, and escrow arrangements render as their
    distinct custody classes with the anchor's declarations visible;
 6. SEP-10 authentication is never confusable with a payment;
-7. the shared-account correlation limitation is disclosed in-product until
-   per-context keys remove it; and
-8. the profile upgrades to per-context accounts without changing the
+7. SEP-8 revisions cannot bypass a complete diff, re-display, and fresh
+   authorization cycle;
+8. shared-account sequence conflicts cannot cause blind resubmission or
+   hidden re-signing;
+9. the shared-account correlation and cross-seat account-control limitations
+   are disclosed in-product until per-context keys remove them; and
+10. the profile upgrades to per-context accounts without changing the
    abstract port's shape.
 
 ## References
@@ -409,12 +516,14 @@ This Stellar profile satisfies the abstract boundary when:
    <https://developers.stellar.org/docs/learn/fundamentals/transactions>
 6. CAP-15, “Fee-Bump Transactions”:
    <https://github.com/stellar/stellar-protocol/blob/master/core/cap-0015.md>
-7. CAP-27 / SEP-23, “Muxed Accounts”:
+7. CAP-33, “Sponsored Reserves”:
+   <https://github.com/stellar/stellar-protocol/blob/master/core/cap-0033.md>
+8. CAP-27 / SEP-23, “Muxed Accounts”:
    <https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0023.md>
-8. SEP-10, “Stellar Web Authentication”:
+9. SEP-10, “Stellar Web Authentication”:
    <https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md>
-9. SEP-24, “Hosted Deposit and Withdrawal”:
+10. SEP-24, “Hosted Deposit and Withdrawal”:
    <https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md>
-10. SEP-8, “Regulated Assets”:
+11. SEP-8, “Regulated Assets”:
     <https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0008.md>
-11. Onym transaction relayer: <https://github.com/onymchat/onym-relayer>
+12. Onym transaction relayer: <https://github.com/onymchat/onym-relayer>
