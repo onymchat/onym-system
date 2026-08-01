@@ -247,7 +247,7 @@ A `NotaryDeployment` binds a profile to an operated system:
 
 The UI verifies the profile, operator signature, backend binding,
 implementation identity, evidence roots, and validity period before offering
-the deployment. A directory entry or friendly name is insufficient.
+the deployment. A Discovery catalog entry or friendly name is insufficient.
 
 The deployment manifest declares operator powers. If the operator can upgrade
 rules, pause transitions, censor creation, rewrite state, rotate verification
@@ -585,8 +585,8 @@ skip evidence verification.
    rejected rather than applied to a different revision.
 4. **The submitter is not an oracle.** Its success response is not canonical
    state without independently verified evidence.
-5. **The binding is sticky.** UI, directory, price, default, or endpoint changes
-   cannot silently move an existing group.
+5. **The binding is sticky.** UI, Discovery catalog, price, default, or endpoint
+   changes cannot silently move an existing group.
 6. **Payment and identity are scoped.** Billing evidence and access keys do not
    reveal global identity, transport topics, or message relationships.
 7. **Errors fail closed.** Decode, evidence, read, consistency, and finality

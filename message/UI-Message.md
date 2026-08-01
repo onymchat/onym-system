@@ -250,8 +250,8 @@ A transport `ServiceManifest` binds an implementation profile to an operator:
 ```
 
 The UI verifies the operator signature, both profiles, endpoint syntax,
-limits, validity, privacy declaration, and selected offer. A directory entry
-or friendly name is insufficient.
+limits, validity, privacy declaration, and selected offer. A Discovery catalog
+entry or friendly name is insufficient.
 
 Mutable health and load reports remain separate from signed policy. They must
 not replace an operator, endpoint, implementation profile, or offer.
@@ -404,7 +404,7 @@ same logical address.
 A conforming frontend and application layer must:
 
 1. verify message and implementation profiles plus every selected manifest;
-2. preserve the user's route across UI, directory, and catalog updates;
+2. preserve the user's route across UI, Discovery catalog, and offer updates;
 3. display operator, price, retention, limits, redundancy, and material
    metadata exposure before selection or purchase;
 4. authenticate and encrypt the inner envelope before invoking transport;

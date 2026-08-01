@@ -48,7 +48,7 @@ privilege of the UI publisher or identity-vault vendor.
   trustees to recover to that device.
 - An **implementation-profile author** defines how artifacts and trustee
   contributions are protected and combined.
-- A **directory or UI publisher** may recommend providers under its own
+- A **Discovery provider or UI publisher** may recommend providers under its own
   policy, but cannot make direct use of a compatible trustee invalid.
 
 One party may occupy several roles, but their authority remains explicit. A
@@ -249,7 +249,7 @@ Each operator publishes a signed manifest:
 ```
 
 `trustDomain` is a provider assertion used to help users avoid accidental
-concentration; it is not proof of independence. A directory may verify
+concentration; it is not proof of independence. A Discovery provider may verify
 corporate control, infrastructure, audits, insurance, jurisdiction, or
 incident history under a separately published listing policy.
 
@@ -337,7 +337,7 @@ service enrollment; possession of its published encryption key alone cannot
 create an accepted record. It treats `policyDigest` as an opaque binding
 because it cannot recompute the private full-policy digest. The holder and
 recovering vault verify the full policy and require every contribution to bind
-the same digest. A directory, coordinator, or trustee receives no other
+the same digest. A Discovery provider, coordinator, or trustee receives no other
 trustee entry merely to validate one slot.
 
 The healthy vault authorizes each enrollment slot with a distinct trustee-
@@ -689,8 +689,8 @@ They must not be placed on a public notary or blockchain by default.
 Trustee-specific pseudonymous keys and opaque slot identifiers should be used
 so separate providers cannot trivially join the holder's other seat activity.
 Payment credentials must not be placed in recovery artifacts or identity
-descriptors. A directory or billing broker does not receive candidate factors
-or recovery contributions.
+descriptors. A Discovery provider or billing broker does not receive candidate
+factors or recovery contributions.
 
 ## 11. Security invariants and threats
 
@@ -716,8 +716,8 @@ decisive.
 
 ## 12. Offers, payment, and open participation
 
-Anyone may offer a trustee seat directly or through competing directories. A
-`SeatOffer` may charge:
+Anyone may offer a trustee seat directly or through competing Discovery
+providers. A `SeatOffer` may charge:
 
 - once per enrollment or rotation;
 - periodically for custody and availability;
@@ -735,7 +735,8 @@ The offer must declare at least:
 - export and migration rights;
 - retention and deletion schedule;
 - operator jurisdiction and complaint path; and
-- any UI publisher, billing broker, directory, or other disclosed split.
+- any UI publisher, billing broker, Discovery provider, or other disclosed
+  split.
 
 Each provider receives only its selected offer revenue after disclosed channel
 fees, taxes, refunds, and agreed splits. It acquires no claim on future UI,
@@ -744,9 +745,10 @@ or transfer its enrolled role to a new operator without the holder-authorized
 rotation required by the policy.
 
 Open participation means permissionless compatibility, not automatic trust.
-A UI or directory may require audits, legal identity, insurance, hardware
-controls, uptime, incident response, or conformance tests before recommending
-a provider. A holder remains free to import a compatible manifest directly.
+A UI or Discovery provider may require audits, legal identity, insurance,
+hardware controls, uptime, incident response, or conformance tests before
+recommending a provider. A holder remains free to import a compatible manifest
+directly.
 
 ## 13. Portability and replacement
 

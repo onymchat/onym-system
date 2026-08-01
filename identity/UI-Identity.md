@@ -131,10 +131,10 @@ abandoning every relationship the identity has.
 
 ### 3.5 It keeps names and identities separable
 
-Registries, directories, and applications attach meaning to an identity. The
-vault boundary guarantees the reverse never holds: losing a name, a registry,
-or an application does not lose the identity, and no issuer can rotate,
-freeze, or transfer keys it never held.
+Registries, Discovery providers, and applications attach meaning to an
+identity. The vault boundary guarantees the reverse never holds: losing a
+name, a registry, or an application does not lose the identity, and no issuer
+can rotate, freeze, or transfer keys it never held.
 
 ## 4. Logical topology
 
@@ -602,8 +602,8 @@ or frequently approved requester does not receive weaker validation.
    keys, addresses, or relationships.
 6. **Grants are narrower than the identity.** Scoped, constrained, expiring,
    individually revocable—and revocation does not require root rotation.
-7. **Names are claims, not control.** No registry, directory, or application
-   holds authority over keys by virtue of naming or paying.
+7. **Names are claims, not control.** No registry, Discovery provider, or
+   application holds authority over keys by virtue of naming or paying.
 8. **Rotation has declared reach.** Every profile states what a rotation
    repairs, what it re-proves, and what it cannot fix.
 9. **Recovery is a holder ceremony.** No capability requester can trigger,

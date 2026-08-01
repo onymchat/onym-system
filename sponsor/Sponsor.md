@@ -111,7 +111,7 @@ Recognition never implies control over:
 - a provider's relay, blob server, notary, registry, or application;
 - a permissionless protocol implementation;
 - technical conformance or security-audit results;
-- directory inclusion or ranking;
+- Discovery catalog inclusion or ranking;
 - a grant, procurement award, or regulatory endorsement; or
 - continued recognition after the credential's declared term.
 
@@ -454,7 +454,7 @@ protected personal data remain access controlled.
 | `revokeStatus` | Policy ground and due process | Revocation record |
 
 There is no operation for `buyProtocolControl`, `buyUserData`,
-`forceDirectoryInclusion`, `overrideConformance`, `instructDirectorVote`, or
+`forceDiscoveryInclusion`, `overrideConformance`, `instructDirectorVote`, or
 `claimInvestmentReturn`.
 
 ## 8. Recognition policy requirements

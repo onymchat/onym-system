@@ -646,8 +646,8 @@ forfeit valid earned payment.
 - Cross-implementation fixtures cover canonical objects, signatures,
   arithmetic, caps, counter regression, duplicate settlement, missing data,
   landing aggregation, privacy failure, and disputes.
-- A directory may curate generator offers; direct signed offers remain valid
-  independently of directory inclusion.
+- A Discovery provider may curate generator offers; direct signed offers
+  remain valid independently of catalog inclusion.
 
 ## 16. Concrete implementation profiles
 
