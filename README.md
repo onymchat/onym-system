@@ -36,10 +36,12 @@ governing rule for every seat:
 | Document | Defines |
 |---|---|
 | [WHITEPAPER.md](WHITEPAPER.md) | The complete system model, design principles, economics, threat model, and roadmap |
+| [interface/](interface/Interface.md) | The interface seat: honest presentation, no accounts, protected consent surfaces, disclosed economics, permanent exit |
 | [identity/](identity/UI-Identity.md) | The identity vault: key custody, capability requests, consent, rotation, recovery — with the current [BIP-39 profile](identity/UI-Identity-BIP39.md) |
 | [message/](message/UI-Message.md) | Small-message courier boundary — with the current [Nostr profile](message/UI-Message-Nostr.md) |
 | [blob/](blob/UI-Blob.md) | Encrypted media storage boundary — with the current [Blossom profile](blob/UI-Blob-Blossom.md) |
 | [notary/](notary/UI-Notary.md) | Group shared-state validation — with the current [Stellar/Soroban profile](notary/UI-Notary-Stellar.md) |
+| [recovery/](recovery/Recovery-Trustee.md) | Recovery Trustee boundary — provider-neutral enrollment, recovery, rotation, and exit, with [cloud-custody](recovery/Recovery-Trustee-Cloud.md) and [Shamir](recovery/Recovery-Trustee-Shamir.md) profiles |
 | [charity/](charity/UI-Charity.md) | Charitable coordination as the first non-messaging application seat ([contract](charity/Charity.md)) |
 | [audit/](audit/Audit.md) | Signed, expiring, revocable attestations about exact artifacts — audits, conformance runs, build provenance |
 | [arbitration/](arbitration/Arbitration.md) | Party-chosen dispute deciders whose authority is bounded to one order's escrowed stake |

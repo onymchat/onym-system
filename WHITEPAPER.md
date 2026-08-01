@@ -522,6 +522,10 @@ Its responsibilities include:
 - warning when a component is incompatible, unaudited, unavailable, or
   privacy-degrading.
 
+The interface seat's own obligations — honest presentation, bounded
+authority, protected consent surfaces, disclosed economics, and permanent
+exit — are specified in [interface/Interface.md](interface/Interface.md).
+
 A malicious UI can steal secrets or lie about transaction intent. Open source,
 reproducible builds, signed releases, independent distributions, hardware-backed
 key isolation, and conformance tests reduce this risk but do not eliminate it.
