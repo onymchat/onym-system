@@ -1,6 +1,6 @@
 ---
 status: draft
-proposed: Claude & @rinat-enikeev
+proposed: Claude, Codex & @rinat-enikeev
 date: 01.08.2026
 ---
 
@@ -18,6 +18,12 @@ conforming interface may be a native mobile app, desktop app, web client,
 command-line tool, accessibility-first interface, institutional console, or
 embedded component.
 
+The **interface seat** is the same seat that [whitepaper
+§7](../WHITEPAPER.md#7-messenger-and-ui-seat) calls the **Messenger and UI
+seat**; it is not an additional role. `Interface.md` defines that seat's
+user-facing obligations, while the sibling `UI-X.md` documents define its
+boundaries with particular counterparties.
+
 The interface is the one seat that is party to every other UI ↔ seat
 boundary — [identity](../identity/UI-Identity.md),
 [message](../message/UI-Message.md), [blob](../blob/UI-Blob.md),
@@ -32,7 +38,7 @@ implementation profile must define its supported seat profiles, release
 integrity mechanism, and conformance evidence.
 
 This is proposed architecture. The current Onym clients implement parts of
-this contract; §17 records the known gaps honestly.
+this contract; §18 records the known gaps honestly.
 
 ## 1. Decision
 
@@ -125,25 +131,38 @@ Every distributed build is described by a signed release manifest:
 
 | Field | Meaning |
 |---|---|
+| `manifestId` | Stable unique identifier for this manifest |
 | `publisher` | Signing identity of the interface publisher |
+| `profileVersion` | Interface contract and implementation-profile version used by the build |
 | `version` | Human-readable version and monotonic build identifier |
 | `artifacts` | Content hashes of the distributed binaries or bundles |
 | `sourceRef` | Source revision the build claims to correspond to, when source is published |
 | `profiles` | Seat implementation profiles this build supports |
 | `channels` | Distribution channels this release is published to |
+| `issuedAt` | Manifest issuance time |
+| `supersedes` | Prior manifest identifier, or null for the first release |
+| `signature` | Publisher signature over the canonical manifest |
 
 The manifest lets an auditor, a distribution channel, or a cautious user
 bind "the app I run" to "the code that was reviewed". Where reproducible
 builds are not yet achieved, the manifest must say so rather than imply
 verification that does not exist.
 
+A release manifest is the publisher's signed claim, not an independent
+assurance result. Exact-artifact review, build-provenance claims, expiry,
+supersession, and revocation are owned by the [audit
+boundary](../audit/Audit.md). An audit attestation references the exact
+manifest and artifact hashes it examined; an interface must never render the
+publisher's manifest alone as an audit.
+
 ### 5.2 Commission disclosure
 
 When the interface operates a billing channel for other seats, the
-commission is defined by the channel's signed offer (whitepaper §16–§17),
-and the interface renders it as a line item before consent. There is no
-undisclosed spread: the price the provider offered, the commission, and the
-total the user pays are all visible on the payment surface.
+commission is defined by its signed
+[`ChannelOffer`](../WHITEPAPER.md#161-channel-offer), and the interface
+renders it as a line item before consent. There is no undisclosed spread: the
+price the provider offered, the commission, and the total the user pays are
+all visible on the payment surface.
 
 ## 6. Selection and presentation
 
@@ -161,8 +180,9 @@ The interface is how competition between seats becomes real:
 
 ## 7. Consent surfaces
 
-Signatures move funds, change group state, enroll recovery trustees, and
-bind names. The surfaces that obtain this consent are **protected**:
+Signatures move funds, change group state, enroll [recovery
+trustees](../recovery/Recovery-Trustee.md), and bind names. The surfaces that
+obtain this consent are **protected**:
 
 1. the object being signed is summarized in the user's language, with the
    full canonical object one gesture away;
@@ -173,8 +193,13 @@ bind names. The surfaces that obtain this consent are **protected**:
 4. a declined consent leaves no protocol trace and triggers no retaliation
    in the interface's behavior.
 
-These are the same surfaces the sponsorship contract lists as prohibited
-resources — no recognition, placement, or payment may ever reach them.
+The [sponsorship contract](../sponsor/Sponsor.md) permits recognition only on
+resources in a signed `RecognitionInventory`, which may include a specifically
+declared acknowledgement area in a foundation-published app. Under this
+interface contract, a protected consent surface is never eligible for that
+inventory: any acknowledgement area must be separate from consent, payment,
+safety, recovery, and export surfaces. No sponsor recognition, sponsored
+placement, or consideration for placement may reach a protected surface.
 
 ## 8. Data and privacy boundary
 
@@ -189,6 +214,16 @@ decryption, drafts, contact labels, usage rhythm. Therefore:
   message content and identifiers, and documented field by field;
 - the interface adds no tracking pixels, third-party analytics SDKs, or
   fingerprinting to any surface, including its web presence inside the app.
+
+If the publisher also operates a billing broker or support service, it may
+hold the minimum subscription, entitlement, refund/revocation, tax, support,
+and provider-settlement records required for that service. Each
+`ChannelOffer` or support contract declares the fields and retention period:
+only for the active commercial relationship plus a stated dispute, accounting,
+or legally required retention period, after which records are deleted or
+lawfully anonymized. This state is neither a publisher account required for
+protocol use nor a behavioral record, and it cannot gate direct or free seat
+access.
 
 What the interface cannot hide: the platform it runs on may observe app
 usage, notifications, and network timing. A conforming interface documents
@@ -215,8 +250,11 @@ its competitors cannot have for free.
    documented formats, without fee, delay, or account.
 2. The same identity may run in several interfaces concurrently; the
    interface must tolerate state it did not author.
-3. Uninstalling the interface deletes its local state and nothing else: no
-   server-side residue exists to delete, because none was created.
+3. Uninstalling the interface deletes its local state and nothing else. No
+   publisher-held account or behavioral record exists to delete. Billing or
+   support state described in §8 may remain until its disclosed retention
+   period expires; the interface exposes cancellation and any available
+   deletion request, and states what must be retained and until when.
 4. A discontinued interface strands nothing: the publisher's disappearance
    removes support, not access.
 
@@ -232,22 +270,49 @@ its competitors cannot have for free.
   default, or re-ask a consent the user already refused, without presenting
   the change as a change.
 
-## 12. Error semantics
+## 12. Common contract surface
 
-The interface maps every counterparty error to an honest surface:
+| Operation | Input | Result |
+|---|---|---|
+| `inspectRelease` | Distributed artifact | Validated publisher manifest, exact-artifact audit attestations, or explicit absence |
+| `listComponents` | Seat type and optional discovery catalogs | Signed candidates plus a direct-entry path |
+| `selectComponent` | User choice and implementation profile | Persisted local selection or typed incompatibility |
+| `prepareAction` | User intent and selected profiles | Canonical unsigned protocol object and validation result |
+| `requestConsent` | Canonical object, effects, price, and counterparty | Decline, or one bounded authorization for that exact action |
+| `invokeComponent` | Selected component and authorized object | Unmodified typed counterparty result; never a silent substitute |
+| `quoteChannelOffer` | `SeatOffer` and signed `ChannelOffer` | Provider price, commission, total, and retention terms |
+| `exportState` | Holder ceremony and export scope | Documented portable protocol and local state |
+| `importState` | Documented portable state | Validated local reconstruction without an ownership change |
+| `eraseLocalState` | Holder confirmation | Local deletion result plus any separate billing/support retention notice |
 
-| Situation | Rendering |
-|---|---|
-| Courier unavailable | Delivery state shown as pending/failed — never silently dropped |
-| Notary rejects a transition | The group state the notary actually holds, with the rejection reason |
-| Payment required (`402`) | The price and payee before retry — never an automatic payment |
-| Incompatible profile | Refusal with the version facts, not a generic failure |
-| Vault refuses a capability | The refusal verbatim — the interface never re-asks in a loop |
+These operations are local unless they explicitly invoke a selected seat or
+billing broker. There is no operation for `createPublisherAccount`,
+`silentlySubstitute`, `autoPay`, `sellBehavior`, or `blockExport`.
+
+## 13. Error semantics
+
+The interface normalizes its own and counterparty failures to stable,
+technology-neutral codes while preserving any signed or profile-specific
+detail. Concrete profiles may map transport statuses such as HTTP `402` to
+these codes; the abstract interface uses `payment_required`.
+
+| Error | Responsible party | Required remedy |
+|---|---|---|
+| `counterparty_unavailable` | Selected seat or network | Preserve the real pending/failed outcome; offer retry or a user-chosen route change |
+| `counterparty_rejected` | Selected seat | Render its typed reason and authoritative state; do not blame or rewrite it |
+| `payment_required` | Provider and selected billing channel | Show the `ChannelOffer` price, payee, commission, and total; require fresh consent before retry |
+| `unsupported_profile` | Interface or selected seat | Refuse with both version facts and the compatible choices |
+| `vault_refused` | Identity vault or holder policy | Render the refusal and constraint; never re-ask in a loop |
+| `manifest_invalid` | Interface publisher or distribution channel | Do not treat the release as verified or claim conformance |
+| `artifact_mismatch` | Publisher, distribution channel, or auditor claim | Treat the manifest or attestation as inapplicable to the running artifact |
+| `consent_denied` | User | Stop without a signature, payment, protocol trace, or retaliation |
+| `selection_unavailable` | Interface | Preserve the user's selection; never substitute the publisher's choice |
+| `export_unavailable` | Interface publisher | Preserve state, show the failure, and repair export before claiming conformance |
 
 An interface must not fabricate success, retry a signature without fresh
 consent, or blame a competitor's seat without evidence it renders.
 
-## 13. Threat model
+## 14. Threat model
 
 | Threat | Control |
 |---|---|
@@ -264,9 +329,9 @@ Open source, reproducible builds, independent audits, and the ability to
 walk away remain the real controls; this boundary exists so that walking
 away is always possible.
 
-## 14. Obligations
+## 15. Obligations
 
-### 14.1 Interface publisher
+### 15.1 Interface publisher
 
 1. Honor every UI ↔ seat boundary this interface invokes.
 2. Publish signed release manifests for every distributed build.
@@ -275,19 +340,19 @@ away is always possible.
 4. Disclose all revenue mechanics of §9 in the product, before they bind.
 5. Ship export, migration, and warning surfaces as working features.
 
-### 14.2 Distribution channel
+### 15.2 Distribution channel
 
 1. Carries the app under its own store contract; gains no authority over
    protocol state, seat selection, or other seats' revenue.
 2. Measured only in aggregates, per the acquisition boundary.
 
-### 14.3 User-facing claims
+### 15.3 User-facing claims
 
 Marketing may claim conformance only for the profiles listed in the release
 manifest, and must repeat the unaudited/alpha status honestly while it is
 true.
 
-## 15. Security, privacy, and economic invariants
+## 16. Security, privacy, and economic invariants
 
 - **I1.** No publisher-held account is required to use the protocol.
 - **I2.** Secrets stay behind the vault boundary; the interface handles
@@ -303,15 +368,15 @@ true.
 - **I7.** The interface earns only when chosen: app pricing and disclosed
   commissions, nothing structural.
 
-## 16. Versioning and conformance
+## 17. Versioning and conformance
 
 This boundary versions as `onym:interface:v1`. An implementation profile
 declares the seat profiles it supports, its release-integrity mechanism, and
 its conformance evidence. Conformance fixtures for consent surfaces, export,
-and error rendering are open work (whitepaper §19–§22); until they exist,
+and error rendering are open work (whitepaper §21); until they exist,
 claims of conformance are self-assessed and must say so.
 
-## 17. Known gaps
+## 18. Known gaps
 
 The current Onym iOS and Android clients, honestly measured against this
 contract:
@@ -322,9 +387,10 @@ contract:
 - conformance fixtures for protected surfaces do not yet exist;
 - diagnostics are absent (which conforms), but so is the documented
   opt-in mechanism this contract expects;
-- no independent audit of any client has occurred.
+- no independent [audit](../audit/Audit.md) attestation of any client has
+  occurred.
 
-## 18. Acceptance criteria
+## 19. Acceptance criteria
 
 An interface conforms when:
 
@@ -336,7 +402,27 @@ An interface conforms when:
 5. its pricing and commission disclosures match what users are actually
    charged.
 
-## 19. Justification in one sentence
+## 20. Justification in one sentence
 
 The interface sees the most and must therefore own the least: a window with
 published prices, protected consent, and a door that always opens outward.
+
+## References
+
+1. Onym system whitepaper, §7, §16–§17, and §21:
+   [../WHITEPAPER.md](../WHITEPAPER.md)
+2. Onym identity-vault boundary:
+   [../identity/UI-Identity.md](../identity/UI-Identity.md)
+3. Onym message and blob boundaries:
+   [../message/UI-Message.md](../message/UI-Message.md) and
+   [../blob/UI-Blob.md](../blob/UI-Blob.md)
+4. Onym notary boundary:
+   [../notary/UI-Notary.md](../notary/UI-Notary.md)
+5. Onym Recovery Trustee boundary:
+   [../recovery/Recovery-Trustee.md](../recovery/Recovery-Trustee.md)
+6. Onym audit boundary for exact-artifact attestations and build provenance:
+   [../audit/Audit.md](../audit/Audit.md)
+7. Onym acquisition boundary for aggregate-only distribution measurement:
+   [../acquisition/Acquisition.md](../acquisition/Acquisition.md)
+8. Onym sponsor boundary for bounded recognition:
+   [../sponsor/Sponsor.md](../sponsor/Sponsor.md)
