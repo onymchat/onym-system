@@ -18,7 +18,7 @@ at rest limits disk, backup, and database exposure; it does not make the
 provider non-custodial. Multiple replicas, regions, or hardware security
 modules under the same operator remain one trustee.
 
-This is a protocol profile, not a claim that Ledger or any other named vendor
+This is a protocol profile, not a claim that any third-party product or vendor
 uses, endorses, or conforms to it.
 
 ## 1. Conformance declaration
@@ -30,7 +30,7 @@ uses, endorses, or conforms to it.
 | Trustee | One signed cloud service component |
 | Recovery contribution | Recovery-unlock key protected by provider-controlled wrapping |
 | Protected object | AEAD-encrypted canonical `RecoveryArtifact` |
-| Recovery destination | Fresh HPKE public key generated on the recovering device |
+| Recovery destination | Fresh HPKE encryption key and Ed25519 proof key generated on the recovering device |
 | Candidate authorization | Pre-enrolled factors, cooldown, notification, and veto policy |
 | Provider evidence | Signed enrollment, lifecycle, release, and deletion receipts |
 | Availability boundary | Provider service, backups, key service, and policy operations |

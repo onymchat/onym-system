@@ -131,15 +131,18 @@ boundary. The system boundary is a user-controlled identity capable of:
 4. participating in groups governed by verifiable rules;
 5. sending encrypted data over replaceable transports;
 6. authorizing actions in external applications; and
-7. directing payments to selected service providers; and
-8. recovering through an explicitly chosen provider or trustee threshold.
+7. directing payments to selected service providers.
 
-Messaging uses all eight. A charitable association can use the same identity
+Messaging uses all seven. A charitable association can use the same identity
 to establish membership, publish a receiving address, approve disbursements,
 and communicate privately. A financial application can use it to present an
 account address or request a transaction signature. Neither application needs
 the recovery phrase, nor should it learn every other address derived from the
 same identity.
+
+Recovery is a separate, optional identity-lifecycle path rather than a
+capability exercised by every message. A holder may enroll a provider or
+trustee threshold before loss and invoke it only during a recovery ceremony.
 
 Onym is therefore better understood as a **composition protocol**: a way to
 assemble user-owned identity, independently operated infrastructure, public
@@ -248,8 +251,8 @@ around an open-ended application layer.
          Acquisition campaigns reserve finite direct-payment budgets.
 
          +-------------------------------------------------------+
-         | Recovery trustees: cloud custody · threshold shares  |
-         | selected by holder; active only during recovery      |
+         | Recovery trustees: cloud custody · threshold shares   |
+         | selected by holder; active only during recovery       |
          +-------------------------------------------------------+
                       | contribution to fresh recovery device
                       `--------------------> Identity vault

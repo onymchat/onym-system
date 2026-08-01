@@ -195,20 +195,47 @@ SLIP-0039 words separated by one ASCII space and placed in a private envelope:
   "enrollmentId": "<random-256-bit-id>",
   "enrollmentSequence": 1,
   "policyDigest": "<sha256>",
+  "identityBindingCommitment": "<opaque-commitment-from-policy>",
   "artifactDigest": "<sha256>",
+  "recoveryMode": "secret-restoration",
   "trusteeComponentId": "onym:component:<trustee-id>",
   "slot": "<random-opaque-slot-id>",
+  "trusteeChallenge": "<fresh-single-use-challenge-issued-for-this-slot>",
   "memberIndex": "<0-through-n-minus-1>",
   "memberThreshold": "t",
   "memberCount": "n",
+  "trusteePolicy": {
+    "candidateFactors": ["<this-trustee-factor-bindings>"],
+    "cooldown": "P2D",
+    "sessionLifetime": "P7D",
+    "maximumAttempts": 3,
+    "notifications": ["<this-trustee-destination-references>"],
+    "holderVeto": "<this-trustee-veto-method-and-deadline>",
+    "lapsePolicy": "<this-trustee-grace-export-destruction-rule>"
+  },
   "slip39Share": "<canonical-share-words>",
-  "createdAt": "2026-08-01T00:00:00Z"
+  "createdAt": "2026-08-01T00:00:00Z",
+  "expiresAt": "2027-08-01T00:00:00Z",
+  "authorizationPublicKey": "<recovery-and-trustee-scoped-ed25519-public-key>",
+  "holderAuthorization": "<ed25519-signature-over-canonical-envelope-with-this-field-omitted>"
 }
 ```
 
-The entire envelope is HPKE-sealed to that trustee. Only the intended trustee
-learns its member index or words. The coordinator receives a ciphertext and
-digest, not the share.
+This signed envelope is the Shamir mapping of the abstract
+`TrusteeEnrollmentAuthorization`: it contains the full-policy digest and only
+this trustee's identity, slot, share parameters, and enforcement policy. The
+holder authorization authenticates every envelope field, including the share,
+before the entire envelope is HPKE-sealed to that trustee. HPKE Base mode
+provides confidentiality to the trustee; the Ed25519 authorization provides
+sender authentication. Only the intended trustee learns its member index,
+policy, or words. The coordinator receives a ciphertext and digest, not the
+share or the full trustee roster.
+
+The authorization proves control of the recovery-scoped enrollment key, not a
+claimed human relationship. A human trustee independently confirms the
+invitation and displayed key fingerprint with the holder before accepting; a
+name, avatar, message, or valid self-created key alone cannot establish who
+asked them to become a trustee.
 
 Trustees never send share words through email, SMS, ordinary messenger chat,
 support tickets, a public notary, clipboard telemetry, or QR codes rendered by
@@ -230,6 +257,11 @@ While the identity is healthy, the holder selects:
 - protected-artifact locations and replication rule; and
 - each trustee offer, term, lapse, export, and deletion behavior.
 
+Each trustee then issues a fresh, expiring, single-use enrollment challenge
+after accepting the human invitation or authenticating the service enrollment
+and entitlement. A published HPKE key without this challenge is insufficient
+to create stored trustee state.
+
 The UI highlights shared failure domains and refuses duplicate component IDs,
 duplicate member indices, duplicate slots, expired manifests, or incompatible
 implementation profiles.
@@ -242,10 +274,12 @@ The healthy vault:
 2. encrypts the canonical artifact with `RUK` and the exact enrollment AAD;
 3. invokes a conforming SLIP-0039 implementation to create `n` shares at
    threshold `t`;
-4. creates one outer share envelope per trustee;
-5. HPKE-seals each envelope to that trustee's current enrollment public key,
-   binding the profile, policy, enrollment, artifact, trustee, and slot in
-   `info`;
+4. creates one outer share envelope per trustee containing only that
+   trustee's policy and slot, then signs it with the distinct recovery-and-
+   trustee-scoped Ed25519 authorization key recorded for that slot;
+5. HPKE-seals each signed envelope to that trustee's current enrollment public
+   key, binding the profile, policy, enrollment, artifact, trustee, slot,
+   trustee-issued challenge, and authorization-key digest in `info`;
 6. sends the protected artifact and only the intended sealed share to each
    selected trustee;
 7. collects and verifies all `n` signed enrollment receipts; and
@@ -258,9 +292,23 @@ must not silently activate a partially enrolled set under the old policy.
 
 ### 5.3 Trustee receipt
 
-Each trustee decrypts and validates its envelope, validates the share checksum
-and common parameters, stores it under its local protection, verifies durable
-read-back, and returns:
+Each trustee:
+
+1. decrypts the envelope and verifies its recovery-and-trustee-scoped Ed25519
+   holder authorization over every field;
+2. verifies the exact abstract and implementation profiles, its own component
+   and slot, the artifact digest, the opaque full-policy digest binding, and
+   its local trustee policy;
+3. consumes the matching unexpired, single-use challenge and refuses an
+   unsolicited or replayed enrollment;
+4. accepts only the current enrollment sequence for that enrollment and
+   authorization key, refusing replay or rollback;
+5. validates the SLIP-0039 checksum, member threshold, member count, and member
+   index against the signed envelope;
+6. confirms any invitation or human relationship through the prearranged
+   independent path rather than trusting display text; and
+7. stores the share under its local protection and verifies durable read-back
+   before returning:
 
 ```json
 {
@@ -525,6 +573,13 @@ to it, payment state, and its own decision. It need not learn the other
 trustees or the holder's messages, names, groups, addresses, balances, or
 applications.
 
+The client retains the canonical `RecoveryPolicy` and full trustee array. It
+sends a trustee only the signed share envelope that maps the abstract per-
+trustee authorization: the common policy digest plus that trustee's component,
+slot, share parameters, and enforcement terms. The trustee cannot recompute
+the private full-policy digest, but can verify the holder signature over its
+own complete duties and require all later requests to bind that digest.
+
 The coordinator can observe which endpoints participate, timing, payload
 sizes, and completion status unless a stronger routing profile hides them. The
 encrypted artifact and shares must not be posted to a public ledger merely to
@@ -582,22 +637,26 @@ In addition to the abstract suite, the profile publishes and tests:
 
 1. generation and combination vectors for 2-of-3, 3-of-5, and boundary
    `n = 16` SLIP-0039 sets;
-2. canonical share words and strict rejection of mixed identifiers, groups,
+2. holder-authorized enrollment envelopes and refusal of missing, invalid,
+   wrong-key, wrong-trustee, or stale-sequence authorizations, plus a fixture
+   proving that one envelope contains no other trustee entry and that an
+   unsolicited or reused trustee challenge is refused;
+3. canonical share words and strict rejection of mixed identifiers, groups,
    thresholds, duplicate indices, invalid checksums, and unsupported
    parameters;
-3. AES-256-GCM artifact vectors with every associated-data binding changed in
+4. AES-256-GCM artifact vectors with every associated-data binding changed in
    negative cases;
-4. enrollment HPKE vectors for each trustee and recovery HPKE vectors for a
+5. enrollment HPKE vectors for each trustee and recovery HPKE vectors for a
    fresh destination;
-5. rejection of a valid share response replayed into another session,
+6. rejection of a valid share response replayed into another session,
    destination, enrollment, or sequence;
-6. threshold completion with `t` contributions and non-completion with
+7. threshold completion with `t` contributions and non-completion with
    `t - 1`;
-7. malicious well-formed share and final artifact-integrity failure;
-8. cooldown, veto, refusal, timeout, duplicate trustee, and late contribution;
-9. full re-sharing on threshold or trustee-set change and refusal of every old
+8. malicious well-formed share and final artifact-integrity failure;
+9. cooldown, veto, refusal, timeout, duplicate trustee, and late contribution;
+10. full re-sharing on threshold or trustee-set change and refusal of every old
    contribution against the new artifact; and
-10. log, crash, UI snapshot, clipboard, notification, and analytics scans for
+11. log, crash, UI snapshot, clipboard, notification, and analytics scans for
     share words, `RUK`, artifact plaintext, candidate factors, and destination
     private keys.
 

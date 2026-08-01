@@ -260,7 +260,11 @@ The holder approves a canonical, versioned policy before enrollment:
   },
   "implementationProfileId": "onym:recovery-implementation:<technology>-v1",
   "trustees": [
-    {"componentId": "onym:component:<trustee-id>", "slot": "<opaque-slot>"}
+    {
+      "componentId": "onym:component:<trustee-id>",
+      "slot": "<opaque-slot>",
+      "authorizationPublicKey": "<trustee-scoped-public-key>"
+    }
   ],
   "approvalRule": "<implementation-defined-rule>",
   "candidateFactors": ["<pre-enrolled-factor-requirements>"],
@@ -282,12 +286,63 @@ trustees, lower threshold, or later policy version during recovery. More
 protective emergency action—such as refusing after detecting fraud—is allowed
 only under a predeclared rule and must produce a reasoned receipt.
 
-The healthy vault authorizes enrollment with a trustee-scoped key. The
-provider need not learn the root public identity. The subject commitment uses
-a random binding salt held inside the encrypted artifact, so providers cannot
-use it as a stable cross-enrollment identity tag. That healthy authorization
-is not required to begin recovery, because recovery handles loss of the old
-signing ability.
+The canonical policy, including the complete `trustees` array, is holder-
+private by default. A single-custodian profile may send the full policy to its
+only trustee. A multi-trustee profile instead sends each trustee a signed
+`TrusteeEnrollmentAuthorization` containing only the common parameters and
+that trustee's slot and enforcement terms:
+
+```json
+{
+  "authorizationVersion": 1,
+  "recoveryProfileId": "onym:recovery-profile:trustee-v1",
+  "implementationProfileId": "onym:recovery-implementation:<technology>-v1",
+  "enrollmentId": "<random-256-bit-id>",
+  "enrollmentSequence": 1,
+  "policyDigest": "<digest-of-canonical-private-policy>",
+  "identityBindingCommitment": "<opaque-commitment-from-policy>",
+  "artifactDigest": "<digest-of-protected-artifact>",
+  "recoveryMode": "secret-restoration",
+  "trustee": {
+    "componentId": "onym:component:<this-trustee-id>",
+    "slot": "<this-opaque-slot>"
+  },
+  "trusteeChallenge": "<fresh-single-use-challenge-issued-for-this-slot>",
+  "contributionParameters": "<profile-defined-threshold-or-custody-parameters>",
+  "trusteePolicy": {
+    "candidateFactors": ["<this-trustee-factor-bindings>"],
+    "cooldown": "P2D",
+    "sessionLifetime": "P7D",
+    "maximumAttempts": 3,
+    "notifications": ["<this-trustee-destination-references>"],
+    "holderVeto": "<this-trustee-veto-method-and-deadline>",
+    "lapsePolicy": "<this-trustee-grace-export-destruction-rule>"
+  },
+  "expiresAt": "2027-08-01T00:00:00Z",
+  "authorizationPublicKey": "<this-trustee-scoped-public-key-from-private-policy>",
+  "holderAuthorization": "<signature-over-canonical-object-with-this-field-omitted>"
+}
+```
+
+The trustee verifies this signature, its own component and slot, the current
+enrollment sequence, the profile and artifact bindings, and the exact local
+policy it must enforce. It also consumes an unexpired, single-use challenge
+that it issued after accepting the invitation or authenticating an authorized
+service enrollment; possession of its published encryption key alone cannot
+create an accepted record. It treats `policyDigest` as an opaque binding
+because it cannot recompute the private full-policy digest. The holder and
+recovering vault verify the full policy and require every contribution to bind
+the same digest. A directory, coordinator, or trustee receives no other
+trustee entry merely to validate one slot.
+
+The healthy vault authorizes each enrollment slot with a distinct trustee-
+scoped key recorded in the private policy. Separate trustees therefore do not
+receive a shared authorization key that trivially links them. A provider need
+not learn the root public identity. The subject commitment uses a random
+binding salt held inside the encrypted artifact, so providers cannot use it as
+a stable cross-enrollment identity tag. That healthy authorization is not
+required to begin recovery, because recovery handles loss of the old signing
+ability.
 
 ### 5.5 Recovery Artifact
 
@@ -515,8 +570,9 @@ backups under one key as multi-trustee custody.
 
 A conforming trustee must:
 
-1. verify the selected profile, holder-signed policy, enrollment sequence, and
-   contribution binding before accepting custody;
+1. verify the selected profile, enrollment sequence, contribution binding,
+   and either the holder-signed full policy or its signed trustee-specific
+   enrollment authorization before accepting custody;
 2. authenticate state-changing requests over a protected channel and prevent
    replay;
 3. protect its contribution according to the implementation profile and keep
