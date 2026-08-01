@@ -1,6 +1,6 @@
 ---
 status: draft
-proposed: Codex & @rinat-enikeev
+proposed: Claude, Codex & @rinat-enikeev
 date: 01.08.2026
 ---
 
@@ -534,8 +534,8 @@ A conforming client must:
    presented as current or complete.
 10. **Sources are plural and replaceable.** Clients can add, remove, merge, and
     leave Discovery providers without migrating identity or downstream state.
-11. **Empty is source-scoped.** No result from one catalog is not proof that no
-    instance exists.
+11. **Empty is source-scoped.** An empty result from one catalog is not proof
+    that no instance exists.
 12. **Revenue follows a chosen Discovery service.** It does not create a tax on
     every future interaction with a listed instance.
 

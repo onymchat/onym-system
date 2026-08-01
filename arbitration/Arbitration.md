@@ -543,7 +543,7 @@ clause's declared defaults.
    object for an ordinary transfer.
 10. **The seat is optional everywhere.** Orders without clauses remain
     valid; direct protocol use never requires naming an arbiter; and no
-    Discovery-provider, client, or counterparty default may silently insert
+    Discovery provider, client, or counterparty default may silently insert
     one.
 11. **Law outranks the label.** Statutory rights, consumer protections,
     and court authority are untouched by anything in a clause, and

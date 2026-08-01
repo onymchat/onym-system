@@ -199,7 +199,7 @@ Sponsor recognition is prohibited in:
 
 - message lists, conversations, identity creation, recovery, safety warnings,
   consent, payment approval, or notary authorization;
-- provider search results or directory rankings;
+- provider search results or Discovery catalog rankings;
 - conformance marks, audit results, or vulnerability disclosures;
 - push notifications to users who did not request sponsor news; and
 - an independent participant's product or resource.

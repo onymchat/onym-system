@@ -1428,7 +1428,7 @@ trust, compromised endpoints, collusion, or global observation.
 | Transaction relayer | Observe IP, time, target, size; censor submissions | Forge a valid zero-knowledge witness or rewrite deployed rules |
 | Notary ledger observer | See public contract metadata and ordering | Read conversation content that is never placed on chain |
 | Association registry | Misissue, refuse, revoke, or equivocate about its own names | Become the cryptographic controller of the named identity |
-| Directory | Promote poor or conflicted providers; censor discovery | Prevent direct use of a compatible manifest |
+| Discovery provider | Promote poor or conflicted providers; censor discovery | Prevent direct use of a compatible manifest |
 | Store and billing broker | Link a platform purchase to a seat offer; delay or reverse entitlement and settlement | Learn message plaintext or become mandatory for direct/free seat access |
 | Acquisition landing host | Observe direct connection metadata; alter creative or store target; fabricate its own counters | Receive the store's person-level acquisition event or attach a cohort to the app |
 | Store acquisition oracle | Misreport a proprietary aggregate; expose unrelated publisher reports | Learn an Onym identity or prove a universal retained install |
@@ -1513,7 +1513,7 @@ Their implementations remain proposed.
 - A stable, implementation-independent identity descriptor.
 - A capability API that extensions can use without receiving root secrets.
 - Competing association registries and qualified name resolution.
-- Signed service, notary, Discovery-catalog, privacy, seat-offer, and
+- Signed service, notary, Discovery catalog, privacy, seat-offer, and
   channel-offer manifests.
 - Nostr `payment-required:` responses and relay-scoped access keys.
 - Broker-signed subscription and consumable entitlement credentials.

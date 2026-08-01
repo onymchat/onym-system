@@ -162,7 +162,7 @@ A user may enter through:
 
 - a charity card in an encrypted conversation;
 - a signed campaign deep link or QR code;
-- a registry or directory search;
+- an association-registry or Discovery search;
 - a locally saved campaign;
 - an authenticated notification referring to a prior operation; or
 - manual entry of a campaign reference.

@@ -738,8 +738,8 @@ An attacker may publish a prestigious-looking role to harvest identities,
 credentials, work samples, or secrets. Opening discovery therefore verifies
 requester authority, seat reference, domain/control evidence, data notice,
 compensation, and complaint channel before curation. Direct signed openings may
-still exist outside a directory, but signatures prove only publisher identity,
-not honesty.
+still exist outside a Discovery catalog, but signatures prove only publisher
+identity, not honesty.
 
 ### 13.2 Spam and scraping
 
@@ -867,7 +867,7 @@ ordinary evaluators or recruiter payment.
 Recruiter performance reports distinguish search effort, consented
 introductions, qualified applications, selections, activations, retention
 milestones, candidate complaints, and data incidents. A single opaque score is
-insufficient for high-impact decisions or directory exclusion.
+insufficient for high-impact decisions or Discovery catalog exclusion.
 
 ## 17. Versioning and conformance
 

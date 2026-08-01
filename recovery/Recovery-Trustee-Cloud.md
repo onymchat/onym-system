@@ -407,9 +407,9 @@ fresh destination key with the active identity and satisfies the offer's
 declared export factors. The provider rewraps `RUK` to that destination and
 returns the protected artifact and receipts.
 
-The provider is technically capable of refusing export. The UI and directory
-must retain this fact in the provider's risk description even when contracts
-promise portability.
+The provider is technically capable of refusing export. The UI and Discovery
+provider must retain this fact in the provider's risk description even when
+contracts promise portability.
 
 ### 9.3 Service lapse
 
@@ -476,7 +476,7 @@ The provider must not:
   notifications;
 - use recovery events to enrich advertising, credit, social, or identity
   profiles;
-- disclose enrollment existence to directories or other seats; or
+- disclose enrollment existence to Discovery providers or other seats; or
 - join this seat's scoped identity to messages, names, banking addresses, or
   charity activity without separate holder action and a lawful purpose.
 
@@ -495,7 +495,7 @@ funded custody, paid recovery, or capped hybrid. The signed offer names:
 - grace and deletion rules;
 - refunds and service credits;
 - billing channel and taxes; and
-- disclosed UI, directory, broker, or contributor splits.
+- disclosed UI, Discovery provider, broker, or contributor splits.
 
 Payment success changes entitlement state; it does not release `RUK`. The
 billing broker cannot call the release path and the recovery service does not

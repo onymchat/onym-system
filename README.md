@@ -25,9 +25,8 @@ list. **Association registries** attach human-readable names as revocable,
 consent-bound claims — the name is never the identity. Around this core, an
 open set of service and institutional seats (banking, charity, audit,
 arbitration, discovery, growth, sponsorship, recruitment) can be operated by
-anyone,
-and each earns only when a user or group actually selects it. The governing
-rule for every seat:
+anyone, and each earns only when a user or group actually selects it. The
+governing rule for every seat:
 
 > A component may exercise the minimum authority required for its role, and
 > it may earn only when a user or group chooses it for that role.

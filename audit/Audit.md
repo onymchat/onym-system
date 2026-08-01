@@ -374,9 +374,9 @@ every unexpired attestation the auditor has issued. Clients enforce epoch
 monotonicity—a status answer carrying a lower epoch than one already seen
 is a rollback and is rejected—and treat a list older than the profile's
 freshness bounds as *stale*, never as `active`. Because the list covers all
-of an issuer's attestations at once, a subject, Discovery provider, or another
-provider can
-**staple** the latest signed list alongside a component manifest, letting
+of an issuer's attestations at once, a subject, Discovery provider, or the
+component operator can **staple** the latest signed list alongside a component
+manifest, letting
 relying clients verify current status without contacting the auditor at
 selection time. Clients apply these freshness rules before high-stakes
 reliance, exactly as they do for registry records.
@@ -584,8 +584,8 @@ it did not sign.
 3. **Scope is the whole claim.** What was excluded travels with what was
    examined; a result class never outruns its scope.
 4. **Absence is not failure, and attestation is not permission.** Direct
-   use needs no auditor; no client, Discovery provider, or auditor can convert this
-   seat into licensure.
+   use needs no auditor; no client, Discovery provider, or auditor can convert
+   this seat into licensure.
 5. **Verdicts are not for sale.** Fees are verdict-independent; sponsors
    are named; conflicts are declared in the attestation itself.
 6. **Opinions expire and can be withdrawn.** Judgment classes carry

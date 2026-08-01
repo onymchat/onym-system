@@ -247,7 +247,8 @@ A `ServiceManifest` binds an implementation profile to an operator:
 
 The UI verifies the signature, profiles, endpoint syntax, capabilities,
 limits, validity, retention, privacy declaration, entitlement issuers, and
-selected offer. Directory presence and a friendly name are insufficient.
+selected offer. Discovery catalog presence and a friendly name are
+insufficient.
 
 Mutable capacity and health observations remain separate from signed policy.
 They cannot silently replace an operator, endpoint, profile, or offer.

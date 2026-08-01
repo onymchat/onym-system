@@ -99,8 +99,8 @@ under one administrator are not meaningfully independent.
 
 Each signed trustee manifest declares an operator and `trustDomain`. A UI may
 warn about known overlap, but cannot prove social or corporate independence
-from self-asserted metadata. Directory investigation and holder judgment
-remain part of the trust decision.
+from self-asserted metadata. Investigation by Discovery providers and holder
+judgment remain part of the trust decision.
 
 ## 4. Cryptographic construction
 

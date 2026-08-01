@@ -49,8 +49,9 @@ Charity is an open application seat composed of separately replaceable roles.
 - A **notary** records narrow public state and produces verifiable evidence.
 - An **auditor or report issuer** makes signed claims about receipts,
   allocation, expenditure, or impact.
-- A **directory or association registry** maps human-readable names to signed
-  organization records. It is not automatically a credential issuer.
+- A **Discovery provider or association registry** helps resolve human-readable
+  names to signed organization records under its own policy. Neither is
+  automatically a credential issuer.
 
 Anyone may implement or operate one of these roles and publish an offer. Open
 participation means permissionless authorship and entry, not automatic trust,
@@ -842,7 +843,7 @@ change the meaning of a code or cause the application to sign a new operation.
 1. No seed phrase, root secret, or unscoped private key crosses the boundary.
 2. User authorization covers exact amount, asset, destination, campaign
    revision, quote, expiry, fees, and relevant privacy choice.
-3. A message, link, QR code, or directory entry can propose an operation but
+3. A message, link, QR code, or Discovery entry can propose an operation but
    cannot authorize it.
 4. Organization trust is derived from an explicit issuer policy, not UI brand.
 5. Campaign changes cannot mutate an already authorized intent.

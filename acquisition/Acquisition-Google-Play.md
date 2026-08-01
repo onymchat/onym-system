@@ -266,7 +266,7 @@ order's declared reconciliation policy.
 
 The app's absence of Install Referrer behavior should be testable from source,
 dependency manifests, binaries, and observed network traffic. A written
-promise alone is insufficient for a default curated directory.
+promise alone is insufficient for a default curated Discovery catalog.
 
 ## 11. Failure and dispute mapping
 
