@@ -101,6 +101,7 @@ marketing.
 | Foundation governance | director candidate, treasurer, auditor, grants reviewer | legal board, members, or electorate |
 | Protocol commons | maintainer, researcher, standards editor, security auditor | named project or foundation process |
 | Recruitment | recruiter, evaluator, privacy reviewer, recruitment operator | requester or recruitment-service governance |
+| Discovery | catalog operator, curator, search or privacy engineer | Discovery provider or catalog sponsor |
 
 Recruitment cannot change the destination authority. For example:
 

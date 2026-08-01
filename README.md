@@ -24,7 +24,8 @@ zero-knowledge proofs without storing conversations or a readable member
 list. **Association registries** attach human-readable names as revocable,
 consent-bound claims — the name is never the identity. Around this core, an
 open set of service and institutional seats (banking, charity, audit,
-arbitration, growth, sponsorship, recruitment) can be operated by anyone,
+arbitration, discovery, growth, sponsorship, recruitment) can be operated by
+anyone,
 and each earns only when a user or group actually selects it. The governing
 rule for every seat:
 
@@ -43,6 +44,7 @@ rule for every seat:
 | [charity/](charity/UI-Charity.md) | Charitable coordination as the first non-messaging application seat ([contract](charity/Charity.md)) |
 | [audit/](audit/Audit.md) | Signed, expiring, revocable attestations about exact artifacts — audits, conformance runs, build provenance |
 | [arbitration/](arbitration/Arbitration.md) | Party-chosen dispute deciders whose authority is bounded to one order's escrowed stake |
+| [discovery/](discovery/Discovery.md) | Signed, replaceable catalogs for finding compatible instances of every seat without becoming a gatekeeper |
 | [lead/](lead/Lead-Generation.md) | Paid distribution measured in aggregate, with no person-level install attribution ([Telegram profile](lead/Lead-Generation-Telegram.md)) |
 | [acquisition/](acquisition/Acquisition.md) | Landing-to-store conversion services measured by store aggregates ([App Store](acquisition/Acquisition-App-Store.md), [Google Play](acquisition/Acquisition-Google-Play.md)) |
 | [sponsor/](sponsor/Sponsor.md) | Foundation funding with bounded recognition and a capped governance path ([Onym Foundation profile](sponsor/Sponsor-Onym.md)) |
@@ -78,7 +80,8 @@ see whitepaper §19–§22.
 - **Not an investment prospectus.** No token exists or is implied; seats
   earn service revenue, not protocol rent.
 - **Not a certification authority.** Anyone may implement any seat without
-  permission. Directories and audits recommend; they never gate direct use.
+  permission. Discovery providers and auditors recommend; they never gate
+  direct use.
 
 ## Related repositories
 
@@ -87,7 +90,7 @@ see whitepaper §19–§22.
 | [`onym-ios`](https://github.com/onymchat/onym-ios) / [`onym-android`](https://github.com/onymchat/onym-android) | Native clients: local identity, messaging, service selection |
 | [`onym-sdk-swift`](https://github.com/onymchat/onym-sdk-swift) / [`onym-sdk-kotlin`](https://github.com/onymchat/onym-sdk-kotlin) | Shared proof and cryptographic primitives |
 | [`onym-contracts`](https://github.com/onymchat/onym-contracts) | Soroban group-governance contract family |
-| [`onym-relayer`](https://github.com/onymchat/onym-relayer) | Fee-paying transaction relayer and discovery manifests |
+| [`onym-relayer`](https://github.com/onymchat/onym-relayer) | Fee-paying transaction relayer and current deployment-manifest endpoints |
 | [`onym-infra`](https://github.com/onymchat/onym-infra) | One replaceable default deployment (Nostr, Blossom, relayer, TLS) |
 | [`onym-website`](https://github.com/onymchat/onym-website) / [`onym-papers`](https://github.com/onymchat/onym-papers) | Public explanation; research papers and protocol proposals |
 

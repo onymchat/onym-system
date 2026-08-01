@@ -468,7 +468,7 @@ it does not enlarge the money.
   conformance failure is strong material in a nonperformance dispute—and
   arbiters themselves are attestable subjects (procedure conformance, key
   handling).
-- **Directories** may list arbiters and cite their track records; as
+- **Discovery providers** may list arbiters and cite their track records; as
   everywhere, listing is curation, not validity.
 
 ## 11. Payment at the arbitration boundary
@@ -543,7 +543,8 @@ clause's declared defaults.
    object for an ordinary transfer.
 10. **The seat is optional everywhere.** Orders without clauses remain
     valid; direct protocol use never requires naming an arbiter; and no
-    directory, client, or counterparty default may silently insert one.
+    Discovery-provider, client, or counterparty default may silently insert
+    one.
 11. **Law outranks the label.** Statutory rights, consumer protections,
     and court authority are untouched by anything in a clause, and
     manifests must not claim otherwise.

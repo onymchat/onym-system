@@ -202,10 +202,10 @@ should be aggregated where possible.
 
 ### 3.7 Interoperability is permissionless; endorsement is not
 
-Anyone may implement the public protocols. A curated directory may apply
+Anyone may implement the public protocols. A Discovery provider may apply
 security, availability, legal, or quality criteria before recommending a
-provider. Other parties may publish competing directories. Failure to enter a
-default directory must not make a conforming component invalid.
+provider. Other parties may publish competing catalogs. Failure to enter a
+default catalog must not make a conforming component invalid.
 
 ## 4. System model
 
@@ -422,7 +422,7 @@ Recovery is an open service seat with three published boundaries:
 
 Anyone may offer a compatible trustee service, and a holder may choose paid
 providers, organizations, hardware, people, or a mixture. Permissionless
-compatibility is not automatic trust or directory endorsement.
+compatibility is not automatic trust or Discovery endorsement.
 
 The abstract contract distinguishes **secret restoration**, which recovers the
 same root and cannot neutralize another surviving copy, from **authority
@@ -614,9 +614,9 @@ A provider claiming the notary seat publishes a signed bundle containing:
 - audit and build-provenance statements; and
 - migration or shutdown policy.
 
-Anyone may deploy a compatible contract bundle. A directory may recommend
-deployments, but clients verify code and parameter identities rather than trust
-a display name alone.
+Anyone may deploy a compatible contract bundle. A Discovery provider may
+recommend deployments, but clients verify code and parameter identities rather
+than trust a display name alone.
 
 ### 9.3 Transaction relayer
 
@@ -997,22 +997,28 @@ mistaken for one another.
 
 A user can enter or import a component manifest directly. If it passes local
 validation and speaks the protocol, it can be used without approval from Onym,
-a foundation, an app store, or a default directory.
+a foundation, an app store, or a default Discovery catalog.
 
-### 15.2 Directories
+### 15.2 Discovery
 
-A directory helps users discover components. Each directory signs a list of
-manifests and states its inclusion policy. Examples include:
+A Discovery provider helps users find concrete instances of every seat. Each
+provider signs a catalog of manifest references and states its inclusion and
+ranking policy. Examples include:
 
-- an Onym-maintained default directory;
-- a national or community directory;
-- an enterprise-approved directory;
-- an audit firm's security-rated directory; or
+- an Onym-maintained default catalog;
+- a national or community catalog;
+- an enterprise-approved catalog;
+- an audit firm's security-rated catalog; or
 - a user's own pinned list.
 
-Directories are replaceable curators, not consensus authorities. A manifest's
-valid signature proves who published it; directory inclusion expresses a
-curator's recommendation.
+Discovery providers are replaceable curators, not consensus authorities. A
+manifest's valid signature proves who published it; catalog inclusion
+expresses a curator's recommendation. Direct import remains available, and
+the user or group separately selects any downstream instance.
+
+The technology-neutral contract for signed snapshots, queries, commercial
+disclosures, privacy, replacement, and direct-import guarantees is specified
+in [discovery/Discovery.md](discovery/Discovery.md).
 
 ### 15.3 Conformance
 
@@ -1029,8 +1035,8 @@ This is the practical foundation of “anyone can participate.” Source
 availability alone does not create interoperability.
 
 The proposed contract boundary for signed audit, conformance, provenance,
-and measurement statements—the attestations that notary bundles, directories,
-and clients can cite—is specified in [audit/Audit.md](audit/Audit.md).
+and measurement statements—the attestations that notary bundles, Discovery
+providers, and clients can cite—is specified in [audit/Audit.md](audit/Audit.md).
 
 ## 16. Service manifests and seat-defined offers
 
@@ -1367,9 +1373,9 @@ reputation farming. Platform billing additionally creates chargeback,
 subscription-state, catalog-review, payout, sanctions, and tax failure modes.
 
 Mitigations may include signed and idempotent entitlements, refund reserves,
-service-level evidence, rate limits, independent directories, contractual
-onboarding for store channels, challenge periods, and reputation scoped to a
-directory. None should become a hidden gate on direct protocol use.
+service-level evidence, rate limits, independent Discovery providers,
+contractual onboarding for store channels, challenge periods, and reputation
+scoped to a catalog. None should become a hidden gate on direct protocol use.
 
 The proposed contract boundary for deciding the disputes these challenge
 periods create—party-chosen arbiters with authority bounded to one order's
@@ -1507,8 +1513,8 @@ Their implementations remain proposed.
 - A stable, implementation-independent identity descriptor.
 - A capability API that extensions can use without receiving root secrets.
 - Competing association registries and qualified name resolution.
-- Signed service, notary, directory, privacy, seat-offer, and channel-offer
-  manifests.
+- Signed service, notary, Discovery-catalog, privacy, seat-offer, and
+  channel-offer manifests.
 - Nostr `payment-required:` responses and relay-scoped access keys.
 - Broker-signed subscription and consumable entitlement credentials.
 - StoreKit transaction validation, lifecycle notifications, provider
@@ -1554,7 +1560,7 @@ Their implementations remain proposed.
 
 - Publish conformance suites for UI adapters, message relays, blob servers,
   transaction relayers, and notary bundles.
-- Support direct manifest import and multiple signed directories.
+- Support direct manifest import and multiple signed Discovery catalogs.
 - Add notary code-hash and parameter verification in clients.
 - Define export/import formats for local group and message state.
 
@@ -1590,7 +1596,7 @@ Their implementations remain proposed.
   Sponsor Council elections, conflict records, and spending reports.
 - Implement seat opening, direct application, candidate-consent, encrypted
   application, evaluation, activation, recruiter-settlement, retention, and
-  appeal fixtures before operating a recruitment directory.
+  appeal fixtures before operating a recruitment catalog.
 - Add an Android billing adapter under its own current platform terms.
 - Fund audits and conformance infrastructure before promoting open paid
   listings to non-technical users, issuing results as signed attestations
@@ -1620,8 +1626,8 @@ The following questions require explicit community and implementation work:
 5. What is the minimum privacy-preserving entitlement and revocation format?
 6. Does each relay require a dedicated StoreKit product, or can reviewed
    product tiers safely map to multiple mutually agreed seat offers?
-7. Who curates the first default directories, under what appeal and conflict
-   policies?
+7. Who curates the first default Discovery catalogs, under what appeal and
+   conflict policies?
 8. Which seats should use subscriptions, consumable quotas, direct payment,
    donations, or zero-priced access?
 9. How can a group migrate notary state without letting the old or new provider
