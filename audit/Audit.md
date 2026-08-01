@@ -1,6 +1,6 @@
 # Onym Audit Contract Boundary
 
-**Proposal draft 0.1 — August 2026**
+**Architecture draft 0.1 — August 2026**
 
 > An auditor examines exact bytes under a declared scope and signs what it
 > found. The attestation is one institution's visible opinion—never a
@@ -152,7 +152,7 @@ discovering the conflict later.
         │ cooperation                             v
 ┌───────┴────────┐                        ┌──────────────────────────┐
 │ Subject        │                        │ Findings report          │
-│ component owner│<───disclosure terms───│ (content-addressed,      │
+│ component owner│<───disclosure terms────│ (content-addressed,      │
 └────────────────┘                        │  order-scoped)           │
                                           └───────┬──────────────────┘
                                                   │ issues
@@ -220,6 +220,7 @@ discovering the conflict later.
     }
   ],
   "independencePolicy": "<hash-or-url: conflicts, ownership, recusal rules>",
+  "unsolicitedPolicy": "<hash-or-url: disclosure, embargo, and contact rules, or none>",
   "liability": "<hash-or-url-of-engagement-liability-terms>",
   "statusEndpoint": "<attestation-freshness-and-revocation-endpoint>",
   "offers": ["<engagement-fee-offer-ids>"],
@@ -298,11 +299,14 @@ The seat's product:
   "scope": "<hash-of-examined-scope>",
   "exclusions": "<hash-or-inline-list-of-what-was-not-examined>",
   "result": "findings-noted",
+  "severityScale": "<hash-or-url-of-named-ordered-severity-scale>",
+  "severityFloor": "medium",
   "findingsReport": "<content-address-or-null-under-embargo>",
   "findingsSummary": {"critical": 0, "high": 1, "resolved": 1},
+  "engagement": "commissioned",
   "sponsor": "onym:key:<payer-identity>",
   "relationships": "<declared-conflicts-or-none>",
-  "orderRef": "<hash-of-audit-order>",
+  "orderRef": "<hash-of-audit-order-or-null-when-unsolicited>",
   "issuedAt": "2026-10-01T00:00:00Z",
   "expiresAt": "2027-10-01T00:00:00Z",
   "supersedes": "<prior-attestation-id-or-null>",
@@ -318,14 +322,22 @@ Normative constraints:
 2. `scope` and `exclusions` together are the complete statement of what was
    and was not examined; a relying party reading only the result class must
    not be more reassured than one reading the full scope.
-3. `result` classes mean: `clear`—nothing in scope found at the reported
-   severity floor; `findings-noted`—issues found, enumerated, possibly
-   resolved; `fail`—the artifact did not meet the scope's stated bar;
-   `inconclusive`—examination could not complete, with the reason.
+3. `result` classes mean: `clear`—nothing in scope found at or above
+   `severityFloor` on the named `severityScale`; `findings-noted`—issues
+   found, enumerated, possibly resolved; `fail`—the artifact did not meet
+   the scope's stated bar; `inconclusive`—examination could not complete,
+   with the reason. `severityScale` names the ordered scale that
+   `severityFloor` and the `findingsSummary` buckets use; a `clear` or
+   `findings-noted` result without both fields is nonconforming, because a
+   relying party could not compare it.
 4. `sponsor` and `relationships` make the money and conflicts visible in
    the object itself, not in a footnote elsewhere.
-5. `expiresAt` is mandatory. Unexpiring attestations are nonconforming;
-   opinions about software age.
+5. `expiresAt` is mandatory for the judgment classes (`security-review`,
+   `privacy-review`, `conformance-run`, `availability-measurement`), whose
+   opinions age with the threat landscape, suite versions, and measurement
+   windows. A `build-provenance` attestation may set it to null: it
+   records a reproduction event over fixed bytes, which does not age—
+   though it remains revocable like any attestation.
 
 ### 5.5 Supersession and revocation
 
@@ -337,6 +349,8 @@ re-examination or fix verification) or revoke:
   "revocationVersion": 1,
   "attestationId": "<attestation-id>",
   "auditor": "onym:component:<auditor-id>",
+  "issuedAt": "2026-11-15T00:00:00Z",
+  "statusEpoch": 42,
   "effectiveFrom": "2026-11-15T00:00:00Z",
   "reason": "methodology-error | new-information | compromise-of-auditor-key | withdrawal",
   "detail": "<hash-or-url-or-null>",
@@ -346,7 +360,18 @@ re-examination or fix verification) or revoke:
 
 Revocation is the auditor's unilateral right and duty: an attestation the
 auditor no longer stands behind must not keep circulating with its
-signature. Clients apply the profile's freshness rules before high-stakes
+signature.
+
+The status endpoint serves a **signed status list**: a timestamped document
+with a monotonically increasing `statusEpoch` covering the current status of
+every unexpired attestation the auditor has issued. Clients enforce epoch
+monotonicity—a status answer carrying a lower epoch than one already seen
+is a rollback and is rejected—and treat a list older than the profile's
+freshness bounds as *stale*, never as `active`. Because the list covers all
+of an issuer's attestations at once, a subject, directory, or provider can
+**staple** the latest signed list alongside a component manifest, letting
+relying clients verify current status without contacting the auditor at
+selection time. Clients apply these freshness rules before high-stakes
 reliance, exactly as they do for registry records.
 
 ### 5.6 Findings report
@@ -360,6 +385,35 @@ published report tamper-evident. A report that never becomes public in a
 `public-after-embargo` order is a disclosure-term violation attributable to
 whoever withheld it.
 
+### 5.7 Unsolicited attestations
+
+Independent research needs a conforming carrier: if every attestation
+required the subject's order signature, every component owner would hold a
+veto over being examined at all—the mirror image of the gatekeeping this
+seat refuses—and unsolicited security research would remain the unsigned
+rumor this seat exists to replace. An attestation may therefore issue
+without an order when all of the following hold:
+
+1. `engagement` is `"unsolicited"`, `orderRef` is null, and the scope
+   states that subject cooperation was none;
+2. the examined artifact is publicly available exactly as hashed—private
+   artifacts cannot be examined uninvited;
+3. disclosure follows the auditor's published `unsolicitedPolicy`, which
+   must include a responsible-disclosure embargo for exploitable findings
+   and a documented attempt to reach the subject through its published
+   security contact before publication;
+4. the sponsor, if any, is named as in any attestation; and
+5. the subject has a right of reply: a signed `SubjectResponse` referencing
+   the attestation, which the auditor's status endpoint must serve
+   alongside it and conforming clients display with it.
+
+Obstruction semantics do not apply—an uncooperative subject owes an
+uninvited examiner nothing, and `inconclusive` here means only that the
+public artifact did not suffice. Offering to withhold, soften, or delay an
+unsolicited attestation in exchange for payment is nonconforming
+(extortion)—the sharpest case of the rule that neither verdicts nor
+silence are for sale.
+
 ## 6. Common audit surface
 
 | Operation | Input | Result |
@@ -369,7 +423,7 @@ whoever withheld it.
 | `issue-attestation` | Completed examination | Signed `Attestation`, report per disclosure terms |
 | `supersede-attestation` | New examination of successor artifact | New attestation with `supersedes` |
 | `revoke-attestation` | Auditor decision with reason | Published revocation |
-| `query-status` | Attestation ID | `active`, `superseded`, `revoked`, `expired` |
+| `query-status` | Attestation ID, or none for the full signed status list | Status-list entry: `active`, `superseded`, `revoked`, `expired` |
 | `verify` | Attestation + auditor manifest + target manifest | Local match/no-match decision |
 
 `verify` is local and mechanical: signature valid, auditor manifest
@@ -398,8 +452,10 @@ A conforming UI or application must:
    other high-stakes selections;
 7. let users choose which auditors they credit, as they choose registries
    and directories, without a hardcoded mandatory issuer; and
-8. keep attestation queries from leaking the user's component selections
-   beyond the declared status-endpoint exposure.
+8. prefer stapled status lists or full-list retrieval over per-attestation
+   queries: a `query-status` call for one attestation ID tells the auditor
+   exactly which component the user is about to rely on, so per-ID queries
+   are a disclosed last resort, not the default path.
 
 Attestation summaries, scope text, and report URLs are untrusted input.
 They must not execute code or impersonate client UI.
@@ -489,7 +545,7 @@ co-signing the findings.
 | `attestation_expired` | Time | Render as expired; prompt re-examination interest |
 | `attestation_revoked` | Status endpoint | Stop displaying; show reason class |
 | `attestation_superseded` | Status endpoint | Re-resolve; display successor |
-| `status_unavailable` | Network/auditor | Apply cached status within freshness bounds; degrade honestly |
+| `status_unavailable` | Network/auditor | Apply the cached signed status list within freshness bounds and epoch monotonicity; degrade honestly |
 | `order_breached` | Any party | Surface as the signed order's dispute matter, not a protocol event |
 | `obstruction` | Subject | `inconclusive` result with obstruction noted |
 | `issuer_untrusted` | Relying party policy | Display attestation as from an uncredited issuer, or omit per user policy |
@@ -524,8 +580,9 @@ did not sign.
    seat into licensure.
 5. **Verdicts are not for sale.** Fees are verdict-independent; sponsors
    are named; conflicts are declared in the attestation itself.
-6. **Opinions expire and can be withdrawn.** Mandatory expiry, first-class
-   revocation, freshness checks before high-stakes reliance.
+6. **Opinions expire and can be withdrawn.** Judgment classes carry
+   mandatory expiry, provenance facts remain revocable, and epoch-monotonic
+   signed status lists make rollback of a revocation detectable.
 7. **Mismatch means silence.** An attestation for other bytes never
    decorates the component at hand.
 8. **Adverse results are as visible as favorable ones**, per the signed
@@ -539,6 +596,10 @@ did not sign.
 11. **The seat composes with itself.** Auditors can be subjects: their
     tooling, methodology conformance, and key handling are attestable by
     other auditors, and nothing makes any issuer final.
+12. **Consent is not a veto.** Public artifacts are examinable uninvited
+    under the unsolicited form's disclosure duties, with the subject's
+    signed reply served alongside; paying for suppression is as
+    nonconforming as paying for a verdict.
 
 ## 14. Versioning and conformance
 
@@ -552,7 +613,10 @@ did not sign.
 - Cross-platform fixtures cover: attestation canonical encoding and
   signature verification; exact-hash matching including near-miss vectors
   (right repo, wrong revision; right revision, wrong build); expiry,
-  supersession, and revocation display decisions; embargoed-report handling;
+  supersession, and revocation display decisions; status-list epoch
+  monotonicity, rollback rejection, and stapled-status verification;
+  unsolicited-form validation and subject-response display;
+  embargoed-report handling;
   sponsor and conflict rendering; absence-vs-fail rendering; and
   issuer-trust filtering.
 - A relying client, an auditor, and a directory from three different
@@ -587,8 +651,11 @@ The audit seat is successfully specified when:
 6. adverse results published under signed disclosure terms are rendered
    wherever favorable ones would be;
 7. verdict-contingent fee arrangements are expressible nowhere in the
-   conforming objects; and
-8. two auditors can attest the same artifact under different methodologies
+   conforming objects;
+8. an unsolicited attestation of a public artifact verifies and displays
+   like any other, with the subject's signed response beside it and no
+   subject signature required anywhere; and
+9. two auditors can attest the same artifact under different methodologies
    and both attestations display side by side without either becoming
    final.
 
@@ -603,8 +670,9 @@ The audit seat is successfully specified when:
 
 1. Onym system whitepaper, §3.5, §3.7, §9.2, §15, §17.10, §19:
    [../WHITEPAPER.md](../WHITEPAPER.md)
-2. Onym association naming boundary (claim/issuer display pattern):
-   [../association/Association-Naming.md](../association/Association-Naming.md)
+2. Onym association naming proposal (claim/issuer display pattern) —
+   forward reference to `association/Association-Naming.md`, an unmerged
+   draft on the `worktree-association-naming` branch
 3. SLSA, “Supply-chain Levels for Software Artifacts”:
    <https://slsa.dev/spec/>
 4. in-toto attestation framework:
