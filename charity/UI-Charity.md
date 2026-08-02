@@ -119,7 +119,7 @@ operations.
 ```text
 resolveProfile(profileReference) -> VerifiedCharityProfile | CharityError
 resolveCampaign(campaignReference, trustPolicy) -> CampaignResolution
-quoteDonation(campaignRevision, amount, asset, financialBinding) -> DonationQuote
+quoteDonation(campaignReference, amount, asset, financialBinding) -> DonationQuote
 prepareDonation(verifiedCampaign, quote, privacyChoice) -> DonationPreview
 authorizeDonation(previewDigest, scopedCapability) -> DonationIntent
 submitDonation(intent) -> SubmissionOutcome
@@ -249,7 +249,7 @@ portable export contains the receipt and verification material selected by
 the user, excluding local contacts and unrelated messages. A public proof link
 is optional and must contain no intentional PII. “Finalized” means only the
 pinned financial profile's finality rule was satisfied. Before showing that
-state, Onym verifies that the receipt's `intentDigest` matches the exact local
+state, Onym verifies that the receipt's `intent.digest` matches the exact local
 intent bytes the donor authorized.
 
 ### 5.5 Request a refund or dispute an outcome
@@ -274,10 +274,11 @@ The beneficiary flow starts from a signed `EligibilityPolicy` and explains:
 
 The app constructs a derived presentation locally where the proof profile
 supports it. It never uploads the complete identity vault or unrelated
-credentials as a convenience. The user previews the predicate, campaign,
-campaign revision, epoch, public inputs, nullifier scope, and delivery
-disclosure before authorization. A newer campaign revision requires a new
-presentation and a fresh decision; it cannot reinterpret the existing proof.
+credentials as a convenience. The user previews the predicate, exact campaign
+ID, revision, and digest, epoch, public inputs, nullifier scope, and delivery
+disclosure before authorization. Any different campaign digest requires a new
+presentation and a fresh decision, even when the revision number is unchanged;
+it cannot reinterpret the existing proof.
 
 The beneficiary UI does not expose public search, leaderboards, shareable
 claim links, or notification text containing aid status. Failed proof details
@@ -395,7 +396,7 @@ pinned notary policy.
 ```text
 CharityFinancialPort
   capabilities(binding) -> assets, limits, finality, refund, privacy
-  quote(campaignRevision, amount, asset) -> signed DonationQuote
+  quote(campaignReference, amount, asset) -> signed DonationQuote
   prepare(quote, intentDigest) -> canonical FinancialAuthorizationPreview
   submit(intent, financialAuthorization) -> SubmissionOutcome
   reconcile(intentId) -> FinancialOutcome + verifiable evidence
@@ -421,7 +422,7 @@ choice. If a deployment selects Stellar/Soroban, its implementation profile
 must separately define:
 
 - network and contract deployment IDs;
-- contract code, interface, and deployment hashes;
+- contract code, interface, and deployment digests;
 - canonical mapping of every Charity object and operation;
 - authorization and public-input coverage;
 - asset contracts, decimal precision, fees, and destinations;
@@ -524,7 +525,7 @@ For the proposed collaboration, “funds attracted through Onym” is implemente
 as follows:
 
 1. a signed financial quote proposes the shared `onym-messenger` interface
-   channel for an exact campaign revision;
+   channel for an exact campaign ID, revision, and digest;
 2. the donor-authorized intent pins that quote and repeats the same channel;
 3. a finalized receipt copies the channel and proves qualifying funds reached
    the pinned campaign destination;
@@ -555,7 +556,7 @@ guaranteeing funds raised.
 | fee injection | canonical fee list and arithmetic; any change invalidates preview |
 | message requests automatic payment | never execute from a message; require fresh quote and local confirmation |
 | stale quote replay | check expiry, intent ID, campaign revision and digest, deployment and provider-binding digests, and provider signature |
-| signed same-revision equivocation | block new action, preserve both signed records as evidence, and follow the pinned profile's resolution rule |
+| signed same-revision equivocation | return `RECORD_EQUIVOCATION`, block dependent new action, preserve both signed records as evidence, and permit resolution only through the profile-pinned policy and authority |
 | duplicate submission after timeout | reconcile stable intent before resubmission |
 | malicious rich report | digest verification, type/size limits, sandboxed rendering |
 | global beneficiary correlation | campaign/epoch-scoped nullifiers and scoped identity capabilities |
@@ -573,7 +574,8 @@ Onym maps every abstract error code into a stable user action:
 | Code | User-facing action |
 |---|---|
 | `PROFILE_UNSUPPORTED` | Explain that this app lacks the required profile and offer another installed or explicitly selected compatible adapter. |
-| `DEPLOYMENT_INVALID` | Block the action and identify the failed binding, signature, hash, status, or validity check. |
+| `DEPLOYMENT_INVALID` | Block the action and identify the failed binding, signature, digest, status, or validity check. |
+| `RECORD_EQUIVOCATION` | Show that conflicting authenticated records were found, preserve both for support or audit, and block dependent new action until the pinned policy authorizes an explicit resolution. |
 | `CAMPAIGN_NOT_ACTIVE` | Disable new donations or claims, show whether the campaign is paused, closed, revoked, or unavailable, and preserve history. |
 | `CREDENTIAL_UNTRUSTED` | Show the issuer and policy mismatch; permit only a deliberate scoped policy override where policy allows it. |
 | `CREDENTIAL_REVOKED` | Block new action, show authenticated revocation status, and preserve already finalized evidence. |
@@ -656,12 +658,12 @@ An Onym Messenger implementation of this profile must test:
 5. the identity vault rejects seed export and unscoped signing requests;
 6. uncertain submission reconciles without creating a second intent;
 7. pending, final, refunded, reversed, and failed receipts survive restart,
-   and every final receipt matches the locally authorized `intentDigest`;
-8. eligibility proofs bind campaign revision, policy, epoch, public inputs,
-   and scoped nullifier;
-9. aid claims bind the exact presentation, campaign revision, entitlement,
-   expiry, and private delivery binding, while public receipts omit recipient
-   details;
+   and every final receipt matches the locally authorized `intent.digest`;
+8. eligibility proofs bind the exact campaign ID, revision, and digest, policy,
+   epoch, public inputs, and scoped nullifier;
+9. aid claims bind the exact presentation and campaign references,
+   entitlement, expiry, and private delivery binding, while public receipts
+   omit recipient details;
 10. public events, deep links, notifications, logs, and reports pass negative
    PII fixtures;
 11. blobs enforce digest, size, media, decompression, and active-content rules;

@@ -213,6 +213,10 @@ backend:
   "trustSemantics": "<content-addressed-trust-semantics>",
   "privacyProfile": "<content-addressed-disclosure-profile>",
   "metricProfile": "<content-addressed-volume-profile>",
+  "equivocationPolicy": {
+    "id": "onym:charity-equivocation:fail-closed-v1",
+    "digest": "<equivocation-policy-digest>"
+  },
   "errorSchema": "onym-charity-errors-v1",
   "specification": "<content-addressed-specification>",
   "signature": "<profile-publisher-signature>"
@@ -236,13 +240,33 @@ A `CharityDeployment` binds the abstract profile to concrete providers:
     "digest": "<profile-digest>"
   },
   "operator": "onym:key:<charity-operator>",
-  "organizationCredentialPolicy": "<trust-policy-id-and-digest>",
-  "campaignRegistry": "<adapter-profile-deployment-and-digest>",
-  "financialBindings": ["<financial-profile-deployment-and-digest>"],
-  "notaryBindings": ["<notary-profile-deployment-and-digest>"],
-  "eligibilityBindings": ["<proof-profile-issuer-policy-and-digests>"],
-  "auditBindings": ["<audit-profile-issuer-policy-and-digests>"],
-  "privacyProfile": "<privacy-profile-id-and-digest>",
+  "organizationCredentialPolicy": {
+    "id": "<trust-policy-id>",
+    "digest": "<trust-policy-digest>"
+  },
+  "campaignRegistry": {
+    "binding": {
+      "id": "<registry-binding-id>",
+      "digest": "<registry-binding-digest>"
+    },
+    "endpoint": "<authenticated-registry-endpoint>"
+  },
+  "financialBindings": [
+    {"id": "<financial-binding-id>", "digest": "<financial-binding-digest>"}
+  ],
+  "notaryBindings": [
+    {"id": "<notary-binding-id>", "digest": "<notary-binding-digest>"}
+  ],
+  "eligibilityBindings": [
+    {"id": "<eligibility-binding-id>", "digest": "<eligibility-binding-digest>"}
+  ],
+  "auditBindings": [
+    {"id": "<audit-binding-id>", "digest": "<audit-binding-digest>"}
+  ],
+  "privacyProfile": {
+    "id": "<privacy-profile-id>",
+    "digest": "<privacy-profile-digest>"
+  },
   "incidentContact": "<authenticated-contact>",
   "validFrom": "2026-08-01T00:00:00Z",
   "validUntil": "2027-08-01T00:00:00Z",
@@ -250,7 +274,7 @@ A `CharityDeployment` binds the abstract profile to concrete providers:
 }
 ```
 
-The application verifies the deployment signature, profile hash, provider
+The application verifies the deployment signature, profile digest, provider
 bindings, validity, status, and replacement rules. A deployment update cannot
 silently change a destination, accepted issuer, proof system, fee schedule, or
 privacy disclosure for an already prepared operation.
@@ -281,9 +305,32 @@ Every authorization-critical reference contains both the stable object ID and
 the digest of the exact canonical object. An ID or `(ID, revision)` tuple is a
 lookup and ordering hint, not a security binding: an operator could otherwise
 sign two different objects at the same revision. A resolver that observes two
-valid digests for the same object ID and revision reports authenticated
-equivocation and blocks new value-moving or eligibility operations until the
-selected profile resolves it.
+valid digests for the same object ID and revision returns
+`RECORD_EQUIVOCATION`, preserves both records as evidence, and blocks new
+value-moving or eligibility operations that depend on either record.
+
+The canonical reference encodings are:
+
+```json
+{"id": "<stable-object-id>", "digest": "<canonical-object-digest>"}
+```
+
+and, for revisioned records:
+
+```json
+{"id": "<stable-object-id>", "revision": 1, "digest": "<canonical-object-digest>"}
+```
+
+These `ObjectReference` and `RevisionedObjectReference` shapes are used in
+signed objects instead of composite strings or sibling `*Digest` fields.
+Purely content-addressed resources without a separate stable ID may remain a
+single digest reference.
+
+The profile-pinned `equivocationPolicy` is fail-closed by default: there is no
+automatic preference for the newest, first-seen, or most available record.
+Resolution requires an explicit signed migration or recovery action authorized
+under the already pinned policy and authority. Historical verification stays
+bound to the exact digest originally accepted.
 
 ### 6.1 Trust Policy
 
@@ -338,17 +385,25 @@ required.
 {
   "campaignVersion": 1,
   "campaignId": "<stable-random-id>",
-  "charityDeployment": "<deployment-id-and-digest>",
+  "charityDeployment": {
+    "id": "<deployment-id>",
+    "digest": "<deployment-digest>"
+  },
   "operator": "onym:key:<charity-operator>",
   "organization": "onym:key:<organization-id>",
-  "organizationCredential": "<credential-id-and-digest>",
+  "organizationCredential": {
+    "id": "<credential-id>",
+    "digest": "<credential-digest>"
+  },
   "title": "<human-readable-title>",
   "purpose": "<content-addressed-description>",
   "jurisdictions": ["<declared-scope>"],
   "startsAt": "<timestamp>",
   "endsAt": "<timestamp>",
   "acceptedAssets": ["<asset-and-network-id>"],
-  "financialDestinations": ["<signed-destination-binding>"],
+  "financialDestinations": [
+    {"id": "<destination-binding-id>", "digest": "<destination-binding-digest>"}
+  ],
   "allocationPolicy": "<content-addressed-policy>",
   "refundPolicy": "<content-addressed-policy>",
   "reportingPolicy": "<content-addressed-policy>",
@@ -360,8 +415,8 @@ required.
 ```
 
 Material updates create a new revision. A donation intent pins the exact
-campaign revision, credential digest, destination, and provider bindings it
-accepted.
+campaign ID, revision, and digest; deployment; credential; destination; and
+provider-binding references it accepted.
 
 ### 6.4 Donation Quote
 
@@ -369,12 +424,20 @@ accepted.
 {
   "quoteVersion": 1,
   "quoteId": "<provider-unique-id>",
-  "campaignId": "<campaign-id>",
-  "campaignRevision": 1,
-  "campaignDigest": "<campaign-digest>",
-  "charityDeploymentDigest": "<deployment-digest>",
+  "campaign": {
+    "id": "<campaign-id>",
+    "revision": 1,
+    "digest": "<campaign-digest>"
+  },
+  "charityDeployment": {
+    "id": "<deployment-id>",
+    "digest": "<deployment-digest>"
+  },
   "financialProvider": "onym:key:<provider-id>",
-  "financialBindingDigest": "<financial-binding-digest>",
+  "financialBinding": {
+    "id": "<financial-binding-id>",
+    "digest": "<financial-binding-digest>"
+  },
   "asset": "<asset-and-network-id>",
   "grossAmount": "100.00",
   "fees": [
@@ -388,9 +451,19 @@ accepted.
   ],
   "netAmount": "99.00",
   "destination": "<canonical-destination>",
+  "destinationBinding": {
+    "id": "<destination-binding-id>",
+    "digest": "<destination-binding-digest>"
+  },
   "interfaceChannelId": "<optional-non-user-specific-channel>",
-  "finalityRule": "<profile-defined-rule>",
-  "refundRule": "<policy-id-and-digest>",
+  "finalityRule": {
+    "id": "<finality-rule-id>",
+    "digest": "<finality-rule-digest>"
+  },
+  "refundRule": {
+    "id": "<refund-policy-id>",
+    "digest": "<refund-policy-digest>"
+  },
   "expiresAt": "<timestamp>",
   "signature": "<financial-provider-signature>"
 }
@@ -405,15 +478,18 @@ rounding rule. Fees never appear only after authorization.
 {
   "intentVersion": 1,
   "intentId": "<user-generated-random-id>",
-  "quoteId": "<quote-id-and-digest>",
-  "campaignId": "<campaign-id>",
-  "campaignRevision": 1,
-  "campaignDigest": "<campaign-digest>",
-  "charityDeploymentDigest": "<deployment-digest>",
-  "trustPolicyDigest": "<user-accepted-trust-policy-digest>",
-  "organizationCredentialDigest": "<credential-digest>",
-  "financialBindingDigest": "<financial-binding-digest>",
-  "privacyProfileDigest": "<accepted-disclosure-profile-digest>",
+  "quote": {"id": "<quote-id>", "digest": "<quote-digest>"},
+  "campaign": {
+    "id": "<campaign-id>",
+    "revision": 1,
+    "digest": "<campaign-digest>"
+  },
+  "charityDeployment": {"id": "<deployment-id>", "digest": "<deployment-digest>"},
+  "trustPolicy": {"id": "<trust-policy-id>", "digest": "<trust-policy-digest>"},
+  "organizationCredential": {"id": "<credential-id>", "digest": "<credential-digest>"},
+  "financialBinding": {"id": "<financial-binding-id>", "digest": "<financial-binding-digest>"},
+  "privacyProfile": {"id": "<privacy-profile-id>", "digest": "<privacy-profile-digest>"},
+  "destinationBinding": {"id": "<destination-binding-id>", "digest": "<destination-binding-digest>"},
   "grossAmount": "100.00",
   "asset": "<asset-and-network-id>",
   "destination": "<canonical-destination>",
@@ -439,18 +515,20 @@ eligibility, price, or service.
 {
   "receiptVersion": 1,
   "receiptId": "<stable-id>",
-  "intentId": "<intent-id>",
-  "intentDigest": "<digest-of-canonical-authorized-intent>",
-  "quoteId": "<quote-id-and-digest>",
-  "campaignId": "<campaign-id>",
-  "campaignRevision": 1,
-  "campaignDigest": "<campaign-digest>",
-  "charityDeploymentDigest": "<deployment-digest>",
-  "trustPolicyDigest": "<user-accepted-trust-policy-digest>",
+  "intent": {"id": "<intent-id>", "digest": "<authorized-intent-digest>"},
+  "quote": {"id": "<quote-id>", "digest": "<quote-digest>"},
+  "campaign": {
+    "id": "<campaign-id>",
+    "revision": 1,
+    "digest": "<campaign-digest>"
+  },
+  "charityDeployment": {"id": "<deployment-id>", "digest": "<deployment-digest>"},
+  "trustPolicy": {"id": "<trust-policy-id>", "digest": "<trust-policy-digest>"},
   "organization": "onym:key:<organization-id>",
-  "organizationCredentialDigest": "<credential-digest>",
-  "financialBindingDigest": "<financial-binding-digest>",
-  "privacyProfileDigest": "<accepted-disclosure-profile-digest>",
+  "organizationCredential": {"id": "<credential-id>", "digest": "<credential-digest>"},
+  "financialBinding": {"id": "<financial-binding-id>", "digest": "<financial-binding-digest>"},
+  "privacyProfile": {"id": "<privacy-profile-id>", "digest": "<privacy-profile-digest>"},
+  "destinationBinding": {"id": "<destination-binding-id>", "digest": "<destination-binding-digest>"},
   "asset": "<asset-and-network-id>",
   "grossAmount": "100.00",
   "fees": [
@@ -476,8 +554,8 @@ eligibility, price, or service.
 The receipt identifies its issuer. A private tax receipt or regulated payment
 record may require additional personal data and must use a separate, explicit
 flow with its own controller, purpose, retention, and disclosure terms.
-`intentDigest` binds the receipt to the exact canonical intent bytes the donor
-authorized; matching a human-readable `intentId` alone is insufficient.
+`intent.digest` binds the receipt to the exact canonical intent bytes the donor
+authorized; matching a human-readable `intent.id` alone is insufficient.
 
 When `interfaceChannelId` is present, the quote proposes it, the donation
 intent pins the quote and repeats the same value, and the receipt copies that
@@ -495,13 +573,16 @@ the underlying credential when the selected proof system supports it.
 ```json
 {
   "presentationVersion": 1,
-  "campaignId": "<campaign-id>",
-  "campaignRevision": 1,
-  "campaignDigest": "<campaign-digest>",
-  "charityDeploymentDigest": "<deployment-digest>",
-  "policy": "<eligibility-policy-id-version-and-digest>",
-  "proofProfileDigest": "<proof-profile-digest>",
-  "privacyProfileDigest": "<accepted-disclosure-profile-digest>",
+  "presentationId": "<presenter-generated-random-id>",
+  "campaign": {
+    "id": "<campaign-id>",
+    "revision": 1,
+    "digest": "<campaign-digest>"
+  },
+  "charityDeployment": {"id": "<deployment-id>", "digest": "<deployment-digest>"},
+  "eligibilityPolicy": {"id": "<eligibility-policy-id>", "digest": "<eligibility-policy-digest>"},
+  "proofProfile": {"id": "<proof-profile-id>", "digest": "<proof-profile-digest>"},
+  "privacyProfile": {"id": "<privacy-profile-id>", "digest": "<privacy-profile-digest>"},
   "epoch": "<policy-defined-claim-window>",
   "publicInputs": "<canonical-policy-defined-inputs>",
   "nullifier": "<campaign-and-epoch-scoped-nullifier>",
@@ -521,22 +602,24 @@ choice.
 
 ### 6.8 Aid Claim and Disbursement Receipt
 
-An `AidClaim` pins the exact campaign revision, eligibility policy,
-presentation digest, requested entitlement, private delivery binding, expiry,
-and claimant authorization:
+An `AidClaim` pins the exact campaign ID, revision, and digest; eligibility
+policy and presentation references; requested entitlement; private delivery
+binding; expiry; and claimant authorization:
 
 ```json
 {
   "claimVersion": 1,
   "claimId": "<claimant-generated-random-id>",
-  "campaignId": "<campaign-id>",
-  "campaignRevision": 1,
-  "campaignDigest": "<campaign-digest>",
-  "charityDeploymentDigest": "<deployment-digest>",
-  "eligibilityPolicy": "<policy-id-version-and-digest>",
-  "proofProfileDigest": "<proof-profile-digest>",
-  "privacyProfileDigest": "<accepted-disclosure-profile-digest>",
-  "presentationDigest": "<digest-of-eligibility-presentation>",
+  "campaign": {
+    "id": "<campaign-id>",
+    "revision": 1,
+    "digest": "<campaign-digest>"
+  },
+  "charityDeployment": {"id": "<deployment-id>", "digest": "<deployment-digest>"},
+  "eligibilityPolicy": {"id": "<eligibility-policy-id>", "digest": "<eligibility-policy-digest>"},
+  "proofProfile": {"id": "<proof-profile-id>", "digest": "<proof-profile-digest>"},
+  "privacyProfile": {"id": "<privacy-profile-id>", "digest": "<privacy-profile-digest>"},
+  "presentation": {"id": "<presentation-id>", "digest": "<presentation-digest>"},
   "nullifier": "<campaign-and-epoch-scoped-nullifier>",
   "entitlement": {
     "class": "<policy-defined-entitlement-class>",
@@ -545,8 +628,9 @@ and claimant authorization:
   },
   "deliveryBinding": {
     "bindingVersion": 1,
+    "bindingId": "<claim-scoped-delivery-binding-id>",
     "provider": "onym:key:<delivery-provider>",
-    "railProfileId": "<financial-or-physical-delivery-profile>",
+    "railProfile": {"id": "<delivery-profile-id>", "digest": "<delivery-profile-digest>"},
     "recipientCommitment": "<randomized-claim-scoped-recipient-commitment>",
     "encryptedRecipient": "<recipient-details-sealed-to-provider>",
     "disclosures": ["<declared-field-or-category>"],
@@ -575,16 +659,17 @@ fees, finality, and evidence without repeating private delivery details:
 {
   "disbursementReceiptVersion": 1,
   "receiptId": "<stable-id>",
-  "claimId": "<claim-id>",
-  "claimDigest": "<digest-of-canonical-authorized-claim>",
-  "campaignId": "<campaign-id>",
-  "campaignRevision": 1,
-  "campaignDigest": "<campaign-digest>",
-  "charityDeploymentDigest": "<deployment-digest>",
-  "eligibilityPolicy": "<policy-id-version-and-digest>",
-  "proofProfileDigest": "<proof-profile-digest>",
-  "privacyProfileDigest": "<accepted-disclosure-profile-digest>",
-  "presentationDigest": "<digest-of-eligibility-presentation>",
+  "claim": {"id": "<claim-id>", "digest": "<authorized-claim-digest>"},
+  "campaign": {
+    "id": "<campaign-id>",
+    "revision": 1,
+    "digest": "<campaign-digest>"
+  },
+  "charityDeployment": {"id": "<deployment-id>", "digest": "<deployment-digest>"},
+  "eligibilityPolicy": {"id": "<eligibility-policy-id>", "digest": "<eligibility-policy-digest>"},
+  "proofProfile": {"id": "<proof-profile-id>", "digest": "<proof-profile-digest>"},
+  "privacyProfile": {"id": "<privacy-profile-id>", "digest": "<privacy-profile-digest>"},
+  "presentation": {"id": "<presentation-id>", "digest": "<presentation-digest>"},
   "publicClaimReference": "<scoped-nullifier-or-unlinked-commitment>",
   "entitlement": {
     "class": "<policy-defined-entitlement-class>",
@@ -600,7 +685,7 @@ fees, finality, and evidence without repeating private delivery details:
       "recipient": "onym:key:<declared-party>"
     }
   ],
-  "deliveryBindingDigest": "<digest-of-private-delivery-binding>",
+  "deliveryBinding": {"id": "<delivery-binding-id>", "digest": "<delivery-binding-digest>"},
   "status": "disbursed",
   "finalizedAt": "<timestamp>",
   "deliveryEvidence": "<profile-defined-private-or-committed-evidence>",
@@ -623,7 +708,6 @@ pickup secret, or physical delivery location.
   "reportVersion": 1,
   "reportId": "<stable-id>",
   "campaignId": "<campaign-id>",
-  "campaignRecordSetCommitment": "<campaign-revision-and-digest-set>",
   "period": {"from": "<timestamp>", "to": "<timestamp>"},
   "measurement": "net-finalized",
   "asset": "<asset-and-network-id>",
@@ -632,7 +716,10 @@ pickup secret, or physical delivery location.
   "refundsAndReversals": "<amount>",
   "eligibleDonationVolume": "<amount>",
   "operationCount": "<optional-aggregate-count>",
-  "sourceCommitment": "<verifiable-record-set-commitment>",
+  "sourceCommitment": {
+    "algorithm": "<profile-defined-commitment-algorithm>",
+    "digest": "<canonical-source-set-commitment>"
+  },
   "evidence": "<notary-financial-or-audit-evidence>",
   "issuer": "onym:key:<report-issuer>",
   "signature": "<report-issuer-signature>"
@@ -641,6 +728,13 @@ pickup secret, or physical delivery location.
 
 The report never contains donor or beneficiary identities. Counts smaller
 than a profile-defined privacy threshold should be suppressed or bucketed.
+`sourceCommitment` commits one canonical, sorted source set containing every
+`RevisionedObjectReference` for a campaign record used during the period,
+every qualifying donation-receipt reference, and every deduction or correction
+event for duplicates, refunds, and reversals. The selected metric profile
+defines the canonical set encoding and commitment algorithm. The accompanying
+evidence lets a verifier reconstruct the set or verify membership and
+non-duplication without publishing donor identity.
 
 ## 7. Operations
 
@@ -652,16 +746,16 @@ reconciliation loop invokes `read-donation`, and `watchAidClaim` invokes
 
 | Canonical wire operation | Caller intent | Required checks | Success evidence |
 |---|---|---|---|
-| `resolve-campaign` | inspect a campaign | profile and deployment digests, signatures, credential policy, status, freshness, equivocation | verified view plus explicit warnings |
-| `quote-donation` | request current terms | campaign revision and digest, deployment and provider-binding digests, asset, destination, arithmetic, expiry | signed quote |
-| `prepare-donation` | freeze exact operation | quote, privacy disclosure, authorization schema | canonical intent bytes/digest |
-| `submit-donation` | move declared value | local authorization, current quote, destination, idempotency | pending outcome/provider reference |
+| `resolve-campaign` | inspect a campaign | exact profile, deployment, campaign, credential, binding, and policy references; signatures; status; freshness; no unresolved equivocation | verified view plus explicit warnings |
+| `quote-donation` | request current terms | exact campaign, deployment, provider-binding, and destination-binding references; no unresolved equivocation; asset; arithmetic; expiry | signed quote |
+| `prepare-donation` | freeze exact operation | exact quote, campaign, deployment, trust-policy, credential, financial-binding, privacy-profile, and destination-binding references; no unresolved equivocation; disclosure; authorization schema | canonical intent bytes/digest |
+| `submit-donation` | move declared value | local authorization over those exact references and terms; current quote; no unresolved equivocation; destination; idempotency | pending outcome/provider reference |
 | `read-donation` | reconcile state | evidence and finality rule | finalized, failed, refunded, or still pending |
 | `request-refund` | invoke declared policy | requester authority, receipt, deadline, provider rule | decision and financial evidence |
-| `present-eligibility` | prove entitlement | campaign, deployment, policy, proof-profile and privacy-profile digests; issuer; proof; scope; expiry; nullifier | verified presentation outcome |
-| `claim-aid` | request aid | pinned record digests, campaign state, presentation, duplicate rule, delivery binding | pending claim or rejection |
+| `present-eligibility` | prove entitlement | exact campaign, deployment, policy, proof-profile, and privacy-profile references; no unresolved equivocation; issuer; proof; scope; expiry; nullifier | verified presentation outcome |
+| `claim-aid` | request aid | exact pinned record references; no unresolved equivocation; campaign state; presentation; duplicate rule; delivery binding | pending claim or rejection |
 | `read-aid-claim` | reconcile claim | profile-defined finality and evidence | disbursement receipt or terminal refusal |
-| `read-fund-flow` | inspect aggregate movement | report signature, source commitment, measurement profile | verified aggregate report |
+| `read-fund-flow` | inspect aggregate movement | report signature; source commitment over exact campaign-record, qualifying-receipt, deduction, and correction sets; measurement profile | verified aggregate report |
 
 Read operations must not require identifying the user unless the selected
 provider has a lawful, disclosed reason. Submission operations are
@@ -773,7 +867,8 @@ The protocol may measure fund flow without measuring people.
 `eligibleDonationVolume` is the amount, under a pinned measurement rule, from
 finalized donation receipts that:
 
-1. reference a campaign and revision valid at authorization time;
+1. reference the exact campaign ID, revision, and digest valid at authorization
+   time;
 2. reference an organization credential accepted by the pinned trust policy;
 3. settle to the pinned campaign destination through an accepted financial
    binding; and
@@ -860,7 +955,8 @@ The port returns typed outcomes rather than provider text as control flow:
 | Code | Meaning | Safe UI behavior |
 |---|---|---|
 | `PROFILE_UNSUPPORTED` | interface/profile version is unsupported | offer another compatible adapter |
-| `DEPLOYMENT_INVALID` | binding signature, hash, status, or validity failed | block and identify failed check |
+| `DEPLOYMENT_INVALID` | binding signature, digest, status, or validity failed | block and identify failed check |
+| `RECORD_EQUIVOCATION` | two valid signed records reuse an object ID and revision with different digests | preserve both as evidence and block dependent new action under the pinned policy |
 | `CAMPAIGN_NOT_ACTIVE` | campaign is absent, paused, closed, or revoked | block new action; preserve history |
 | `CREDENTIAL_UNTRUSTED` | credential does not satisfy selected policy | show issuer/policy mismatch |
 | `CREDENTIAL_REVOKED` | current status is revoked | block new action |
@@ -921,9 +1017,10 @@ change the meaning of a code or cause the application to sign a new operation.
 
 A conforming implementation publishes:
 
-1. supported Charity Profile and schema hashes;
+1. supported Charity Profile and schema digests;
 2. canonicalization and signature test vectors;
-3. trust-policy, revocation, and same-revision equivocation test vectors;
+3. trust-policy, revocation, typed `RECORD_EQUIVOCATION`, and pinned
+   equivocation-policy test vectors;
 4. amount, fee, precision, and rounding vectors;
 5. donation idempotency, timeout, finality, refund, and reversal tests;
 6. eligibility proof, scope, expiry, and duplicate-claim tests if aid is
