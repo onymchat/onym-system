@@ -45,15 +45,19 @@ Aid v1 conformance requires:
 2. campaign-, epoch-, and policy-scoped duplicate prevention without a global
    beneficiary identifier;
 3. exact claimant authorization of entitlement and private delivery binding;
-4. separate approval and disbursement states with independently checked
+4. idempotent claim submission and reconciliation after timeout or restart;
+5. separate approval and disbursement states with independently checked
    evidence;
-5. aggregate claimed, approved, disbursed, fee, reversal, and correction
-   arithmetic under the Aid metric profile;
-6. negative PII fixtures for public objects, events, logs, notifications, and
+6. aggregate claimed, approved, disbursed, fee, reversal, and correction
+   arithmetic under the Aid metric profile's canonical precision and rounding
+   rules;
+7. negative PII fixtures for public objects, events, logs, notifications, and
    reports;
-7. failure behavior for invalid, expired, replayed, and duplicate proofs; and
-8. one mock non-ledger delivery adapter proving that the profile is not tied to
+8. failure behavior for invalid, expired, replayed, and duplicate proofs; and
+9. one mock non-ledger delivery adapter proving that the profile is not tied to
    a particular payout rail.
 
 A Donation v1 implementation does not satisfy any Aid v1 criterion by
 implication. Aid v1 must be advertised, tested, and removable separately.
+The UI exposes it only when the deployment and campaign advertise the exact Aid
+v1 profile and the installed client supports it.

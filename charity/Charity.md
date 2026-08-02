@@ -256,11 +256,18 @@ invokes shared operation names separately: `resolve-campaign` or
 `read-fund-flow` under Donation v1 carries the Donation v1 ID and receives the
 donation response variant; the same operation under Aid v1 carries the Aid v1
 ID and receives the aid variant. A response with a missing or different
-`profileId` is invalid. There is no implicit combined-profile request in v1.
-Operations with the same name across profiles share only the semantics
-explicitly declared by both profiles. A deployment that supports both profiles
-may reuse a campaign record, but it publishes and tests each profile binding
-independently.
+`profileId` is rejected as `PROFILE_MISMATCH`; none of its payload is used.
+There is no implicit combined-profile request in v1. Operations with the same
+name across profiles share only the semantics explicitly declared by both
+profiles. A deployment that supports both profiles may reuse a campaign record,
+but it publishes and tests each profile binding independently.
+
+A local port does not have to repeat `profileId` when a verified input object or
+a profile-exclusive method fixes it unambiguously. The adapter still
+materializes that exact ID in every wire request, response, authorization, and
+outcome. Shared operations require an explicit profile selection. An omitted or
+conflicting derived ID fails locally as `PROFILE_MISMATCH` before any payload is
+authorized or accepted.
 
 ### 5.2 Charity Deployment
 
@@ -390,6 +397,7 @@ required.
   "jurisdictions": ["<declared-scope>"],
   "startsAt": "<timestamp>",
   "endsAt": "<timestamp>",
+  "allocationPolicy": "<content-addressed-policy>",
   "donationTerms": {
     "acceptedAssets": ["<asset-and-network-id>"],
     "financialDestinations": ["<signed-destination-binding>"],
@@ -398,7 +406,6 @@ required.
   "aidTerms": {
     "eligibilityPolicies": ["<eligibility-policy-id-and-version>"],
     "deliveryBindings": ["<delivery-profile-and-deployment>"],
-    "allocationPolicy": "<content-addressed-policy>",
     "beneficiaryPrivacy": "<content-addressed-disclosure-profile>"
   },
   "reportingPolicy": "<content-addressed-policy>",
@@ -408,11 +415,22 @@ required.
 }
 ```
 
-`supportedProfiles` controls the required term blocks. Donation v1 requires
-`donationTerms` and permits `aidTerms` to be absent. Aid v1 requires `aidTerms`
-and permits `donationTerms` to be absent. A dual-profile campaign requires both.
-Unknown profile IDs or a missing required block fail closed; an unused block
-does not make the other profile a conformance dependency.
+`supportedProfiles` must be a non-empty subset of the exact profile IDs in the
+selected deployment's `charityProfiles`. Donation v1 requires `donationTerms`
+and permits `aidTerms` to be absent. Aid v1 requires `aidTerms`, a non-empty
+deployment `eligibilityBindings` list, and a compatible deployment eligibility
+binding for every advertised campaign eligibility policy; it permits
+`donationTerms` to be absent. A dual-profile campaign requires both term blocks.
+An unknown or deployment-absent profile ID returns `PROFILE_MISMATCH`; a
+missing required term block or required provider binding returns
+`DEPLOYMENT_INVALID`. An unused block does not make the other profile a
+conformance dependency.
+
+`allocationPolicy` is profile-independent because a campaign may declare how
+collected funds are allocated even when it does not implement beneficiary
+delivery. A Donation-only campaign may therefore publish it. If it is absent,
+the UI must say that the campaign has no declared allocation policy and must
+not infer one from `reportingPolicy`, impact claims, or Aid support.
 
 Material updates create a new revision. A donation intent pins the exact
 campaign revision, credential digest, donation terms, destination, and provider
@@ -730,7 +748,7 @@ reconciliation loop invokes `read-donation`, and `watchAidClaim` invokes
 | Donation v1 | `read-donation` | reconcile state | evidence and finality rule | finalized, failed, refunded, or still pending |
 | Donation v1 | `request-refund` | invoke declared policy | requester authority, receipt, deadline, provider rule | decision and financial evidence |
 | Aid v1 | `present-eligibility` | prove entitlement | policy, issuer, proof, scope, expiry, nullifier | verified presentation outcome |
-| Aid v1 | `claim-aid` | request aid | campaign state, presentation, duplicate rule, delivery binding | pending claim or rejection |
+| Aid v1 | `claim-aid` | request aid | campaign state, presentation, stable claim-ID idempotency, duplicate rule, delivery binding | pending claim or rejection |
 | Aid v1 | `read-aid-claim` | reconcile claim | profile-defined finality and evidence | disbursement receipt or terminal refusal |
 | Donation v1 | `read-fund-flow` | inspect aggregate donations | Donation profile ID, report signature, receipt/refund/reversal source commitment, donation metric profile | verified Donation fund-flow report |
 | Aid v1 | `read-fund-flow` | inspect aggregate aid | Aid profile ID, report signature, claim/approval/disbursement/correction source commitment, aid metric profile | verified Aid fund-flow report |
@@ -941,7 +959,8 @@ The port returns typed outcomes rather than provider text as control flow:
 
 | Code | Meaning | Safe UI behavior |
 |---|---|---|
-| `PROFILE_UNSUPPORTED` | interface/profile version is unsupported | offer another compatible adapter |
+| `PROFILE_UNSUPPORTED` | requested interface/profile version is not implemented locally; carries `requestedProfileId` and `supportedProfileIds` | name both values and offer another compatible adapter without disabling independently supported profiles |
+| `PROFILE_MISMATCH` | a request, response, authorization, or outcome omits `profileId` or carries a value different from the selected profile | reject the entire payload without rendering, authorizing, or partially processing it |
 | `DEPLOYMENT_INVALID` | binding signature, hash, status, or validity failed | block and identify failed check |
 | `CAMPAIGN_NOT_ACTIVE` | campaign is absent, paused, closed, or revoked | block new action; preserve history |
 | `CREDENTIAL_UNTRUSTED` | credential does not satisfy selected policy | show issuer/policy mismatch |
@@ -953,7 +972,7 @@ The port returns typed outcomes rather than provider text as control flow:
 | `COMPLIANCE_REQUIRED` | selected provider needs an additional private flow | identify provider and disclosure before consent |
 | `PROOF_INVALID` | eligibility proof failed | reveal no unnecessary diagnostic publicly |
 | `NULLIFIER_USED` | entitlement was already claimed in this scope | show scoped duplicate refusal |
-| `SUBMISSION_UNKNOWN` | provider accepted request but outcome is unresolved | reconcile using stable intent ID |
+| `SUBMISSION_UNKNOWN` | provider accepted request but outcome is unresolved | reconcile using the stable intent or claim ID selected by the active profile |
 | `FINALITY_PENDING` | evidence is valid but not final | keep pending |
 | `REFUND_DENIED` | refund policy did not authorize a refund | show authenticated reason and dispute route |
 | `PRIVACY_PROFILE_MISMATCH` | requested flow would exceed accepted disclosure | stop and require explicit new choice |
@@ -964,16 +983,20 @@ change the meaning of a code or cause the application to sign a new operation.
 ## 13. Security invariants
 
 1. No seed phrase, root secret, or unscoped private key crosses the boundary.
-2. User authorization covers exact amount, asset, destination, campaign
-   revision, quote, expiry, fees, and relevant privacy choice.
+2. User authorization covers every profile-specific canonical operation field:
+   Donation includes exact amount, asset, destination, campaign revision,
+   quote, expiry, fees, and privacy choice; Aid includes exact presentation,
+   campaign revision, entitlement, delivery binding, expiry, and privacy choice.
 3. A message, link, QR code, or Discovery entry can propose an operation but
    cannot authorize it.
 4. Organization trust is derived from an explicit issuer policy, not UI brand.
-5. Campaign changes cannot mutate an already authorized intent.
-6. Submission is idempotent and reconciliation never creates a second payment.
+5. Campaign changes cannot mutate an already authorized intent or claim.
+6. Submission is idempotent and reconciliation never creates a second payment
+   or aid claim.
 7. Public records contain no intentional donor or beneficiary PII.
 8. Eligibility nullifiers are scoped; they are not global person identifiers.
-9. Aggregate reports exclude or correct duplicates, refunds, and reversals.
+9. Aggregate reports exclude or correct duplicates, refunds, reversals, and aid
+   corrections under the selected metric profile.
 10. Financial settlement, organization verification, and impact reporting are
     distinct claims with distinct issuers.
 11. A paid provider refusal does not make an invalid operation valid.
@@ -998,14 +1021,18 @@ change the meaning of a code or cause the application to sign a new operation.
 ## 15. Conformance
 
 A conforming implementation publishes the artifacts required by each profile
-it claims. Donation v1 requires items 1–5 and 7–10 below. Aid v1 requires items
-1–3 and 6–10. Supporting both requires the union:
+it claims. Donation v1 requires items 1–5 and 7–10 below. Aid v1 requires all
+items 1–10. Supporting both requires the union:
 
 1. supported Charity Profile and schema hashes;
 2. canonicalization and signature test vectors;
 3. trust-policy and revocation test vectors;
-4. amount, fee, precision, and rounding vectors;
-5. donation idempotency, timeout, finality, refund, and reversal tests;
+4. profile-specific amount or quantity, fee, precision, rounding, gross, and
+   net arithmetic vectors;
+5. profile-specific submission and reconciliation tests: Donation v1 covers
+   intent idempotency, timeout, restart, finality, refund, and reversal; Aid v1
+   covers claim idempotency, timeout, restart, finality, reversal, and
+   correction;
 6. eligibility proof, scope, expiry, and duplicate-claim tests;
 7. privacy-field inventory and negative PII fixtures;
 8. aggregate measurement and correction vectors;

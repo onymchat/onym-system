@@ -34,8 +34,7 @@ transitions reachable by the required operations.
 It publishes a content-addressed schema set, canonicalization and signature
 rules, financial evidence profile, disclosure profile, metric profile, and
 conformance vectors. A campaign may omit `aidTerms`; their presence does not
-advertise Aid v1 or make eligibility and delivery a Donation dependency. The
-deployment and campaign must both advertise Aid v1 before a UI exposes it.
+advertise Aid v1 or make eligibility and delivery a Donation dependency.
 
 ## Conformance boundary
 

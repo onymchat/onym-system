@@ -121,12 +121,12 @@ the donation methods without including eligibility-proof code, beneficiary
 state, or aid-delivery adapters. It renders an aid journey only when the
 selected deployment, campaign, and installed client all support Aid v1. If the
 deployment or campaign advertises Aid v1 but the client lacks it, the repository
-returns `PROFILE_UNSUPPORTED` with the requested profile ID and locally
-supported profile IDs. The UI keeps any independently supported Donation
+returns `PROFILE_UNSUPPORTED` with `requestedProfileId` and
+`supportedProfileIds`. The UI keeps any independently supported Donation
 journey available, labels Aid as unavailable in this client, and may offer an
 explicitly selected compatible client or adapter; it must not partially render
-or silently downgrade the Aid flow. A response carrying a different profile ID
-than the request is `DEPLOYMENT_INVALID`.
+or silently downgrade the Aid flow. A response carrying a missing or different
+profile ID is `PROFILE_MISMATCH`; none of its payload is used.
 
 ```text
 resolveProfile(profileReference) -> VerifiedCharityProfile | CharityError
@@ -161,6 +161,15 @@ reportIssue(objectReference, category, userSelectedEvidence) -> SupportHandoff
 | Aid v1 | `watchAidClaim` | repeated `read-aid-claim` reconciliation |
 | Donation v1, Aid v1 | `readFundFlow` | `read-fund-flow` |
 | Donation v1, Aid v1 | `reportIssue` | user-selected support handoff through the Message boundary; no Charity wire operation |
+
+`resolveCampaign` and `readFundFlow` take `profileId` explicitly because their
+wire operation names are shared. Profile-exclusive methods fix it by their
+contract: donation inputs and methods derive Donation v1, while eligibility and
+claim inputs and methods derive Aid v1. Local-only methods derive it from their
+verified input object, and `resolveProfile` derives it from the signed profile
+reference. In every case the adapter materializes the selected `profileId` on
+the wire and rejects omission or conflict as `PROFILE_MISMATCH`; derivation is
+not permission to omit it from a request, response, authorization, or outcome.
 
 The repository returns verified domain objects, typed warnings, and evidence.
 It never returns a remote provider's HTML, transaction builder, RPC response,
@@ -300,6 +309,11 @@ The campaign transparency view separates:
 2. **allocation** — an operator or auditor's signed claim about assigned funds;
 3. **expenditure** — evidence about outgoing spending; and
 4. **impact** — an attributed report about real-world results.
+
+When the campaign omits the profile-independent `allocationPolicy`, the
+allocation panel says that no allocation policy was declared. It does not infer
+one from Aid support, the reporting policy, or an allocation/impact issuer's
+claims.
 
 Onym can independently verify cryptographic evidence but cannot independently
 verify every off-system fact. The UI always names each report issuer and never
@@ -568,7 +582,7 @@ Donation interface-channel convention as beneficiary attribution.
 | fee injection | canonical fee list and arithmetic; any change invalidates preview |
 | message requests automatic payment | never execute from a message; require fresh quote and local confirmation |
 | stale quote replay | check expiry, intent ID, campaign revision, and provider signature |
-| duplicate submission after timeout | reconcile stable intent before resubmission |
+| duplicate submission after timeout | reconcile the profile's stable intent or claim ID before resubmission |
 | malicious rich report | digest verification, type/size limits, sandboxed rendering |
 | global beneficiary correlation | campaign/epoch-scoped nullifiers and scoped identity capabilities |
 | public compliance refusal leak | keep reason private; public outcome is minimal typed state |
@@ -585,6 +599,7 @@ Onym maps every abstract error code into a stable user action:
 | Code | User-facing action |
 |---|---|
 | `PROFILE_UNSUPPORTED` | Name the requested and locally supported profile IDs, keep independently supported journeys available, and offer another installed or explicitly selected compatible adapter. |
+| `PROFILE_MISMATCH` | Reject the entire response, show that the selected and returned profile IDs conflict or are missing, and never render or authorize its payload. |
 | `DEPLOYMENT_INVALID` | Block the action and identify the failed binding, signature, hash, status, or validity check. |
 | `CAMPAIGN_NOT_ACTIVE` | Disable new donations or claims, show whether the campaign is paused, closed, revoked, or unavailable, and preserve history. |
 | `CREDENTIAL_UNTRUSTED` | Show the issuer and policy mismatch; permit only a deliberate scoped policy override where policy allows it. |
@@ -656,8 +671,8 @@ They are intentionally not inferred or finalized by this protocol document.
 ## 16. Onym conformance tests
 
 An Onym Messenger implementation must run the common tests and the test set for
-every profile it advertises. Tests 1–5 and 10–13 are common; 6–7 are Donation
-v1; 8–9 are Aid v1. Tests 14–15 apply to each supported profile:
+every profile it advertises. Tests 1–7 and 10–13 are common; 8–9 are Aid v1.
+Tests 14–15 apply to each supported profile:
 
 1. campaign references arriving through message, deep link, QR, registry, and
    manual input all resolve through the same verification path;
@@ -667,9 +682,12 @@ v1; 8–9 are Aid v1. Tests 14–15 apply to each supported profile:
 4. mutation of any authorized canonical field or pinned record invalidates
    prior authorization under either profile;
 5. the identity vault rejects seed export and unscoped signing requests;
-6. uncertain submission reconciles without creating a second intent;
-7. pending, final, refunded, reversed, and failed receipts survive restart,
-   and every final receipt matches the locally authorized `intentDigest`;
+6. uncertain submission reconciles its stable intent or claim ID without
+   creating a second donation or aid claim;
+7. pending, final, failed, expired, and profile-specific refund, reversal, or
+   correction outcomes survive restart; every final Donation receipt matches
+   the locally authorized `intentDigest`, and every final Aid receipt matches
+   the locally authorized `claimDigest`;
 8. eligibility proofs bind campaign revision, policy, epoch, public inputs,
    and scoped nullifier;
 9. aid claims bind the exact presentation, campaign revision, entitlement,
