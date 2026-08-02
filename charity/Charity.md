@@ -293,13 +293,25 @@ and a stable digest. Unknown critical fields cause rejection.
   "jurisdictions": ["<declared-scope>"],
   "maximumCredentialAge": "P30D",
   "revocationFreshness": "PT24H",
+  "operatorAuthorizationStatusFreshness": "PT24H",
+  "destinationBindingStatusFreshness": "PT24H",
+  "acceptedOperatorDelegationDepths": [1],
+  "acceptedDestinationRelationships": [
+    "direct",
+    "fiscal-sponsor",
+    "authorized-agent"
+  ],
   "combinationRule": "any-one",
   "policyDocument": "<content-addressed-policy>",
   "signature": "<policy-author-signature>"
 }
 ```
 
-The policy does not contain donor or beneficiary identifiers.
+The policy does not contain donor or beneficiary identifiers. Delegation depth
+counts signed authority edges from the organization: the only base-profile
+value is `1`, meaning organization directly to operator. A freshness interval
+is the maximum accepted age of the authenticated status result, not the
+lifetime of the underlying authorization or binding.
 
 ### 6.2 Organization Credential
 
@@ -342,10 +354,20 @@ that the pinned organization profile permits.
   "organization": "onym:key:<organization-id>",
   "organizationCredential": "<credential-id-and-digest>",
   "operator": "onym:key:<charity-operator>",
-  "authorizedScopes": ["create-campaign", "update-campaign", "request-quotes"],
+  "authorizedScopes": [
+    "create-campaign",
+    "update-campaign",
+    "pause-campaign",
+    "resume-campaign",
+    "close-campaign",
+    "revoke-campaign",
+    "request-quotes",
+    "request-refund",
+    "approve-aid-claim",
+    "disburse-aid"
+  ],
   "jurisdictions": ["<declared-scope>"],
   "campaignConstraints": "<optional-content-addressed-constraints>",
-  "delegationAllowed": false,
   "issuedAt": "<timestamp>",
   "expiresAt": "<timestamp>",
   "status": "<revocation-status-reference>",
@@ -353,10 +375,16 @@ that the pinned organization profile permits.
 }
 ```
 
-The authorization does not permit the operator to alter the organization's
-credential, appoint a new financial recipient, or delegate again unless those
-powers are explicitly present. Its expiry or revocation blocks new actions but
-does not invalidate evidence for operations authorized while it was valid.
+The base profile is single-hop and non-delegable: every accepted authorization
+is signed directly by the organization, and an operator cannot authorize a
+second operator. Appointing a replacement requires a new organization-signed
+authorization. The authorization does not permit the operator to alter the
+organization's credential or appoint a new financial recipient. Each scope is
+independent and deny-by-default; for example, `update-campaign` does not imply
+status changes, refunds, aid approval, or disbursement. `request-refund` also
+does not replace any authorization required from the donor or receipt holder.
+Expiry or revocation blocks new actions but does not invalidate evidence for
+operations authorized while it was valid.
 
 ### 6.4 Financial Destination Binding
 
@@ -373,7 +401,7 @@ party that will legally or operationally receive the funds:
   "financialProvider": "onym:key:<provider-id>",
   "assetAndNetwork": "<asset-and-network-id>",
   "destination": "<canonical-destination>",
-  "campaignScope": ["<campaign-id-or-declared-scope>"],
+  "campaignScope": ["<campaign-id-or-declared-fundraising-scope>"],
   "controlEvidence": "<profile-defined-provider-attestation-or-control-proof>",
   "issuedAt": "<timestamp>",
   "expiresAt": "<timestamp>",
@@ -383,13 +411,23 @@ party that will legally or operationally receive the funds:
 }
 ```
 
-For a direct relationship, the organization and recipient keys are the same.
-For a fiscal sponsor or authorized agent, the UI names both entities and the
-relationship. The selected financial profile defines how
+For a direct relationship, the organization and recipient keys are the same,
+but both signatures remain required. The same key signs twice under distinct
+`organization-approval` and `recipient-acceptance` domain-separation tags; the
+signatures are not interchangeable. For a fiscal sponsor or authorized agent,
+the UI names both entities and the relationship. The selected financial
+profile defines how
 `controlEvidence` proves control of, or provider-recognized authority over,
 the destination. An operator signature alone is never sufficient destination
 evidence unless the operator is also the organization or separately named
 recipient and signs in those roles.
+
+There is no campaign/binding digest cycle. Issuance order is: allocate a stable
+campaign ID or declared fundraising scope, issue the destination binding over
+that value, then issue the campaign that pins the binding ID and digest.
+Extending a binding creates a new signed binding record. Existing campaigns
+remain bound to the earlier digest; only a campaign that adopts the replacement
+binding needs a new revision and fresh user authorization.
 
 ### 6.5 Charity Campaign
 
@@ -413,6 +451,7 @@ recipient and signs in those roles.
   "refundPolicy": "<content-addressed-policy>",
   "reportingPolicy": "<content-addressed-policy>",
   "beneficiaryPrivacy": "<content-addressed-disclosure-profile>",
+  "predecessor": null,
   "revision": 1,
   "status": "active",
   "signature": "<operator-signature>"
@@ -425,6 +464,23 @@ destination-binding digest, destination, and provider bindings it accepted.
 Campaign resolution verifies the complete chain: credential issuer to
 organization, organization to operator, operator to campaign, organization and
 recipient to destination, and financial provider to quote.
+
+For revision 1, `predecessor` is `null`. Every later revision uses this shape:
+
+```json
+{"id": "<same-campaign-id>", "revision": 1, "digest": "<previous-campaign-digest>"}
+```
+
+The organization remains
+the recovery authority for its campaign namespace. If an operator
+authorization expires or is revoked, new actions stop, but the organization
+may issue a direct replacement authorization whose constraints name the
+existing campaign ID and whose scopes include `update-campaign`. The successor
+operator signs the next linked campaign revision, which pins that replacement
+authorization. Verification does not require the revoked operator to approve
+or countersign the transition, and the old operator has no veto. The transition
+cannot rewrite prior revisions or revive in-flight authority; donations or
+claims under the successor revision require fresh user authorization.
 
 ### 6.6 Donation Quote
 
@@ -692,14 +748,14 @@ reconciliation loop invokes `read-donation`, and `watchAidClaim` invokes
 
 | Canonical wire operation | Caller intent | Required checks | Success evidence |
 |---|---|---|---|
-| `resolve-campaign` | inspect a campaign | profile, deployment, signatures, credential policy, organization-to-operator authorization, destination bindings, status, freshness | verified view plus explicit warnings |
-| `quote-donation` | request current terms | campaign revision, operator authorization, destination and provider bindings, asset, arithmetic, expiry | signed quote |
+| `resolve-campaign` | inspect a campaign | profile, deployment, signatures, credential policy, accepted relationship/delegation depth, fresh authorization and binding status, destination bindings | verified view plus explicit warnings |
+| `quote-donation` | request current terms | campaign revision, current `request-quotes` operator scope, destination and provider bindings, asset, arithmetic, expiry | signed quote |
 | `prepare-donation` | freeze exact operation | quote, privacy disclosure, authorization schema | canonical intent bytes/digest |
 | `submit-donation` | move declared value | local authorization, current quote, destination, idempotency | pending outcome/provider reference |
 | `read-donation` | reconcile state | evidence and finality rule | finalized, failed, refunded, or still pending |
-| `request-refund` | invoke declared policy | requester authority, receipt, deadline, provider rule | decision and financial evidence |
+| `request-refund` | invoke declared policy | requester authority; current `request-refund` operator scope when the operator initiates or approves the request; receipt; deadline; provider rule | decision and financial evidence |
 | `present-eligibility` | prove entitlement | policy, issuer, proof, scope, expiry, nullifier | verified presentation outcome |
-| `claim-aid` | request aid | campaign state, presentation, duplicate rule, delivery binding | pending claim or rejection |
+| `claim-aid` | request aid | campaign state, presentation, duplicate rule, delivery binding; current `approve-aid-claim` and `disburse-aid` scopes at their respective transitions | pending claim or rejection |
 | `read-aid-claim` | reconcile claim | profile-defined finality and evidence | disbursement receipt or terminal refusal |
 | `read-fund-flow` | inspect aggregate movement | report signature, source commitment, measurement profile | verified aggregate report |
 
@@ -717,13 +773,16 @@ draft -> active -> paused -> active
               \-> revoked
 ```
 
-Only an authorized campaign controller may change status. An organization
+Only an operator with the exact transition scope may change campaign status.
+An organization
 credential becoming invalid changes the resolved trust result immediately,
 even if the campaign record still says `active`. A UI blocks new donations
 under its trust policy and preserves evidence for already finalized actions.
 The same rule applies when the operator authorization or selected destination
-binding expires or is revoked. Replacing either requires a new campaign
-revision and fresh user authorization.
+binding expires or is revoked. A replacement destination binding requires a
+new campaign revision and fresh user authorization. A revoked or expired
+operator is replaced through the organization-authorized, predecessor-linked
+successor procedure in Section 6.5; no action is permitted during the gap.
 
 ### 8.2 Donation
 
@@ -752,6 +811,9 @@ approved -> disbursed | expired
 
 Approval is not disbursement. Public evidence must not reveal which private
 claimant followed a nullifier into a real-world payout.
+The `approved` transition requires a current `approve-aid-claim` scope, and the
+`disbursed` transition requires a current `disburse-aid` scope plus the selected
+delivery provider's settlement evidence. Neither scope implies the other.
 
 ## 9. Privacy boundary
 
@@ -932,19 +994,21 @@ change the meaning of a code or cause the application to sign a new operation.
 3. A message, link, QR code, or Discovery entry can propose an operation but
    cannot authorize it.
 4. Organization trust is derived from an explicit issuer policy, not UI brand.
-5. A campaign operator acts only through a current, organization-signed,
-   scope-limited authorization.
+5. A campaign operator acts only through a current, directly
+   organization-signed, non-delegable, scope-limited authorization.
 6. A destination is accepted only through a current organization-and-recipient
    binding plus profile-defined control evidence.
-7. Campaign changes cannot mutate an already authorized intent.
-8. Submission is idempotent and reconciliation never creates a second payment.
-9. Public records contain no intentional donor or beneficiary PII.
-10. Eligibility nullifiers are scoped; they are not global person identifiers.
-11. Aggregate reports exclude or correct duplicates, refunds, and reversals.
-12. Financial settlement, organization verification, and impact reporting are
+7. The organization can replace a revoked operator through a linked successor
+   revision; the revoked operator cannot veto recovery or rewrite history.
+8. Campaign changes cannot mutate an already authorized intent.
+9. Submission is idempotent and reconciliation never creates a second payment.
+10. Public records contain no intentional donor or beneficiary PII.
+11. Eligibility nullifiers are scoped; they are not global person identifiers.
+12. Aggregate reports exclude or correct duplicates, refunds, and reversals.
+13. Financial settlement, organization verification, and impact reporting are
     distinct claims with distinct issuers.
-13. A paid provider refusal does not make an invalid operation valid.
-14. Every remote object is size-bounded, schema-checked, and signature-checked
+14. A paid provider refusal does not make an invalid operation valid.
+15. Every remote object is size-bounded, schema-checked, and signature-checked
     before rendering or execution.
 
 ## 14. Versioning, migration, and revocation

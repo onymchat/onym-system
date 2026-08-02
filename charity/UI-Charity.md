@@ -553,6 +553,7 @@ guaranteeing funds raised.
 | look-alike organization name | show registry, organization key, credential issuer, and destination binding |
 | operator borrows another organization's credential | require an organization-signed, current, scope-limited operator authorization |
 | credential revoked after share | refresh status before quote and authorization |
+| operator authorization or destination binding revoked after share | refresh both status records within the trust-policy freshness limits; block quote and authorization; offer only the authenticated organization recovery or replacement path |
 | destination swap | bind destination into campaign, quote, preview, and user authorization |
 | operator self-assigns a destination | require organization and recipient signatures plus profile-defined destination-control evidence |
 | fee injection | canonical fee list and arithmetic; any change invalidates preview |
@@ -652,11 +653,14 @@ An Onym Messenger implementation of this profile must test:
 1. campaign references arriving through message, deep link, QR, registry, and
    manual input all resolve through the same verification path;
 2. untrusted rich content cannot imitate system verification or authorization;
-3. issuer, policy, revocation, organization-to-operator delegation, deployment,
+3. issuer, policy, accepted delegation depth and recipient relationship, fresh
+   revocation results, organization-to-operator authorization, deployment,
    campaign revision, financial recipient, and destination binding are visible
    and pinned;
-4. any amount, asset, fee, destination, campaign, expiry, provider, or privacy
-   mutation invalidates prior authorization;
+4. any amount, asset, fee, destination, campaign, operator authorization,
+   destination binding, expiry, provider, or privacy mutation invalidates prior
+   authorization; direct-role signatures are domain-separated, and a revoked
+   operator recovery uses a predecessor-linked successor revision;
 5. the identity vault rejects seed export and unscoped signing requests;
 6. uncertain submission reconciles without creating a second intent;
 7. pending, final, refunded, reversed, and failed receipts survive restart,
