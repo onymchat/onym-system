@@ -26,15 +26,16 @@ flow. It does not claim support for beneficiary eligibility or aid delivery.
 ## Required objects
 
 A conforming deployment implements the Charity Profile and Deployment,
-Trust Policy, Organization Credential, Charity Campaign, Donation Quote,
-Donation Intent, Donation Receipt, and Aggregate Fund-Flow Report objects from
-`Charity.md`, plus the errors and state transitions reachable by the required
-operations.
+Trust Policy, Organization Credential, Charity Campaign with `donationTerms`,
+Donation Quote, Donation Intent, Donation Receipt, and Donation Aggregate
+Fund-Flow Report objects from `Charity.md`, plus the errors and state
+transitions reachable by the required operations.
 
 It publishes a content-addressed schema set, canonicalization and signature
 rules, financial evidence profile, disclosure profile, metric profile, and
-conformance vectors. It must not include an Aid v1 capability in discovery or
-the UI merely because campaign records contain optional aid-related fields.
+conformance vectors. A campaign may omit `aidTerms`; their presence does not
+advertise Aid v1 or make eligibility and delivery a Donation dependency. The
+deployment and campaign must both advertise Aid v1 before a UI exposes it.
 
 ## Conformance boundary
 

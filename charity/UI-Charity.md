@@ -119,11 +119,18 @@ operations.
 The repository negotiates Donation v1 and Aid v1 independently. A UI can ship
 the donation methods without including eligibility-proof code, beneficiary
 state, or aid-delivery adapters. It renders an aid journey only when the
-selected deployment and installed client both support Aid v1.
+selected deployment, campaign, and installed client all support Aid v1. If the
+deployment or campaign advertises Aid v1 but the client lacks it, the repository
+returns `PROFILE_UNSUPPORTED` with the requested profile ID and locally
+supported profile IDs. The UI keeps any independently supported Donation
+journey available, labels Aid as unavailable in this client, and may offer an
+explicitly selected compatible client or adapter; it must not partially render
+or silently downgrade the Aid flow. A response carrying a different profile ID
+than the request is `DEPLOYMENT_INVALID`.
 
 ```text
 resolveProfile(profileReference) -> VerifiedCharityProfile | CharityError
-resolveCampaign(campaignReference, trustPolicy) -> CampaignResolution
+resolveCampaign(profileId, campaignReference, trustPolicy) -> CampaignResolution
 quoteDonation(campaignRevision, amount, asset, financialBinding) -> DonationQuote
 prepareDonation(verifiedCampaign, quote, privacyChoice) -> DonationPreview
 authorizeDonation(previewDigest, scopedCapability) -> DonationIntent
@@ -134,7 +141,7 @@ prepareEligibility(campaign, policy, sourceCredential) -> EligibilityPreview
 authorizeEligibility(previewDigest, scopedCapability) -> EligibilityPresentation
 submitAidClaim(presentation, deliveryChoice) -> AidClaimOutcome
 watchAidClaim(claimId) -> AidDisbursementReceipt | Pending | TerminalError
-readFundFlow(campaignId, period) -> VerifiedFundFlowReport
+readFundFlow(profileId, campaignId, period) -> VerifiedFundFlowReport
 reportIssue(objectReference, category, userSelectedEvidence) -> SupportHandoff
 ```
 
@@ -288,7 +295,8 @@ shown as separate states.
 
 The campaign transparency view separates:
 
-1. **fund flow** — qualifying receipts under a declared measurement profile;
+1. **fund flow** — profile-specific qualifying donation or disbursement
+   receipts under a declared measurement profile;
 2. **allocation** — an operator or auditor's signed claim about assigned funds;
 3. **expenditure** — evidence about outgoing spending; and
 4. **impact** — an attributed report about real-world results.
@@ -520,8 +528,8 @@ system, and network path.
 
 ## 11. Fund-flow metric in Onym
 
-For the proposed collaboration, “funds attracted through Onym” is implemented
-as follows:
+Under Donation v1, the proposed collaboration's “funds attracted through Onym”
+metric is implemented as follows:
 
 1. a signed financial quote proposes the shared `onym-messenger` interface
    channel for an exact campaign revision;
@@ -543,6 +551,11 @@ The charity operator remains responsible for donor outreach, organization
 pipeline, beneficiary participation, and any volume target it accepts. Onym is
 responsible for implementing its declared private interaction surface, not for
 guaranteeing funds raised.
+
+Aid v1 renders a separate report view for claimed, approved, gross disbursed,
+delivery-fee, net disbursed, reversal, and correction totals. It never combines
+those values with Donation v1, calls a claim a disbursement, or uses the
+Donation interface-channel convention as beneficiary attribution.
 
 ## 12. Threats and UI responses
 
@@ -571,7 +584,7 @@ Onym maps every abstract error code into a stable user action:
 
 | Code | User-facing action |
 |---|---|
-| `PROFILE_UNSUPPORTED` | Explain that this app lacks the required profile and offer another installed or explicitly selected compatible adapter. |
+| `PROFILE_UNSUPPORTED` | Name the requested and locally supported profile IDs, keep independently supported journeys available, and offer another installed or explicitly selected compatible adapter. |
 | `DEPLOYMENT_INVALID` | Block the action and identify the failed binding, signature, hash, status, or validity check. |
 | `CAMPAIGN_NOT_ACTIVE` | Disable new donations or claims, show whether the campaign is paused, closed, revoked, or unavailable, and preserve history. |
 | `CREDENTIAL_UNTRUSTED` | Show the issuer and policy mismatch; permit only a deliberate scoped policy override where policy allows it. |
@@ -643,16 +656,16 @@ They are intentionally not inferred or finalized by this protocol document.
 ## 16. Onym conformance tests
 
 An Onym Messenger implementation must run the common tests and the test set for
-every profile it advertises. Tests 1–5 and 10–12 are common; 6–7 and 13 are
-Donation v1; 8–9 are Aid v1. Tests 14–15 apply to each supported profile:
+every profile it advertises. Tests 1–5 and 10–13 are common; 6–7 are Donation
+v1; 8–9 are Aid v1. Tests 14–15 apply to each supported profile:
 
 1. campaign references arriving through message, deep link, QR, registry, and
    manual input all resolve through the same verification path;
 2. untrusted rich content cannot imitate system verification or authorization;
-3. issuer, policy, revocation, deployment, campaign revision, and destination
-   are visible and pinned;
-4. any amount, asset, fee, destination, campaign, expiry, provider, or privacy
-   mutation invalidates prior authorization;
+3. issuer, policy, revocation, deployment, campaign revision, selected profile,
+   and that profile's required campaign terms are visible and pinned;
+4. mutation of any authorized canonical field or pinned record invalidates
+   prior authorization under either profile;
 5. the identity vault rejects seed export and unscoped signing requests;
 6. uncertain submission reconciles without creating a second intent;
 7. pending, final, refunded, reversed, and failed receipts survive restart,
@@ -667,10 +680,10 @@ Donation v1; 8–9 are Aid v1. Tests 14–15 apply to each supported profile:
 11. blobs enforce digest, size, media, decompression, and active-content rules;
 12. inaccessible, expired, revoked, malformed, oversized, replayed, and
     unknown-critical-field inputs fail safely;
-13. aggregate volume excludes duplicates, pending operations, refunds, and
-    reversals under declared arithmetic;
-14. the same campaign and receipt verify through an independent conforming UI;
-    and
+13. each profile-specific aggregate excludes duplicates and pending operations
+    and applies its declared refund, reversal, fee, and correction arithmetic;
+14. the same campaign and profile-specific outcome record verify through an
+    independent conforming UI; and
 15. a mock non-Stellar adapter can satisfy each advertised Charity capability
     and its financial or delivery ports, proving ledger independence.
 

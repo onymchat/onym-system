@@ -25,10 +25,12 @@ through Donation v1.
 ## Required objects
 
 A conforming deployment implements the Charity Profile and Deployment,
-Trust Policy, Charity Campaign, Eligibility Policy and Presentation, Aid Claim,
-Aid Disbursement Receipt, and applicable Aggregate Fund-Flow Report objects
-from `Charity.md`, plus the errors and state transitions reachable by the
-required operations.
+Trust Policy, Organization Credential, Charity Campaign with `aidTerms`,
+Eligibility Policy and Presentation, Aid Claim, Aid Disbursement Receipt, and
+Aid Aggregate Fund-Flow Report objects from `Charity.md`, plus the errors and
+state transitions reachable by the required operations. A campaign may omit
+`donationTerms`; Donation Quote, Intent, Receipt, and refund objects are not
+required.
 
 It publishes a content-addressed schema set, canonicalization and signature
 rules, proof profile, issuer policy, disclosure profile, delivery profile, and
@@ -45,10 +47,12 @@ Aid v1 conformance requires:
 3. exact claimant authorization of entitlement and private delivery binding;
 4. separate approval and disbursement states with independently checked
    evidence;
-5. negative PII fixtures for public objects, events, logs, notifications, and
+5. aggregate claimed, approved, disbursed, fee, reversal, and correction
+   arithmetic under the Aid metric profile;
+6. negative PII fixtures for public objects, events, logs, notifications, and
    reports;
-6. failure behavior for invalid, expired, replayed, and duplicate proofs; and
-7. one mock non-ledger delivery adapter proving that the profile is not tied to
+7. failure behavior for invalid, expired, replayed, and duplicate proofs; and
+8. one mock non-ledger delivery adapter proving that the profile is not tied to
    a particular payout rail.
 
 A Donation v1 implementation does not satisfy any Aid v1 criterion by

@@ -214,7 +214,7 @@ The first implementation target is [Donation v1](Donation-v1.md):
   "trustSemantics": "<content-addressed-trust-semantics>",
   "privacyProfile": "<content-addressed-disclosure-profile>",
   "metricProfile": "<content-addressed-volume-profile>",
-  "errorSchema": "onym-charity-errors-v1",
+  "errorSchema": "onym-charity-donation-errors-v1",
   "specification": "<content-addressed-specification>",
   "signature": "<profile-publisher-signature>"
 }
@@ -249,23 +249,37 @@ Each profile fixes its object meaning, canonicalization, authorization coverage,
 state transitions, evidence, errors, and privacy requirements. It does not fix
 a currency, network, smart-contract language, UI, operator, or price.
 
-The common profile ID is included in every request, response, authorization,
-and receipt. Operations with the same name across profiles share only the
-semantics explicitly declared by both profiles. A deployment that supports
-both profiles may reuse a campaign record, but it publishes and tests each
-profile binding independently.
+Exactly one `profileId` is included in every request, response, authorization,
+and outcome record. It selects the schema, operation semantics, error schema,
+metric profile, and conformance suite for that exchange. A dual-profile client
+invokes shared operation names separately: `resolve-campaign` or
+`read-fund-flow` under Donation v1 carries the Donation v1 ID and receives the
+donation response variant; the same operation under Aid v1 carries the Aid v1
+ID and receives the aid variant. A response with a missing or different
+`profileId` is invalid. There is no implicit combined-profile request in v1.
+Operations with the same name across profiles share only the semantics
+explicitly declared by both profiles. A deployment that supports both profiles
+may reuse a campaign record, but it publishes and tests each profile binding
+independently.
 
 ### 5.2 Charity Deployment
 
-A `CharityDeployment` binds the abstract profile to concrete providers:
+A `CharityDeployment` binds one or more abstract profiles to concrete
+providers:
 
 ```json
 {
   "deploymentVersion": 1,
   "deploymentId": "onym:charity-deployment:<id>",
   "charityProfiles": [
-    "onym:charity-profile:donation-v1",
-    "onym:charity-profile:aid-v1"
+    {
+      "profileId": "onym:charity-profile:donation-v1",
+      "profileDigest": "<donation-profile-digest>"
+    },
+    {
+      "profileId": "onym:charity-profile:aid-v1",
+      "profileDigest": "<aid-profile-digest>"
+    }
   ],
   "operator": "onym:key:<charity-operator>",
   "organizationCredentialPolicy": "<trust-policy-id-and-hash>",
@@ -282,8 +296,9 @@ A `CharityDeployment` binds the abstract profile to concrete providers:
 }
 ```
 
-The application verifies the deployment signature, profile hash, provider
-bindings, validity, status, and replacement rules. A deployment update cannot
+The application verifies the deployment signature, every selected profile
+digest, provider binding, validity, status, and replacement rule. A deployment
+update cannot
 silently change a destination, accepted issuer, proof system, fee schedule, or
 privacy disclosure for an already prepared operation.
 
@@ -362,6 +377,10 @@ required.
 {
   "campaignVersion": 1,
   "campaignId": "<stable-random-id>",
+  "supportedProfiles": [
+    "onym:charity-profile:donation-v1",
+    "onym:charity-profile:aid-v1"
+  ],
   "charityDeploymentId": "<deployment-id>",
   "operator": "onym:key:<charity-operator>",
   "organization": "onym:key:<organization-id>",
@@ -371,20 +390,34 @@ required.
   "jurisdictions": ["<declared-scope>"],
   "startsAt": "<timestamp>",
   "endsAt": "<timestamp>",
-  "acceptedAssets": ["<asset-and-network-id>"],
-  "financialDestinations": ["<signed-destination-binding>"],
-  "allocationPolicy": "<content-addressed-policy>",
-  "refundPolicy": "<content-addressed-policy>",
+  "donationTerms": {
+    "acceptedAssets": ["<asset-and-network-id>"],
+    "financialDestinations": ["<signed-destination-binding>"],
+    "refundPolicy": "<content-addressed-policy>"
+  },
+  "aidTerms": {
+    "eligibilityPolicies": ["<eligibility-policy-id-and-version>"],
+    "deliveryBindings": ["<delivery-profile-and-deployment>"],
+    "allocationPolicy": "<content-addressed-policy>",
+    "beneficiaryPrivacy": "<content-addressed-disclosure-profile>"
+  },
   "reportingPolicy": "<content-addressed-policy>",
-  "beneficiaryPrivacy": "<content-addressed-disclosure-profile>",
   "revision": 1,
   "status": "active",
   "signature": "<operator-signature>"
 }
 ```
 
+`supportedProfiles` controls the required term blocks. Donation v1 requires
+`donationTerms` and permits `aidTerms` to be absent. Aid v1 requires `aidTerms`
+and permits `donationTerms` to be absent. A dual-profile campaign requires both.
+Unknown profile IDs or a missing required block fail closed; an unused block
+does not make the other profile a conformance dependency.
+
 Material updates create a new revision. A donation intent pins the exact
-campaign revision, credential digest, destination, and provider bindings it
+campaign revision, credential digest, donation terms, destination, and provider
+bindings it accepted. An aid claim pins the exact campaign revision,
+credential digest, aid terms, eligibility policy, and delivery binding it
 accepted.
 
 ### 6.4 Donation Quote
@@ -392,6 +425,7 @@ accepted.
 ```json
 {
   "quoteVersion": 1,
+  "profileId": "onym:charity-profile:donation-v1",
   "quoteId": "<provider-unique-id>",
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
@@ -425,6 +459,7 @@ rounding rule. Fees never appear only after authorization.
 ```json
 {
   "intentVersion": 1,
+  "profileId": "onym:charity-profile:donation-v1",
   "intentId": "<user-generated-random-id>",
   "quoteId": "<quote-id-and-digest>",
   "campaignId": "<campaign-id>",
@@ -451,6 +486,7 @@ eligibility, price, or service.
 ```json
 {
   "receiptVersion": 1,
+  "profileId": "onym:charity-profile:donation-v1",
   "receiptId": "<stable-id>",
   "intentId": "<intent-id>",
   "intentDigest": "<digest-of-canonical-authorized-intent>",
@@ -503,6 +539,7 @@ the underlying credential when the selected proof system supports it.
 ```json
 {
   "presentationVersion": 1,
+  "profileId": "onym:charity-profile:aid-v1",
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
   "policyId": "<eligibility-policy-id-and-version>",
@@ -531,6 +568,7 @@ and claimant authorization:
 ```json
 {
   "claimVersion": 1,
+  "profileId": "onym:charity-profile:aid-v1",
   "claimId": "<claimant-generated-random-id>",
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
@@ -573,6 +611,7 @@ fees, finality, and evidence without repeating private delivery details:
 ```json
 {
   "disbursementReceiptVersion": 1,
+  "profileId": "onym:charity-profile:aid-v1",
   "receiptId": "<stable-id>",
   "claimId": "<claim-id>",
   "claimDigest": "<digest-of-canonical-authorized-claim>",
@@ -611,20 +650,26 @@ scoped nullifier or an unlinked commitment—not the beneficiary's name,
 contact, messenger identity, government identifier, private payout address,
 pickup secret, or physical delivery location.
 
-### 6.9 Aggregate Fund-Flow Report
+### 6.9 Aggregate Fund-Flow Reports
+
+`read-fund-flow` returns the variant selected by the request `profileId`. A
+Donation v1 report is donation-denominated:
 
 ```json
 {
   "reportVersion": 1,
+  "profileId": "onym:charity-profile:donation-v1",
   "reportId": "<stable-id>",
   "campaignId": "<campaign-id>",
   "period": {"from": "<timestamp>", "to": "<timestamp>"},
-  "measurement": "net-finalized",
-  "asset": "<asset-and-network-id>",
-  "finalizedGross": "<amount>",
-  "finalizedNet": "<amount>",
-  "refundsAndReversals": "<amount>",
-  "eligibleDonationVolume": "<amount>",
+  "measurement": "donation-net-finalized",
+  "unit": "<asset-and-network-id>",
+  "totals": {
+    "finalizedGross": "<amount>",
+    "finalizedNet": "<amount>",
+    "refundsAndReversals": "<amount>",
+    "eligibleDonationVolume": "<amount>"
+  },
   "operationCount": "<optional-aggregate-count>",
   "sourceCommitment": "<verifiable-record-set-commitment>",
   "evidence": "<notary-financial-or-audit-evidence>",
@@ -633,8 +678,40 @@ pickup secret, or physical delivery location.
 }
 ```
 
-The report never contains donor or beneficiary identities. Counts smaller
-than a profile-defined privacy threshold should be suppressed or bucketed.
+An Aid v1 report is claim- and disbursement-denominated and does not reuse
+donation field names:
+
+```json
+{
+  "reportVersion": 1,
+  "profileId": "onym:charity-profile:aid-v1",
+  "reportId": "<stable-id>",
+  "campaignId": "<campaign-id>",
+  "period": {"from": "<timestamp>", "to": "<timestamp>"},
+  "measurement": "aid-disbursement-flow",
+  "unit": "<asset-network-or-entitlement-unit>",
+  "totals": {
+    "claimedVolume": "<amount-or-quantity>",
+    "approvedVolume": "<amount-or-quantity>",
+    "disbursedGross": "<amount-or-quantity>",
+    "deliveryFees": "<amount-or-zero>",
+    "disbursedNet": "<amount-or-quantity>",
+    "reversalsAndCorrections": "<amount-or-quantity>"
+  },
+  "operationCount": "<optional-aggregate-count>",
+  "sourceCommitment": "<verifiable-record-set-commitment>",
+  "evidence": "<notary-delivery-or-audit-evidence>",
+  "issuer": "onym:key:<report-issuer>",
+  "signature": "<report-issuer-signature>"
+}
+```
+
+Each report covers exactly one declared unit. Cross-asset or cross-entitlement
+totals require a separate valuation profile. The Donation source commitment
+covers qualifying receipts, refunds, and reversals; the Aid source commitment
+covers claims, approvals, disbursement receipts, reversals, and corrections.
+Neither report contains donor or beneficiary identities. Counts smaller than a
+profile-defined privacy threshold should be suppressed or bucketed.
 
 ## 7. Operations
 
@@ -646,7 +723,7 @@ reconciliation loop invokes `read-donation`, and `watchAidClaim` invokes
 
 | Profile | Canonical wire operation | Caller intent | Required checks | Success evidence |
 |---|---|---|---|---|
-| Donation v1, Aid v1 | `resolve-campaign` | inspect a campaign | profile, deployment, signatures, credential policy, status, freshness | verified view plus explicit warnings |
+| Donation v1, Aid v1 | `resolve-campaign` | inspect a campaign | exact request profile, deployment, signatures, credential policy, status, freshness, and the selected profile's required campaign term block | profile-specific verified view plus explicit warnings |
 | Donation v1 | `quote-donation` | request current terms | campaign revision, provider binding, asset, destination, arithmetic, expiry | signed quote |
 | Donation v1 | `prepare-donation` | freeze exact operation | quote, privacy disclosure, authorization schema | canonical intent bytes/digest |
 | Donation v1 | `submit-donation` | move declared value | local authorization, current quote, destination, idempotency | pending outcome/provider reference |
@@ -655,7 +732,8 @@ reconciliation loop invokes `read-donation`, and `watchAidClaim` invokes
 | Aid v1 | `present-eligibility` | prove entitlement | policy, issuer, proof, scope, expiry, nullifier | verified presentation outcome |
 | Aid v1 | `claim-aid` | request aid | campaign state, presentation, duplicate rule, delivery binding | pending claim or rejection |
 | Aid v1 | `read-aid-claim` | reconcile claim | profile-defined finality and evidence | disbursement receipt or terminal refusal |
-| Donation v1, Aid v1 | `read-fund-flow` | inspect aggregate movement | report signature, source commitment, measurement profile | verified aggregate report |
+| Donation v1 | `read-fund-flow` | inspect aggregate donations | Donation profile ID, report signature, receipt/refund/reversal source commitment, donation metric profile | verified Donation fund-flow report |
+| Aid v1 | `read-fund-flow` | inspect aggregate aid | Aid profile ID, report signature, claim/approval/disbursement/correction source commitment, aid metric profile | verified Aid fund-flow report |
 
 Read operations must not require identifying the user unless the selected
 provider has a lawful, disclosed reason. Submission operations are
@@ -762,7 +840,8 @@ not a warranty that no endpoint can ever be compromised.
 
 ## 10. Measurement without tracking people
 
-The protocol may measure fund flow without measuring people.
+The protocol may measure fund flow without measuring people. Donation v1 and
+Aid v1 use distinct metric profiles and report fields.
 
 `eligibleDonationVolume` is the amount, under a pinned measurement rule, from
 finalized donation receipts that:
@@ -795,6 +874,15 @@ be used for surveillance, per-user royalties, discrimination, or eligibility.
 Campaign-specific efficiency can be computed as qualifying volume divided by
 declared campaign spend, but must be labeled a campaign estimate rather than a
 user conversion rate.
+
+For Aid v1, `claimedVolume`, `approvedVolume`, and `disbursedGross` are separate
+states and must never be presented as interchangeable. `disbursedNet` counts
+only final Aid Disbursement Receipts whose claims, campaign revision,
+eligibility evidence, delivery binding, and unit satisfy the pinned Aid metric
+profile. Duplicate, rejected, pending, expired, reversed, or corrected claims
+do not count as net disbursement. Delivery fees and corrections remain separate
+report fields. These aggregates demonstrate profile-defined aid flow, not a
+beneficiary roster, fair allocation, successful real-world use, or impact.
 
 ## 11. Financial safety, participant offers, and compliance
 
@@ -918,8 +1006,7 @@ it claims. Donation v1 requires items 1–5 and 7–10 below. Aid v1 requires it
 3. trust-policy and revocation test vectors;
 4. amount, fee, precision, and rounding vectors;
 5. donation idempotency, timeout, finality, refund, and reversal tests;
-6. eligibility proof, scope, expiry, and duplicate-claim tests if aid is
-   supported;
+6. eligibility proof, scope, expiry, and duplicate-claim tests;
 7. privacy-field inventory and negative PII fixtures;
 8. aggregate measurement and correction vectors;
 9. malformed, oversized, replayed, and unknown-critical-field fixtures; and
