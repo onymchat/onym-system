@@ -231,15 +231,18 @@ A `CharityDeployment` binds the abstract profile to concrete providers:
 {
   "deploymentVersion": 1,
   "deploymentId": "onym:charity-deployment:<id>",
-  "charityProfileId": "onym:charity-profile:donation-aid-v1",
+  "charityProfile": {
+    "id": "onym:charity-profile:donation-aid-v1",
+    "digest": "<profile-digest>"
+  },
   "operator": "onym:key:<charity-operator>",
-  "organizationCredentialPolicy": "<trust-policy-id-and-hash>",
-  "campaignRegistry": "<adapter-profile-and-endpoint>",
-  "financialBindings": ["<financial-profile-and-deployment>"],
-  "notaryBindings": ["<notary-profile-and-deployment>"],
-  "eligibilityBindings": ["<proof-profile-and-issuer-policy>"],
-  "auditBindings": ["<audit-profile-and-issuer-policy>"],
-  "privacyProfile": "<hash-or-url>",
+  "organizationCredentialPolicy": "<trust-policy-id-and-digest>",
+  "campaignRegistry": "<adapter-profile-deployment-and-digest>",
+  "financialBindings": ["<financial-profile-deployment-and-digest>"],
+  "notaryBindings": ["<notary-profile-deployment-and-digest>"],
+  "eligibilityBindings": ["<proof-profile-issuer-policy-and-digests>"],
+  "auditBindings": ["<audit-profile-issuer-policy-and-digests>"],
+  "privacyProfile": "<privacy-profile-id-and-digest>",
   "incidentContact": "<authenticated-contact>",
   "validFrom": "2026-08-01T00:00:00Z",
   "validUntil": "2027-08-01T00:00:00Z",
@@ -273,6 +276,14 @@ or corporate documents must not be smuggled into protocol authority.
 All signed objects use deterministic canonicalization, an explicit schema and
 version, a domain-separation tag, creation and expiry times where relevant,
 and a stable digest. Unknown critical fields cause rejection.
+
+Every authorization-critical reference contains both the stable object ID and
+the digest of the exact canonical object. An ID or `(ID, revision)` tuple is a
+lookup and ordering hint, not a security binding: an operator could otherwise
+sign two different objects at the same revision. A resolver that observes two
+valid digests for the same object ID and revision reports authenticated
+equivocation and blocks new value-moving or eligibility operations until the
+selected profile resolves it.
 
 ### 6.1 Trust Policy
 
@@ -327,7 +338,7 @@ required.
 {
   "campaignVersion": 1,
   "campaignId": "<stable-random-id>",
-  "charityDeploymentId": "<deployment-id>",
+  "charityDeployment": "<deployment-id-and-digest>",
   "operator": "onym:key:<charity-operator>",
   "organization": "onym:key:<organization-id>",
   "organizationCredential": "<credential-id-and-digest>",
@@ -360,7 +371,10 @@ accepted.
   "quoteId": "<provider-unique-id>",
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
+  "campaignDigest": "<campaign-digest>",
+  "charityDeploymentDigest": "<deployment-digest>",
   "financialProvider": "onym:key:<provider-id>",
+  "financialBindingDigest": "<financial-binding-digest>",
   "asset": "<asset-and-network-id>",
   "grossAmount": "100.00",
   "fees": [
@@ -394,7 +408,12 @@ rounding rule. Fees never appear only after authorization.
   "quoteId": "<quote-id-and-digest>",
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
+  "campaignDigest": "<campaign-digest>",
+  "charityDeploymentDigest": "<deployment-digest>",
+  "trustPolicyDigest": "<user-accepted-trust-policy-digest>",
   "organizationCredentialDigest": "<credential-digest>",
+  "financialBindingDigest": "<financial-binding-digest>",
+  "privacyProfileDigest": "<accepted-disclosure-profile-digest>",
   "grossAmount": "100.00",
   "asset": "<asset-and-network-id>",
   "destination": "<canonical-destination>",
@@ -405,7 +424,10 @@ rounding rule. Fees never appear only after authorization.
 }
 ```
 
-Authorization covers every state-changing and value-moving field. An
+Authorization covers every state-changing and value-moving field and every
+record digest that gives those fields meaning. Revision numbers remain visible
+for ordering and UX, but they never substitute for the corresponding digest.
+An
 `interfaceChannelId`, when present, identifies a shared interface profile or
 campaign channel—not a person, device, install, contact, or persistent
 referral. It is weak source evidence and must never control authorization,
@@ -422,8 +444,13 @@ eligibility, price, or service.
   "quoteId": "<quote-id-and-digest>",
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
+  "campaignDigest": "<campaign-digest>",
+  "charityDeploymentDigest": "<deployment-digest>",
+  "trustPolicyDigest": "<user-accepted-trust-policy-digest>",
   "organization": "onym:key:<organization-id>",
   "organizationCredentialDigest": "<credential-digest>",
+  "financialBindingDigest": "<financial-binding-digest>",
+  "privacyProfileDigest": "<accepted-disclosure-profile-digest>",
   "asset": "<asset-and-network-id>",
   "grossAmount": "100.00",
   "fees": [
@@ -470,7 +497,11 @@ the underlying credential when the selected proof system supports it.
   "presentationVersion": 1,
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
-  "policyId": "<eligibility-policy-id-and-version>",
+  "campaignDigest": "<campaign-digest>",
+  "charityDeploymentDigest": "<deployment-digest>",
+  "policy": "<eligibility-policy-id-version-and-digest>",
+  "proofProfileDigest": "<proof-profile-digest>",
+  "privacyProfileDigest": "<accepted-disclosure-profile-digest>",
   "epoch": "<policy-defined-claim-window>",
   "publicInputs": "<canonical-policy-defined-inputs>",
   "nullifier": "<campaign-and-epoch-scoped-nullifier>",
@@ -479,8 +510,9 @@ the underlying credential when the selected proof system supports it.
 }
 ```
 
-The presentation binds the exact campaign revision so it cannot be reinterpreted
-under a later eligibility, allocation, or privacy policy. Its nullifier remains
+The presentation binds the exact campaign, deployment, eligibility policy,
+proof profile, and privacy profile digests so it cannot be reinterpreted under
+a different signed object that reuses an ID or revision. Its nullifier remains
 stable across revisions within the same campaign and epoch to prevent a policy
 update from enabling a second claim. It must not become a cross-campaign or
 permanent beneficiary identifier. If a proof profile cannot avoid revealing
@@ -499,7 +531,11 @@ and claimant authorization:
   "claimId": "<claimant-generated-random-id>",
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
-  "eligibilityPolicyId": "<policy-id-and-version>",
+  "campaignDigest": "<campaign-digest>",
+  "charityDeploymentDigest": "<deployment-digest>",
+  "eligibilityPolicy": "<policy-id-version-and-digest>",
+  "proofProfileDigest": "<proof-profile-digest>",
+  "privacyProfileDigest": "<accepted-disclosure-profile-digest>",
   "presentationDigest": "<digest-of-eligibility-presentation>",
   "nullifier": "<campaign-and-epoch-scoped-nullifier>",
   "entitlement": {
@@ -543,7 +579,11 @@ fees, finality, and evidence without repeating private delivery details:
   "claimDigest": "<digest-of-canonical-authorized-claim>",
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
-  "eligibilityPolicyId": "<policy-id-and-version>",
+  "campaignDigest": "<campaign-digest>",
+  "charityDeploymentDigest": "<deployment-digest>",
+  "eligibilityPolicy": "<policy-id-version-and-digest>",
+  "proofProfileDigest": "<proof-profile-digest>",
+  "privacyProfileDigest": "<accepted-disclosure-profile-digest>",
   "presentationDigest": "<digest-of-eligibility-presentation>",
   "publicClaimReference": "<scoped-nullifier-or-unlinked-commitment>",
   "entitlement": {
@@ -583,6 +623,7 @@ pickup secret, or physical delivery location.
   "reportVersion": 1,
   "reportId": "<stable-id>",
   "campaignId": "<campaign-id>",
+  "campaignRecordSetCommitment": "<campaign-revision-and-digest-set>",
   "period": {"from": "<timestamp>", "to": "<timestamp>"},
   "measurement": "net-finalized",
   "asset": "<asset-and-network-id>",
@@ -611,14 +652,14 @@ reconciliation loop invokes `read-donation`, and `watchAidClaim` invokes
 
 | Canonical wire operation | Caller intent | Required checks | Success evidence |
 |---|---|---|---|
-| `resolve-campaign` | inspect a campaign | profile, deployment, signatures, credential policy, status, freshness | verified view plus explicit warnings |
-| `quote-donation` | request current terms | campaign revision, provider binding, asset, destination, arithmetic, expiry | signed quote |
+| `resolve-campaign` | inspect a campaign | profile and deployment digests, signatures, credential policy, status, freshness, equivocation | verified view plus explicit warnings |
+| `quote-donation` | request current terms | campaign revision and digest, deployment and provider-binding digests, asset, destination, arithmetic, expiry | signed quote |
 | `prepare-donation` | freeze exact operation | quote, privacy disclosure, authorization schema | canonical intent bytes/digest |
 | `submit-donation` | move declared value | local authorization, current quote, destination, idempotency | pending outcome/provider reference |
 | `read-donation` | reconcile state | evidence and finality rule | finalized, failed, refunded, or still pending |
 | `request-refund` | invoke declared policy | requester authority, receipt, deadline, provider rule | decision and financial evidence |
-| `present-eligibility` | prove entitlement | policy, issuer, proof, scope, expiry, nullifier | verified presentation outcome |
-| `claim-aid` | request aid | campaign state, presentation, duplicate rule, delivery binding | pending claim or rejection |
+| `present-eligibility` | prove entitlement | campaign, deployment, policy, proof-profile and privacy-profile digests; issuer; proof; scope; expiry; nullifier | verified presentation outcome |
+| `claim-aid` | request aid | pinned record digests, campaign state, presentation, duplicate rule, delivery binding | pending claim or rejection |
 | `read-aid-claim` | reconcile claim | profile-defined finality and evidence | disbursement receipt or terminal refusal |
 | `read-fund-flow` | inspect aggregate movement | report signature, source commitment, measurement profile | verified aggregate report |
 
@@ -842,25 +883,29 @@ change the meaning of a code or cause the application to sign a new operation.
 
 1. No seed phrase, root secret, or unscoped private key crosses the boundary.
 2. User authorization covers exact amount, asset, destination, campaign
-   revision, quote, expiry, fees, and relevant privacy choice.
+   revision and digest, deployment, trust policy, provider binding, quote,
+   expiry, fees, and relevant privacy-profile digest.
 3. A message, link, QR code, or Discovery entry can propose an operation but
    cannot authorize it.
 4. Organization trust is derived from an explicit issuer policy, not UI brand.
 5. Campaign changes cannot mutate an already authorized intent.
-6. Submission is idempotent and reconciliation never creates a second payment.
-7. Public records contain no intentional donor or beneficiary PII.
-8. Eligibility nullifiers are scoped; they are not global person identifiers.
-9. Aggregate reports exclude or correct duplicates, refunds, and reversals.
-10. Financial settlement, organization verification, and impact reporting are
+6. A revision number without its canonical object digest grants no authority;
+   signed same-revision equivocation blocks new action.
+7. Submission is idempotent and reconciliation never creates a second payment.
+8. Public records contain no intentional donor or beneficiary PII.
+9. Eligibility nullifiers are scoped; they are not global person identifiers.
+10. Aggregate reports exclude or correct duplicates, refunds, and reversals.
+11. Financial settlement, organization verification, and impact reporting are
     distinct claims with distinct issuers.
-11. A paid provider refusal does not make an invalid operation valid.
-12. Every remote object is size-bounded, schema-checked, and signature-checked
+12. A paid provider refusal does not make an invalid operation valid.
+13. Every remote object is size-bounded, schema-checked, and signature-checked
     before rendering or execution.
 
 ## 14. Versioning, migration, and revocation
 
 - Profiles and schemas are immutable and content-addressed.
-- Deployments and campaigns are revisioned signed records.
+- Deployments and campaigns are revisioned signed records; every dependent
+  authorization pins their canonical digests.
 - New optional fields are safe only when their omission cannot alter security,
   value, trust, or privacy semantics.
 - Unknown critical fields fail closed.
@@ -878,7 +923,7 @@ A conforming implementation publishes:
 
 1. supported Charity Profile and schema hashes;
 2. canonicalization and signature test vectors;
-3. trust-policy and revocation test vectors;
+3. trust-policy, revocation, and same-revision equivocation test vectors;
 4. amount, fee, precision, and rounding vectors;
 5. donation idempotency, timeout, finality, refund, and reversal tests;
 6. eligibility proof, scope, expiry, and duplicate-claim tests if aid is

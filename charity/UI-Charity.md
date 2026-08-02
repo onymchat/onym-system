@@ -171,7 +171,8 @@ The entry point is a reference, not authority. Before displaying an actionable
 campaign, Onym resolves:
 
 1. the Charity Profile and deployment;
-2. campaign signature, status, revision, and time bounds;
+2. campaign signature, digest, status, revision, time bounds, and absence of
+   signed same-revision equivocation;
 3. organization credential and current revocation state;
 4. the user's selected `TrustPolicy` result;
 5. bound financial and notary deployments;
@@ -215,13 +216,17 @@ quote and displays one canonical confirmation screen containing:
 - refund and reversal terms;
 - donor data disclosed to the provider, charity, notary, and public;
 - whether a tax receipt is available and what extra data it requires; and
-- the campaign and organization credential revisions being accepted.
+- the campaign and organization credential revisions and canonical digests
+  being accepted.
 
 Only after this preview does the identity vault or wallet authorize the exact
-canonical bytes. Biometric or device authentication unlocks a scoped local
-capability; it is not consent to provider-selected bytes. A changed amount,
-asset, destination, fee, campaign revision, privacy choice, or expiry invalidates
-the preview and requires a new confirmation.
+canonical bytes. Those bytes pin the campaign, deployment, trust policy,
+organization credential, financial binding, quote, and disclosure-profile
+digests—not merely their names or revision numbers. Biometric or device
+authentication unlocks a scoped local capability; it is not consent to
+provider-selected bytes. A changed amount, asset, destination, fee, campaign
+record or digest, privacy choice, or expiry invalidates the preview and
+requires a new confirmation.
 
 Submission produces a pending local record keyed by `intentId`. The UI must
 reconcile that identifier after timeout or restart before offering “try
@@ -549,7 +554,8 @@ guaranteeing funds raised.
 | destination swap | bind destination into campaign, quote, preview, and user authorization |
 | fee injection | canonical fee list and arithmetic; any change invalidates preview |
 | message requests automatic payment | never execute from a message; require fresh quote and local confirmation |
-| stale quote replay | check expiry, intent ID, campaign revision, and provider signature |
+| stale quote replay | check expiry, intent ID, campaign revision and digest, deployment and provider-binding digests, and provider signature |
+| signed same-revision equivocation | block new action, preserve both signed records as evidence, and follow the pinned profile's resolution rule |
 | duplicate submission after timeout | reconcile stable intent before resubmission |
 | malicious rich report | digest verification, type/size limits, sandboxed rendering |
 | global beneficiary correlation | campaign/epoch-scoped nullifiers and scoped identity capabilities |
@@ -642,10 +648,11 @@ An Onym Messenger implementation of this profile must test:
 1. campaign references arriving through message, deep link, QR, registry, and
    manual input all resolve through the same verification path;
 2. untrusted rich content cannot imitate system verification or authorization;
-3. issuer, policy, revocation, deployment, campaign revision, and destination
-   are visible and pinned;
-4. any amount, asset, fee, destination, campaign, expiry, provider, or privacy
-   mutation invalidates prior authorization;
+3. issuer, policy, revocation, deployment, campaign revision and digest, and
+   destination are visible and pinned;
+4. any amount, asset, fee, destination, campaign or deployment digest, trust
+   policy, expiry, provider binding, or privacy mutation invalidates prior
+   authorization, and same-revision equivocation fails closed;
 5. the identity vault rejects seed export and unscoped signing requests;
 6. uncertain submission reconciles without creating a second intent;
 7. pending, final, refunded, reversed, and failed receipts survive restart,
