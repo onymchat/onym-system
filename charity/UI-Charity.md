@@ -444,7 +444,7 @@ charity. The same is true for every other participant. A replacement UI may
 offer different terms without changing the campaign or user identity.
 
 Offer fulfillment may be proven by an aggregate campaign statement or scoped
-receipt references. When a buyer specifically selects the optional
+receipt references. When a donor specifically selects the optional
 [Interface Attribution extension](Attribution-Extension.md), that extension
 can supply weak aggregate channel evidence without entering the base donation
 objects. Onym does not create a persistent donor tag, beneficiary tag, or
@@ -528,6 +528,19 @@ person-specific and is intentionally copyable. It can support aggregate
 campaign-volume evidence, but cannot prove acquisition, installation, message
 exposure, unique influence, or person-level conversion.
 
+Onym discovers it only through the selected signed deployment's `extensions`
+entry. Before acceptance, the UI names the controller, recipients, purpose,
+finite retention period, deletion policy, public-disclosure rule, and
+authenticated withdrawal route. The activity view lets the donor withdraw
+before or after evidence issuance, verifies any required `excluded` correction,
+and reports deletion or disclosed legal-retention limits without implying that
+signed copies can be remotely erased.
+
+Every `ATTRIBUTION_*` error is shown as an extension-only result. Onym continues
+to submit or reconcile the already valid base donation, never asks the donor to
+reauthorize payment solely because attribution failed, and excludes invalid
+evidence from attributed aggregates.
+
 The charity operator remains responsible for donor outreach, organization
 pipeline, beneficiary participation, and any volume target it accepts. Onym is
 responsible for implementing its declared private interaction surface, not for
@@ -576,6 +589,11 @@ Onym maps every abstract error code into a stable user action:
 | `FINALITY_PENDING` | Explain the selected provider's finality rule without declaring success. |
 | `REFUND_DENIED` | Show the authenticated policy reason, original terms, and available dispute or support route. |
 | `PRIVACY_PROFILE_MISMATCH` | Stop and show the additional disclosure; never downgrade the user's privacy choice silently. |
+| `ATTRIBUTION_UNSUPPORTED` | Skip attribution, keep the valid base donation flow available, and optionally offer a separately selected compatible extension adapter. |
+| `ATTRIBUTION_BINDING_INVALID` | Reject the extension binding only, identify the failed signed field, and leave payment terms and authorization unchanged. |
+| `ATTRIBUTION_ACCEPTANCE_INVALID` | Make no attribution claim and continue base submission or reconciliation without requesting new payment authorization. |
+| `ATTRIBUTION_EVIDENCE_INVALID` | Exclude the evidence from attributed totals, preserve the base receipt, and show the authenticated attribution-controller route. |
+| `ATTRIBUTION_WITHDRAWAL_FAILED` | Disable attribution locally, retain the withdrawal request, explain any disclosed retention limit, and leave the base donation unchanged. |
 
 Remote error strings are escaped and treated as untrusted text. They cannot
 open links, change local trust, trigger authorization, or request a seed phrase.
@@ -657,9 +675,12 @@ An Onym Messenger implementation of this profile must test:
 13. aggregate volume excludes duplicates, pending operations, refunds, and
     reversals under declared arithmetic;
 14. the same campaign and receipt verify through an independent conforming UI;
-    and
 15. a mock non-Stellar adapter can satisfy the local Charity and financial
-    ports, proving ledger independence.
+    ports, proving ledger independence; and
+16. when attribution is supported, bounded retention, withdrawal/deletion,
+    authorized evidence issuance, correction/exclusion chains, and every
+    `ATTRIBUTION_*` fail-extension-only path pass the extension conformance
+    suite without changing base donation bytes or outcomes.
 
 ## 17. Acceptance criteria
 

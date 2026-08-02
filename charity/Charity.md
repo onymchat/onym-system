@@ -239,6 +239,12 @@ A `CharityDeployment` binds the abstract profile to concrete providers:
   "notaryBindings": ["<notary-profile-and-deployment>"],
   "eligibilityBindings": ["<proof-profile-and-issuer-policy>"],
   "auditBindings": ["<audit-profile-and-issuer-policy>"],
+  "extensions": [
+    {
+      "profile": "<extension-profile-id-and-digest>",
+      "endpoint": "<authenticated-extension-endpoint>"
+    }
+  ],
   "privacyProfile": "<hash-or-url>",
   "incidentContact": "<authenticated-contact>",
   "validFrom": "2026-08-01T00:00:00Z",
@@ -251,6 +257,13 @@ The application verifies the deployment signature, profile hash, provider
 bindings, validity, status, and replacement rules. A deployment update cannot
 silently change a destination, accepted issuer, proof system, fee schedule, or
 privacy disclosure for an already prepared operation.
+
+`extensions` is a known optional advertisement container. A base-only client
+validates its reference and endpoint syntax but does not interpret, fetch, or
+accept unsupported extension semantics. Absence, unsupported entries, or a
+declined extension never invalidates the base deployment. Discovery catalogs
+advertise attribution only by referencing a signed deployment whose
+`extensions` array contains the exact extension profile ID and digest.
 
 ### 5.3 Delivery and ownership declaration
 
@@ -828,6 +841,9 @@ The port returns typed outcomes rather than provider text as control flow:
 
 Provider prose may be shown as untrusted supplemental information. It cannot
 change the meaning of a code or cause the application to sign a new operation.
+Optional extensions define their own typed errors. Such an error is never
+translated into a base donation failure after the base authorization remains
+valid.
 
 ## 13. Security invariants
 

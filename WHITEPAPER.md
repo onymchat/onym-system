@@ -1614,9 +1614,10 @@ Their implementations remain proposed.
 
 ### Phase 4 — application ecosystem
 
-- Implement and test the published [abstract charity contract](charity/Charity.md)
-  and [Onym Messenger charity profile](charity/UI-Charity.md) as the first
-  non-messaging reference application.
+- Implement and test the published [abstract charity contract](charity/Charity.md),
+  [Onym Messenger charity profile](charity/UI-Charity.md), and optional
+  [Interface Attribution extension](charity/Attribution-Extension.md) as the
+  first non-messaging reference application.
 - Publish a non-custodial payment capability profile.
 - Define the additional duties of regulated or custodial financial providers.
 - Allow applications to compose identity, association, transport, notary, and
