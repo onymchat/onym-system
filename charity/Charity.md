@@ -465,8 +465,11 @@ channel under this profile.
 An `EligibilityPolicy` defines a predicate, trusted issuers, validity window,
 proof system, intended verifier, challenge lifetime, minimum retry window,
 maximum replay-state retention, minimum and maximum terminal claim-record
-retention, public inputs, claimant-key binding, nullifier scope, and disclosure
-profile. An
+retention, public inputs, claimant-key binding, nullifier scope,
+duplicate-prevention lifetime, and disclosure profile. A valid policy requires
+its maximum replay-state retention to be at least its maximum challenge lifetime
+plus its minimum retry window; a policy that cannot satisfy that ordering is
+invalid. An
 `EligibilityPresentation` proves the requested predicate without publishing
 the underlying credential when the selected proof system supports it.
 
@@ -477,6 +480,7 @@ Before constructing a presentation, the claimant requests a signed
 {
   "challengeVersion": 1,
   "challengeId": "<verifier-generated-random-id>",
+  "issuer": "onym:key:<eligibility-verifier-signing-key>",
   "audience": "onym:key:<eligibility-verifier>",
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
@@ -493,9 +497,13 @@ Before constructing a presentation, the claimant requests a signed
 The challenge request contains only the campaign, revision, policy, purpose,
 and intended verifier. It requires no claimant identifier or source credential.
 The signed object is a self-verifying, stateless issuance token: its signature
-covers every field, including at least 128 bits of verifier-generated `nonce`,
-so the verifier need not retain an issuance record. Deployments must publish and
-enforce a maximum request size and issuance rate before signing. A request over
+covers every field, including `issuer` and at least 128 bits of
+verifier-generated `nonce`, so the verifier need not retain an issuance record.
+The issuer must be an authorized challenge-signing key for the named audience
+under the pinned eligibility policy and deployment binding. `audience` may equal
+`issuer`, but verifier routing never substitutes for explicit signer identity.
+Deployments must publish and enforce a maximum request size and issuance rate
+before signing. A request over
 the size bound or refused by the anonymous issuance budget returns
 `CHALLENGE_ISSUANCE_LIMIT` with a typed `limitKind` and an optional
 `retryAfter`; it does not solicit identity as a fallback. Deployments may bound
@@ -504,7 +512,9 @@ must not turn that control into a persistent claimant identifier. The challenge
 is valid only for its named audience and context.
 `replayStateExpiresAt` is no earlier than `expiresAt` plus the policy's minimum
 idempotent-retry window and no later than `issuedAt` plus its maximum
-replay-state retention. If a claim succeeds, the verifier retains through that
+replay-state retention. The policy ordering constraint above guarantees that
+both bounds can be satisfied for every permitted challenge lifetime. If a claim
+succeeds, the verifier retains through that
 time (1) a `claimId` index containing the canonical authorized claim digest and
 original authenticated outcome and (2) a challenge-digest index containing the
 claim ID and claim digest. It then deletes those replay indexes unless a
@@ -515,8 +525,8 @@ than the terminal transition plus the policy's minimum terminal claim-record
 retention and no later than the transition plus its maximum. After the retry
 bound, an old claim is reconciled through authenticated `read-aid-claim`, not
 resubmitted. Active nullifier reservations and permanently spent nullifiers are
-retained independently as described by the policy's full duplicate-prevention
-lifetime.
+retained independently through the policy's declared duplicate-prevention
+lifetime for that nullifier scope.
 
 ```json
 {
@@ -577,7 +587,7 @@ and claimant authorization:
 ```json
 {
   "claimVersion": 1,
-  "claimId": "<claimant-generated-random-id>",
+  "claimId": "<claimant-generated-random-128-bit-id>",
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
   "eligibilityPolicyId": "<policy-id-and-version>",
@@ -603,6 +613,35 @@ and claimant authorization:
 }
 ```
 
+`claimId` contains at least 128 bits from a cryptographically secure random
+generator. It is never sequential, derived from beneficiary data, or reused for
+another claim. This makes another claimant's identifier infeasible to guess;
+`IDEMPOTENCY_CONFLICT` additionally reveals no fields or status from the
+existing claim.
+
+The canonical wire input to `claim-aid` is a self-contained
+`ClaimAidRequest`:
+
+```json
+{
+  "claimAidRequestVersion": 1,
+  "claim": "<complete-AidClaim-object>",
+  "presentation": "<complete-EligibilityPresentation-object>",
+  "eligibilityChallenge": "<complete-signed-EligibilityChallenge-object>"
+}
+```
+
+The adapter transmits all three complete objects even when
+`present-eligibility` preflight previously succeeded; preflight storage is
+never required for correctness. The provider canonicalizes the included
+presentation and requires its digest to equal `claim.presentationDigest`. It
+then canonicalizes the included signed challenge and requires its ID and digest
+to equal `presentation.eligibilityChallenge`. The claim authorization binds the
+presentation digest, the presentation proof binds the signed-challenge
+reference, and the challenge signature binds its issuer and complete claim
+context. Substitution at any layer therefore breaks that digest and
+authorization chain.
+
 The claimant authorization is verified by the exact `claimantKey` committed as
 a top-level public proof input of the referenced presentation and covers the
 canonical digest of every claim field, including the delivery binding. A
@@ -612,48 +651,56 @@ campaigns, epochs, or claims.
 
 The claim's `campaignId`, `campaignRevision`, `eligibilityPolicyId`,
 `nullifier`, and `claimantKey` must exactly equal the corresponding fields in
-the presentation named by `presentationDigest`. The presentation is
-authoritative for those proof-statement values. A claimant-key mismatch returns
+the included presentation whose digest equals `presentationDigest`. That
+presentation is authoritative for those proof-statement values. A claimant-key
+mismatch returns
 `CLAIMANT_BINDING_INVALID`; any other restatement mismatch returns
 `PRESENTATION_BINDING_MISMATCH`. Neither consumes the challenge or nullifier.
 
-The provider schema-checks the request and resolves the referenced presentation
-before returning any claim-specific lookup result. For a structurally valid
-request, the first matching item in this total precedence order wins:
+The provider schema-checks the request envelope and its included objects before
+returning any claim-specific lookup result. For a structurally valid request,
+the first matching item in this total precedence order wins:
 
-1. A declared claimant key different from the key in the presentation returns
+1. A missing, malformed, or non-canonical included presentation, or one whose
+   digest does not equal `claim.presentationDigest`, returns
+   `PRESENTATION_UNKNOWN`.
+2. A declared claimant key different from the key in the presentation returns
    `CLAIMANT_BINDING_INVALID`; otherwise the provider verifies authorization
    over the exact canonical claim bytes and returns `AUTHORIZATION_INVALID` if
    it fails.
-2. While the replay index is retained, an existing `claimId` with the exact
+3. While the replay index is retained, an existing `claimId` with the exact
    authorized claim digest returns the original authenticated outcome, and the
    same ID with any different digest returns `IDEMPOTENCY_CONFLICT`.
-3. Any other presentation restatement mismatch returns
+4. Any other presentation restatement mismatch returns
    `PRESENTATION_BINDING_MISMATCH`.
-4. An invalid challenge signature or campaign, revision, policy, or purpose
+5. A missing or malformed included challenge, a challenge whose canonical ID
+   and digest do not match `presentation.eligibilityChallenge`, an unauthorized
+   issuer, invalid signature, or wrong campaign, revision, policy, or purpose
    binding returns `CHALLENGE_INVALID`; wrong audience returns
    `AUDIENCE_MISMATCH`; challenge expiry returns `CHALLENGE_EXPIRED`;
    presentation expiry returns `PRESENTATION_EXPIRED`; a challenge spent by
    another claim returns `CHALLENGE_REUSED`; and a nullifier reserved by another
    active claim or permanently spent returns `NULLIFIER_USED`, in that order.
-5. Proof and delivery validation run before state changes and return their
+6. Proof and delivery validation use the included presentation and claim before
+   state changes and return their
    profile-defined typed errors.
 
 Thus `IDEMPOTENCY_CONFLICT` wins over `CHALLENGE_REUSED` when both describe the
 request, and a captured byte-identical claim is never answered until its
 claimant authorization has been reverified. After `replayStateExpiresAt`, the
-index in item 2 is gone, normal validation and error precedence apply, and the
+index in item 3 is gone, normal validation and error precedence apply, and the
 provider no longer promises to reproduce the submission outcome; the claimant
 uses authenticated `read-aid-claim` instead. None of these rejection paths
 creates a second claim or changes challenge or nullifier state.
 
 `read-aid-claim` is a private proof-of-possession read. Its canonical request
 contains the `claimId`, stored `claimantKey`, provider audience, a
-provider-issued or channel-bound freshness nonce, request expiry, and a
-domain-separated authorization by that claim-scoped key. The provider verifies
-freshness, authorization, and the exact key match before returning claim status,
-delivery evidence, or a terminal outcome over the authenticated channel. A
-missing, mismatched, or invalid proof returns the same
+channel-bound freshness value defined by the selected authenticated transport
+profile, request expiry, and a domain-separated authorization by that
+claim-scoped key. This requires no additional Charity wire operation. The
+provider verifies freshness, authorization, and the exact key match before
+returning claim status, delivery evidence, or a terminal outcome over that
+channel. A missing, mismatched, or invalid proof returns the same
 `AUTHORIZATION_INVALID` outcome and reveals neither whether the claim exists nor
 which key controls it. The opaque local key handle is never a wire credential.
 
@@ -768,7 +815,7 @@ reconciliation loop invokes `read-donation`, and `watchAidClaim` invokes
 | `request-refund` | invoke declared policy | requester authority, receipt, deadline, provider rule | decision and financial evidence |
 | `request-eligibility-challenge` | obtain proof freshness for one verifier and claim context | request size and anonymous issuance budget; campaign, revision, policy, purpose, verifier authority, lifetime, replay-state retention | signed unpredictable challenge requiring no claimant identity, or typed `CHALLENGE_ISSUANCE_LIMIT` |
 | `present-eligibility` | preflight entitlement without consuming it | policy, issuer, proof statement, audience, signed challenge, claimant key, scope, expiry, nullifier | short-lived verified presentation outcome; challenge and nullifier remain usable |
-| `claim-aid` | reserve entitlement and request aid | schema and claimant authorization; bounded idempotency lookup; then campaign state, presentation/restatement equality, audience, challenge, duplicate rule, proof, and delivery binding | original outcome for identical retry within the signed replay window, otherwise one pending claim or rejection |
+| `claim-aid` | reserve entitlement and request aid | self-contained claim, presentation, and signed-challenge envelope; digest chain, schema, and claimant authorization; bounded idempotency lookup; then campaign state, presentation/restatement equality, audience, challenge, duplicate rule, proof, and delivery binding | original outcome for identical retry within the signed replay window, otherwise one pending claim or rejection |
 | `read-aid-claim` | reconcile claim | claim ID, exact stored claim-scoped key, fresh proof-of-possession authorization, profile-defined finality and evidence | authenticated pending state, disbursement receipt, or terminal refusal with claim-record retention bound |
 | `read-fund-flow` | inspect aggregate movement | report signature, source commitment, measurement profile | verified aggregate report |
 
@@ -1003,6 +1050,7 @@ The port returns typed outcomes rather than provider text as control flow:
 | `PAYMENT_REQUIRED` | provider requires a declared service payment | show signed offer separately |
 | `COMPLIANCE_REQUIRED` | selected provider needs an additional private flow | identify provider and disclosure before consent |
 | `PROOF_INVALID` | eligibility proof failed | reveal no unnecessary diagnostic publicly |
+| `PRESENTATION_UNKNOWN` | `claim-aid` omitted the complete presentation, it cannot be canonicalized, or its digest does not equal the claim's `presentationDigest` | reject without lookup disclosure or state changes and resend only the exact locally authorized request envelope |
 | `CHALLENGE_ISSUANCE_LIMIT` | challenge request exceeds the published size or anonymous issuance budget; carries `limitKind` (`request-size`, `rate`, or `capacity`) and optional `retryAfter` | respect the bound, do not loop, and never request identity merely to bypass anonymous issuance controls |
 | `CHALLENGE_INVALID` | challenge is absent, malformed, unsigned, or bound to the wrong campaign, revision, policy, or purpose | reject without consuming state and obtain a valid challenge from the authenticated verifier |
 | `CHALLENGE_EXPIRED` | the authenticated challenge lifetime elapsed | obtain a fresh scoped challenge and rebuild the presentation |
@@ -1012,7 +1060,7 @@ The port returns typed outcomes rather than provider text as control flow:
 | `CLAIMANT_BINDING_INVALID` | claim authorization does not match the claimant key proven in the presentation | reject without consuming the nullifier |
 | `PRESENTATION_BINDING_MISMATCH` | claim restates campaign, revision, policy, or nullifier differently from the referenced presentation | reject without consuming challenge or nullifier state |
 | `NULLIFIER_USED` | entitlement is reserved by another active claim or was disbursed in this scope | show scoped duplicate refusal without implying that a non-disbursed terminal claim permanently consumed it |
-| `IDEMPOTENCY_CONFLICT` | a stable intent or claim ID was reused with different canonical bytes | reject without changing the original operation or consuming new state |
+| `IDEMPOTENCY_CONFLICT` | a stable intent or unpredictable claim ID was reused with different canonical bytes | reject without changing the original operation or consuming new state, and reveal no existing claim fields or status |
 | `SUBMISSION_UNKNOWN` | provider accepted request but outcome is unresolved | reconcile using the stable intent or claim ID; only while replay state is retained does an identical retry return the original outcome |
 | `FINALITY_PENDING` | evidence is valid but not final | keep pending |
 | `REFUND_DENIED` | refund policy did not authorize a refund | show authenticated reason and dispute route |
@@ -1077,12 +1125,15 @@ A conforming implementation publishes:
 4. amount, fee, precision, and rounding vectors;
 5. donation idempotency, timeout, finality, refund, and reversal tests;
 6. bounded stateless challenge issuance, proof-statement field placement,
-   typed issuance-limit refusal, audience, challenge and presentation expiry,
-   replay-state retention, preflight non-consumption, atomic challenge
-   spend/nullifier reservation, terminal release, disbursement spend,
-   presentation-to-claim equality, claimant binding, authorized bounded retry,
-   conflicting stable-ID precedence, authenticated claim reads, claim-key and
-   record retention, and duplicate-claim tests if aid is supported;
+   explicit signer identity, satisfiable lifetime ordering, typed issuance-limit
+   refusal, audience, challenge and presentation expiry, replay-state and
+   duplicate-prevention retention, preflight non-consumption, self-contained
+   claim/presentation/challenge transport, atomic challenge spend/nullifier
+   reservation, terminal release, disbursement spend, presentation-to-claim
+   equality, unknown-presentation refusal, claimant binding, unpredictable claim
+   IDs, authorized bounded retry, conflicting stable-ID precedence,
+   authenticated claim reads, claim-key and record retention, and
+   duplicate-claim tests if aid is supported;
 7. privacy-field inventory and negative PII fixtures;
 8. aggregate measurement and correction vectors;
 9. malformed, oversized, replayed, and unknown-critical-field fixtures; and
