@@ -1,0 +1,26 @@
+{
+  "schemaCases": [
+    {"file": "donation-intent.valid.json", "schema": "DonationIntent", "valid": true},
+    {"file": "donation-intent.unknown-field.invalid.json", "schema": "DonationIntent", "valid": false},
+    {"file": "donation-quote.valid.json", "schema": "DonationQuote", "valid": true},
+    {"file": "donation-quote.bad-arithmetic.json", "schema": "DonationQuote", "valid": true}
+  ],
+  "canonicalizationCases": [
+    {
+      "file": "donation-intent.valid.json",
+      "schema": "DonationIntent",
+      "omit": ["authorization"],
+      "maxBytes": 65536,
+      "canonical": "{\"asset\":\"stellar:public:USDC\",\"authorization\":\"ed25519:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"campaignId\":\"campaign-20260802-001\",\"campaignRevision\":1,\"destination\":\"stellar:public:GDESTINATION\",\"donorDisclosure\":\"private-to-extent-supported\",\"expiresAt\":\"2026-08-02T12:05:00Z\",\"grossAmount\":\"100.00\",\"intentId\":\"intent-20260802-001\",\"intentVersion\":1,\"interfaceChannelId\":\"onym-messenger\",\"organizationCredentialDigest\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"quoteId\":\"quote-20260802-001@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+      "objectDigest": "sha256:ba4510920640c09b94b25f73eb78cbab52a093845e20760c63755c12d8424cdc",
+      "authorizationDigest": "sha256:37a2b2675715fc6a01f3c1576dadfaf8c8d345bc38a9d89fa28633a16e0de8ad"
+    }
+  ],
+  "signatureCases": [
+    {"file": "signature-vector.ed25519.json"}
+  ],
+  "feeArithmeticCases": [
+    {"file": "donation-quote.valid.json", "valid": true},
+    {"file": "donation-quote.bad-arithmetic.json", "valid": false}
+  ]
+}

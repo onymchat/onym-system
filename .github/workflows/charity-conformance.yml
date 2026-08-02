@@ -1,0 +1,36 @@
+name: Charity conformance
+
+on:
+  pull_request:
+    paths:
+      - "charity/Charity.md"
+      - "charity/schemas/**"
+      - "charity/conformance/**"
+      - ".github/workflows/charity-conformance.yml"
+  push:
+    branches: [main]
+    paths:
+      - "charity/Charity.md"
+      - "charity/schemas/**"
+      - "charity/conformance/**"
+      - ".github/workflows/charity-conformance.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: charity/conformance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: charity/conformance/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm audit

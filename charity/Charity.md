@@ -274,6 +274,15 @@ All signed objects use deterministic canonicalization, an explicit schema and
 version, a domain-separation tag, creation and expiry times where relevant,
 and a stable digest. Unknown critical fields cause rejection.
 
+The executable baseline for these illustrative v1 JSON objects is published
+in [`schemas/charity-v1.schema.json`](schemas/charity-v1.schema.json). Exact
+canonical bytes, digest construction, signing-payload rules, and profile
+refinement rules are defined in
+[`conformance/Canonicalization-v1.md`](conformance/Canonicalization-v1.md).
+The fixtures and runner in [`conformance/`](conformance/) are normative for
+this draft: prose examples are informative when they disagree with an
+executable vector.
+
 ### 6.1 Trust Policy
 
 ```json
@@ -887,6 +896,14 @@ A conforming implementation publishes:
 8. aggregate measurement and correction vectors;
 9. malformed, oversized, replayed, and unknown-critical-field fixtures; and
 10. deployment, operator, license, support, and incident declarations.
+
+The repository baseline can be executed with:
+
+```text
+cd charity/conformance
+npm ci
+npm test
+```
 
 Two implementations are interoperable only when they preserve the same
 logical meaning and evidence—not merely because both can send JSON or invoke

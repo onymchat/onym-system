@@ -1,0 +1,24 @@
+{
+  "quoteVersion": 1,
+  "quoteId": "quote-20260802-002",
+  "campaignId": "campaign-20260802-001",
+  "campaignRevision": 1,
+  "financialProvider": "onym:key:financial-provider-1",
+  "asset": "stellar:public:USDC",
+  "grossAmount": "100.00",
+  "fees": [
+    {
+      "kind": "rail",
+      "amount": "2.00",
+      "rate": "0.010000",
+      "basis": "gross-amount",
+      "recipient": "onym:key:financial-provider-1"
+    }
+  ],
+  "netAmount": "99.00",
+  "destination": "stellar:public:GDESTINATION",
+  "finalityRule": "stellar-finality-v1@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "refundRule": "refund-v1@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "expiresAt": "2026-08-02T12:05:00Z",
+  "signature": "ed25519:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+}

@@ -1,0 +1,363 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.onym.org/charity/charity-v1.schema.json",
+  "title": "Onym Charity v1 boundary object schema set",
+  "$defs": {
+    "Digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "Id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,159}$"
+    },
+    "IdDigestReference": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9:._-]{0,159}@sha256:[0-9a-f]{64}$"
+    },
+    "OnymKey": {
+      "type": "string",
+      "pattern": "^onym:key:[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$"
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "Duration": {
+      "type": "string",
+      "pattern": "^P(?!$).+$"
+    },
+    "Amount": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+    },
+    "Rate": {
+      "type": "string",
+      "pattern": "^(0(\\.[0-9]+)?|1(\\.0+)?)$"
+    },
+    "OpaqueValue": {
+      "oneOf": [
+        {"type": "string", "minLength": 1, "maxLength": 4096},
+        {"type": "object"},
+        {"type": "array"}
+      ]
+    },
+    "Signature": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]+$",
+      "minLength": 16,
+      "maxLength": 1024
+    },
+    "Fee": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "amount", "rate", "basis", "recipient"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1, "maxLength": 64},
+        "amount": {"$ref": "#/$defs/Amount"},
+        "rate": {"$ref": "#/$defs/Rate"},
+        "basis": {"type": "string", "minLength": 1, "maxLength": 64},
+        "recipient": {"$ref": "#/$defs/OnymKey"}
+      }
+    },
+    "Entitlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class"],
+      "properties": {
+        "class": {"type": "string", "minLength": 1, "maxLength": 128},
+        "amount": {"$ref": "#/$defs/Amount"},
+        "asset": {"type": "string", "minLength": 1, "maxLength": 256}
+      }
+    },
+    "CharityProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profileVersion", "profileId", "interface", "operations", "schemas", "trustSemantics", "privacyProfile", "metricProfile", "errorSchema", "specification", "signature"],
+      "properties": {
+        "profileVersion": {"const": 1},
+        "profileId": {"$ref": "#/$defs/Id"},
+        "interface": {"$ref": "#/$defs/Id"},
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}
+        },
+        "schemas": {"$ref": "#/$defs/Digest"},
+        "trustSemantics": {"$ref": "#/$defs/Digest"},
+        "privacyProfile": {"$ref": "#/$defs/Digest"},
+        "metricProfile": {"$ref": "#/$defs/Digest"},
+        "errorSchema": {"$ref": "#/$defs/Id"},
+        "specification": {"$ref": "#/$defs/Digest"},
+        "signature": {"$ref": "#/$defs/Signature"}
+      }
+    },
+    "CharityDeployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deploymentVersion", "deploymentId", "charityProfileId", "operator", "organizationCredentialPolicy", "campaignRegistry", "financialBindings", "notaryBindings", "eligibilityBindings", "auditBindings", "privacyProfile", "incidentContact", "validFrom", "validUntil", "signature"],
+      "properties": {
+        "deploymentVersion": {"const": 1},
+        "deploymentId": {"$ref": "#/$defs/Id"},
+        "charityProfileId": {"$ref": "#/$defs/Id"},
+        "operator": {"$ref": "#/$defs/OnymKey"},
+        "organizationCredentialPolicy": {"$ref": "#/$defs/IdDigestReference"},
+        "campaignRegistry": {"$ref": "#/$defs/OpaqueValue"},
+        "financialBindings": {"type": "array", "items": {"$ref": "#/$defs/OpaqueValue"}},
+        "notaryBindings": {"type": "array", "items": {"$ref": "#/$defs/OpaqueValue"}},
+        "eligibilityBindings": {"type": "array", "items": {"$ref": "#/$defs/OpaqueValue"}},
+        "auditBindings": {"type": "array", "items": {"$ref": "#/$defs/OpaqueValue"}},
+        "privacyProfile": {"$ref": "#/$defs/Digest"},
+        "incidentContact": {"type": "string", "format": "uri"},
+        "validFrom": {"$ref": "#/$defs/Timestamp"},
+        "validUntil": {"$ref": "#/$defs/Timestamp"},
+        "signature": {"$ref": "#/$defs/Signature"}
+      }
+    },
+    "TrustPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trustPolicyVersion", "trustPolicyId", "acceptedCredentialTypes", "acceptedIssuers", "minimumAssurance", "jurisdictions", "maximumCredentialAge", "revocationFreshness", "combinationRule", "policyDocument", "signature"],
+      "properties": {
+        "trustPolicyVersion": {"const": 1},
+        "trustPolicyId": {"$ref": "#/$defs/Id"},
+        "acceptedCredentialTypes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/Id"}},
+        "acceptedIssuers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/OnymKey"}},
+        "minimumAssurance": {"type": "string", "minLength": 1, "maxLength": 64},
+        "jurisdictions": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "maximumCredentialAge": {"$ref": "#/$defs/Duration"},
+        "revocationFreshness": {"$ref": "#/$defs/Duration"},
+        "combinationRule": {"enum": ["any-one", "all", "threshold"]},
+        "policyDocument": {"$ref": "#/$defs/Digest"},
+        "signature": {"$ref": "#/$defs/Signature"}
+      }
+    },
+    "OrganizationCredential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["credentialVersion", "credentialId", "credentialType", "issuer", "subject", "claims", "policyId", "issuedAt", "expiresAt", "status", "signature"],
+      "properties": {
+        "credentialVersion": {"const": 1},
+        "credentialId": {"$ref": "#/$defs/Id"},
+        "credentialType": {"const": "charitable-organization-v1"},
+        "issuer": {"$ref": "#/$defs/OnymKey"},
+        "subject": {"$ref": "#/$defs/OnymKey"},
+        "claims": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["legalEntityReference", "authorizedScopes", "assurance"],
+          "properties": {
+            "legalEntityReference": {"type": "string", "minLength": 1, "maxLength": 256},
+            "authorizedScopes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+            "assurance": {"type": "string", "minLength": 1, "maxLength": 64}
+          }
+        },
+        "policyId": {"$ref": "#/$defs/Id"},
+        "issuedAt": {"$ref": "#/$defs/Timestamp"},
+        "expiresAt": {"$ref": "#/$defs/Timestamp"},
+        "status": {"type": "string", "format": "uri"},
+        "signature": {"$ref": "#/$defs/Signature"}
+      }
+    },
+    "CharityCampaign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["campaignVersion", "campaignId", "charityDeploymentId", "operator", "organization", "organizationCredential", "title", "purpose", "jurisdictions", "startsAt", "endsAt", "acceptedAssets", "financialDestinations", "allocationPolicy", "refundPolicy", "reportingPolicy", "beneficiaryPrivacy", "revision", "status", "signature"],
+      "properties": {
+        "campaignVersion": {"const": 1},
+        "campaignId": {"$ref": "#/$defs/Id"},
+        "charityDeploymentId": {"$ref": "#/$defs/Id"},
+        "operator": {"$ref": "#/$defs/OnymKey"},
+        "organization": {"$ref": "#/$defs/OnymKey"},
+        "organizationCredential": {"$ref": "#/$defs/IdDigestReference"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 240},
+        "purpose": {"$ref": "#/$defs/Digest"},
+        "jurisdictions": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "startsAt": {"$ref": "#/$defs/Timestamp"},
+        "endsAt": {"$ref": "#/$defs/Timestamp"},
+        "acceptedAssets": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+        "financialDestinations": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/IdDigestReference"}},
+        "allocationPolicy": {"$ref": "#/$defs/Digest"},
+        "refundPolicy": {"$ref": "#/$defs/Digest"},
+        "reportingPolicy": {"$ref": "#/$defs/Digest"},
+        "beneficiaryPrivacy": {"$ref": "#/$defs/Digest"},
+        "revision": {"type": "integer", "minimum": 1},
+        "status": {"enum": ["draft", "active", "paused", "closed", "revoked"]},
+        "signature": {"$ref": "#/$defs/Signature"}
+      }
+    },
+    "DonationQuote": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["quoteVersion", "quoteId", "campaignId", "campaignRevision", "financialProvider", "asset", "grossAmount", "fees", "netAmount", "destination", "finalityRule", "refundRule", "expiresAt", "signature"],
+      "properties": {
+        "quoteVersion": {"const": 1},
+        "quoteId": {"$ref": "#/$defs/Id"},
+        "campaignId": {"$ref": "#/$defs/Id"},
+        "campaignRevision": {"type": "integer", "minimum": 1},
+        "financialProvider": {"$ref": "#/$defs/OnymKey"},
+        "asset": {"type": "string", "minLength": 1, "maxLength": 256},
+        "grossAmount": {"$ref": "#/$defs/Amount"},
+        "fees": {"type": "array", "items": {"$ref": "#/$defs/Fee"}},
+        "netAmount": {"$ref": "#/$defs/Amount"},
+        "destination": {"type": "string", "minLength": 1, "maxLength": 512},
+        "interfaceChannelId": {"type": "string", "minLength": 1, "maxLength": 128},
+        "finalityRule": {"$ref": "#/$defs/IdDigestReference"},
+        "refundRule": {"$ref": "#/$defs/IdDigestReference"},
+        "expiresAt": {"$ref": "#/$defs/Timestamp"},
+        "signature": {"$ref": "#/$defs/Signature"}
+      }
+    },
+    "DonationIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intentVersion", "intentId", "quoteId", "campaignId", "campaignRevision", "organizationCredentialDigest", "grossAmount", "asset", "destination", "donorDisclosure", "expiresAt", "authorization"],
+      "properties": {
+        "intentVersion": {"const": 1},
+        "intentId": {"$ref": "#/$defs/Id"},
+        "quoteId": {"$ref": "#/$defs/IdDigestReference"},
+        "campaignId": {"$ref": "#/$defs/Id"},
+        "campaignRevision": {"type": "integer", "minimum": 1},
+        "organizationCredentialDigest": {"$ref": "#/$defs/Digest"},
+        "grossAmount": {"$ref": "#/$defs/Amount"},
+        "asset": {"type": "string", "minLength": 1, "maxLength": 256},
+        "destination": {"type": "string", "minLength": 1, "maxLength": 512},
+        "donorDisclosure": {"enum": ["public", "pseudonymous", "private-to-extent-supported"]},
+        "interfaceChannelId": {"type": "string", "minLength": 1, "maxLength": 128},
+        "expiresAt": {"$ref": "#/$defs/Timestamp"},
+        "authorization": {"$ref": "#/$defs/Signature"}
+      }
+    },
+    "DonationReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receiptVersion", "receiptId", "intentId", "intentDigest", "quoteId", "campaignId", "campaignRevision", "organization", "organizationCredentialDigest", "asset", "grossAmount", "fees", "netAmount", "status", "finalizedAt", "financialEvidence", "signature"],
+      "properties": {
+        "receiptVersion": {"const": 1},
+        "receiptId": {"$ref": "#/$defs/Id"},
+        "intentId": {"$ref": "#/$defs/Id"},
+        "intentDigest": {"$ref": "#/$defs/Digest"},
+        "quoteId": {"$ref": "#/$defs/IdDigestReference"},
+        "campaignId": {"$ref": "#/$defs/Id"},
+        "campaignRevision": {"type": "integer", "minimum": 1},
+        "organization": {"$ref": "#/$defs/OnymKey"},
+        "organizationCredentialDigest": {"$ref": "#/$defs/Digest"},
+        "asset": {"type": "string", "minLength": 1, "maxLength": 256},
+        "grossAmount": {"$ref": "#/$defs/Amount"},
+        "fees": {"type": "array", "items": {"$ref": "#/$defs/Fee"}},
+        "netAmount": {"$ref": "#/$defs/Amount"},
+        "interfaceChannelId": {"type": "string", "minLength": 1, "maxLength": 128},
+        "status": {"enum": ["finalized"]},
+        "finalizedAt": {"$ref": "#/$defs/Timestamp"},
+        "financialEvidence": {"$ref": "#/$defs/OpaqueValue"},
+        "notaryEvidence": {"$ref": "#/$defs/OpaqueValue"},
+        "publicReference": {"type": "string", "maxLength": 512},
+        "signature": {"$ref": "#/$defs/Signature"}
+      }
+    },
+    "EligibilityPresentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["presentationVersion", "campaignId", "campaignRevision", "policyId", "epoch", "publicInputs", "nullifier", "proof", "expiresAt"],
+      "properties": {
+        "presentationVersion": {"const": 1},
+        "campaignId": {"$ref": "#/$defs/Id"},
+        "campaignRevision": {"type": "integer", "minimum": 1},
+        "policyId": {"$ref": "#/$defs/Id"},
+        "epoch": {"type": "string", "minLength": 1, "maxLength": 128},
+        "publicInputs": {"$ref": "#/$defs/OpaqueValue"},
+        "nullifier": {"$ref": "#/$defs/Digest"},
+        "proof": {"type": "string", "minLength": 16, "maxLength": 1048576},
+        "expiresAt": {"$ref": "#/$defs/Timestamp"}
+      }
+    },
+    "DeliveryBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bindingVersion", "provider", "railProfileId", "recipientCommitment", "encryptedRecipient", "disclosures", "expiresAt"],
+      "properties": {
+        "bindingVersion": {"const": 1},
+        "provider": {"$ref": "#/$defs/OnymKey"},
+        "railProfileId": {"$ref": "#/$defs/Id"},
+        "recipientCommitment": {"$ref": "#/$defs/Digest"},
+        "encryptedRecipient": {"type": "string", "minLength": 16, "maxLength": 1048576},
+        "disclosures": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "expiresAt": {"$ref": "#/$defs/Timestamp"}
+      }
+    },
+    "AidClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claimVersion", "claimId", "campaignId", "campaignRevision", "eligibilityPolicyId", "presentationDigest", "nullifier", "entitlement", "deliveryBinding", "expiresAt", "authorization"],
+      "properties": {
+        "claimVersion": {"const": 1},
+        "claimId": {"$ref": "#/$defs/Id"},
+        "campaignId": {"$ref": "#/$defs/Id"},
+        "campaignRevision": {"type": "integer", "minimum": 1},
+        "eligibilityPolicyId": {"$ref": "#/$defs/Id"},
+        "presentationDigest": {"$ref": "#/$defs/Digest"},
+        "nullifier": {"$ref": "#/$defs/Digest"},
+        "entitlement": {"$ref": "#/$defs/Entitlement"},
+        "deliveryBinding": {"$ref": "#/$defs/DeliveryBinding"},
+        "expiresAt": {"$ref": "#/$defs/Timestamp"},
+        "authorization": {"$ref": "#/$defs/Signature"}
+      }
+    },
+    "AidDisbursementReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disbursementReceiptVersion", "receiptId", "claimId", "claimDigest", "campaignId", "campaignRevision", "eligibilityPolicyId", "presentationDigest", "publicClaimReference", "entitlement", "fees", "deliveryBindingDigest", "status", "finalizedAt", "deliveryEvidence", "issuer", "signature"],
+      "properties": {
+        "disbursementReceiptVersion": {"const": 1},
+        "receiptId": {"$ref": "#/$defs/Id"},
+        "claimId": {"$ref": "#/$defs/Id"},
+        "claimDigest": {"$ref": "#/$defs/Digest"},
+        "campaignId": {"$ref": "#/$defs/Id"},
+        "campaignRevision": {"type": "integer", "minimum": 1},
+        "eligibilityPolicyId": {"$ref": "#/$defs/Id"},
+        "presentationDigest": {"$ref": "#/$defs/Digest"},
+        "publicClaimReference": {"$ref": "#/$defs/Digest"},
+        "entitlement": {"$ref": "#/$defs/Entitlement"},
+        "fees": {"type": "array", "items": {"$ref": "#/$defs/Fee"}},
+        "deliveryBindingDigest": {"$ref": "#/$defs/Digest"},
+        "status": {"const": "disbursed"},
+        "finalizedAt": {"$ref": "#/$defs/Timestamp"},
+        "deliveryEvidence": {"$ref": "#/$defs/OpaqueValue"},
+        "notaryEvidence": {"$ref": "#/$defs/OpaqueValue"},
+        "issuer": {"$ref": "#/$defs/OnymKey"},
+        "signature": {"$ref": "#/$defs/Signature"}
+      }
+    },
+    "AggregateFundFlowReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reportVersion", "reportId", "campaignId", "period", "measurement", "asset", "finalizedGross", "finalizedNet", "refundsAndReversals", "eligibleDonationVolume", "sourceCommitment", "evidence", "issuer", "signature"],
+      "properties": {
+        "reportVersion": {"const": 1},
+        "reportId": {"$ref": "#/$defs/Id"},
+        "campaignId": {"$ref": "#/$defs/Id"},
+        "period": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "to"],
+          "properties": {
+            "from": {"$ref": "#/$defs/Timestamp"},
+            "to": {"$ref": "#/$defs/Timestamp"}
+          }
+        },
+        "measurement": {"enum": ["gross-finalized", "net-finalized"]},
+        "asset": {"type": "string", "minLength": 1, "maxLength": 256},
+        "finalizedGross": {"$ref": "#/$defs/Amount"},
+        "finalizedNet": {"$ref": "#/$defs/Amount"},
+        "refundsAndReversals": {"$ref": "#/$defs/Amount"},
+        "eligibleDonationVolume": {"$ref": "#/$defs/Amount"},
+        "operationCount": {"type": "integer", "minimum": 0},
+        "sourceCommitment": {"$ref": "#/$defs/Digest"},
+        "evidence": {"$ref": "#/$defs/OpaqueValue"},
+        "issuer": {"$ref": "#/$defs/OnymKey"},
+        "signature": {"$ref": "#/$defs/Signature"}
+      }
+    }
+  }
+}

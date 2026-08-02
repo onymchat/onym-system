@@ -1,0 +1,15 @@
+{
+  "intentVersion": 1,
+  "intentId": "intent-20260802-001",
+  "quoteId": "quote-20260802-001@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "campaignId": "campaign-20260802-001",
+  "campaignRevision": 1,
+  "organizationCredentialDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "grossAmount": "100.00",
+  "asset": "stellar:public:USDC",
+  "destination": "stellar:public:GDESTINATION",
+  "donorDisclosure": "private-to-extent-supported",
+  "interfaceChannelId": "onym-messenger",
+  "expiresAt": "2026-08-02T12:05:00Z",
+  "authorization": "ed25519:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}
