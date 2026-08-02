@@ -481,7 +481,7 @@ Before constructing a presentation, the claimant requests a signed
   "campaignRevision": 1,
   "policyId": "<eligibility-policy-id-and-version>",
   "purpose": "claim-aid",
-  "challenge": "<unpredictable-random-bytes>",
+  "nonce": "<unpredictable-random-bytes>",
   "issuedAt": "<timestamp>",
   "expiresAt": "<timestamp>",
   "replayStateExpiresAt": "<timestamp>",
@@ -491,15 +491,25 @@ Before constructing a presentation, the claimant requests a signed
 
 The challenge request contains only the campaign, revision, policy, purpose,
 and intended verifier. It requires no claimant identifier or source credential.
-The challenge is valid only for its named audience and context.
+The signed object is a self-verifying, stateless issuance token: its signature
+covers every field, including at least 128 bits of verifier-generated `nonce`,
+so the verifier need not retain an issuance record. Deployments must publish and
+enforce a maximum request size and issuance rate before signing. They may bound
+anonymous issuance by an ephemeral connection or coarse network bucket, but
+must not turn that control into a persistent claimant identifier. The challenge
+is valid only for its named audience and context.
 `replayStateExpiresAt` is no earlier than `expiresAt` plus the policy's minimum
 idempotent-retry window and no later than `issuedAt` plus its maximum
-replay-state retention. If a claim succeeds, the verifier retains only the
-mapping from challenge digest to claim ID and claim digest through that time,
-then deletes it unless a separately disclosed legal or incident hold applies.
-After the retry bound, an old claim is reconciled through `read-aid-claim`, not
-resubmitted. Nullifier retention remains independently governed by the full
-duplicate-prevention lifetime.
+replay-state retention. If a claim succeeds, the verifier retains through that
+time (1) a `claimId` index containing the canonical authorized claim digest and
+original authenticated outcome and (2) a challenge-digest index containing the
+claim ID and claim digest. It then deletes those replay indexes unless a
+separately disclosed legal or incident hold applies. The underlying claim
+record may have a separately declared retention period so authenticated
+`read-aid-claim` remains available. After the retry bound, an old claim is
+reconciled through that operation, not resubmitted. Active nullifier
+reservations and permanently spent nullifiers are retained independently as
+described by the policy's full duplicate-prevention lifetime.
 
 ```json
 {
@@ -509,7 +519,10 @@ duplicate-prevention lifetime.
   "policyId": "<eligibility-policy-id-and-version>",
   "epoch": "<policy-defined-claim-window>",
   "audience": "onym:key:<eligibility-verifier>",
-  "challenge": "<eligibility-challenge-id-and-digest>",
+  "eligibilityChallenge": {
+    "challengeId": "<eligibility-challenge-id>",
+    "challengeDigest": "<digest-of-signed-eligibility-challenge>"
+  },
   "claimantKey": "onym:key:<claim-scoped-ephemeral-key>",
   "policyPublicInputs": "<canonical-policy-defined-additional-inputs>",
   "nullifier": "<campaign-and-epoch-scoped-nullifier>",
@@ -521,8 +534,9 @@ duplicate-prevention lifetime.
 Every top-level presentation field other than `proof` is a public input to the
 proof statement. `policyPublicInputs` contains only the additional public inputs
 defined by the eligibility policy; it does not wrap or duplicate the other
-top-level fields. The proof therefore covers the audience, challenge, claimant
-key, campaign, revision, policy, epoch, policy-specific public inputs,
+top-level fields. The proof therefore covers the audience,
+eligibility-challenge reference, claimant key, campaign, revision, policy,
+epoch, policy-specific public inputs,
 nullifier, and expiry. The audience prevents a presentation prepared for one
 verifier from being replayed to another. The challenge is unpredictable,
 claim-scoped, and short-lived; it must not contain or derive from a beneficiary
@@ -539,10 +553,13 @@ preflighting a presentation consumes neither its challenge nor its nullifier
 and leaves the same presentation usable for `claim-aid`. Only the first
 successful `claim-aid` for a challenge marks it spent. That transition verifies
 the presentation and claimant authorization, then atomically records the claim,
-marks the challenge spent, and consumes the nullifier. A failed validation
-changes none of those records. If a proof profile cannot provide these bindings
-or avoid revealing identity, the UI must state that before submission and
-require explicit user choice.
+marks the challenge spent, and reserves the nullifier for that claim ID and
+digest. The reservation blocks a concurrent claim but is not permanent
+consumption. It becomes permanently spent only when the claim is disbursed; a
+terminal rejection or expiry before disbursement atomically releases it. A
+failed validation changes none of those records. If a proof profile cannot
+provide these bindings or avoid revealing identity, the UI must state that
+before submission and require explicit user choice.
 
 ### 6.8 Aid Claim and Disbursement Receipt
 
@@ -593,13 +610,34 @@ authoritative for those proof-statement values. A claimant-key mismatch returns
 `CLAIMANT_BINDING_INVALID`; any other restatement mismatch returns
 `PRESENTATION_BINDING_MISMATCH`. Neither consumes the challenge or nullifier.
 
-Idempotency lookup precedes challenge, nullifier, and expiry checks. If the
-provider already has the same `claimId` and exact canonical authorized claim
-digest, it returns the original authenticated outcome even when that claim has
-already spent its challenge and nullifier. Reusing a `claimId` with a different
-claim digest returns `IDEMPOTENCY_CONFLICT`. Reusing a spent challenge with a
-different claim ID or digest returns `CHALLENGE_REUSED`. These paths never
-create a second claim or consume additional state.
+The provider schema-checks the request and resolves the referenced presentation
+before returning any claim-specific lookup result. For a structurally valid
+request, the first matching item in this total precedence order wins:
+
+1. A declared claimant key different from the key in the presentation returns
+   `CLAIMANT_BINDING_INVALID`; otherwise the provider verifies authorization
+   over the exact canonical claim bytes and returns `AUTHORIZATION_INVALID` if
+   it fails.
+2. While the replay index is retained, an existing `claimId` with the exact
+   authorized claim digest returns the original authenticated outcome, and the
+   same ID with any different digest returns `IDEMPOTENCY_CONFLICT`.
+3. Any other presentation restatement mismatch returns
+   `PRESENTATION_BINDING_MISMATCH`.
+4. An invalid challenge signature or campaign, revision, policy, or purpose
+   binding returns `CHALLENGE_INVALID`; wrong audience returns
+   `AUDIENCE_MISMATCH`; expiry returns `CHALLENGE_EXPIRED`; a challenge spent by
+   another claim returns `CHALLENGE_REUSED`; and a nullifier reserved by another
+   active claim or permanently spent returns `NULLIFIER_USED`, in that order.
+5. Proof and delivery validation run before state changes and return their
+   profile-defined typed errors.
+
+Thus `IDEMPOTENCY_CONFLICT` wins over `CHALLENGE_REUSED` when both describe the
+request, and a captured byte-identical claim is never answered until its
+claimant authorization has been reverified. After `replayStateExpiresAt`, the
+index in item 2 is gone, normal validation and error precedence apply, and the
+provider no longer promises to reproduce the submission outcome; the claimant
+uses authenticated `read-aid-claim` instead. None of these rejection paths
+creates a second claim or changes challenge or nullifier state.
 
 `recipientCommitment` is randomized and scoped to this claim so repeated
 delivery coordinates do not intentionally create a public correlation key.
@@ -698,7 +736,7 @@ reconciliation loop invokes `read-donation`, and `watchAidClaim` invokes
 | `request-refund` | invoke declared policy | requester authority, receipt, deadline, provider rule | decision and financial evidence |
 | `request-eligibility-challenge` | obtain proof freshness for one verifier and claim context | campaign, revision, policy, purpose, verifier authority, lifetime, replay-state retention | signed unpredictable challenge requiring no claimant identity |
 | `present-eligibility` | preflight entitlement without consuming it | policy, issuer, proof statement, audience, signed challenge, claimant key, scope, expiry, nullifier | short-lived verified presentation outcome; challenge and nullifier remain usable |
-| `claim-aid` | atomically consume entitlement and request aid | idempotency lookup first; then campaign state, presentation/restatement equality, audience, challenge, claimant authorization, duplicate rule, delivery binding | original outcome for identical retry, otherwise one pending claim or rejection |
+| `claim-aid` | reserve entitlement and request aid | schema and claimant authorization; bounded idempotency lookup; then campaign state, presentation/restatement equality, audience, challenge, duplicate rule, proof, and delivery binding | original outcome for identical retry within the signed replay window, otherwise one pending claim or rejection |
 | `read-aid-claim` | reconcile claim | profile-defined finality and evidence | disbursement receipt or terminal refusal |
 | `read-fund-flow` | inspect aggregate movement | report signature, source commitment, measurement profile | verified aggregate report |
 
@@ -706,12 +744,14 @@ Read operations must not require identifying the user unless the selected
 provider has a lawful, disclosed reason. Submission operations are
 idempotent by their stable intent or claim identifier. `present-eligibility`
 is a non-consuming preflight: only a successful first `claim-aid` transition
-may spend its challenge or consume its nullifier, and it does both in the same
-atomic transition that records the claimant-key-bound claim. An identical
-retry returns that transition's original outcome; it is not challenge reuse or
-a duplicate-nullifier error. The verifier retains spent-challenge and claim
-idempotency state through the signed challenge's `replayStateExpiresAt` and
-retains nullifier state for the policy's full duplicate-prevention lifetime.
+may spend its challenge and reserve its nullifier, and it does both in the same
+atomic transition that records the claimant-key-bound claim. While replay state
+is retained, an identical retry returns that transition's original outcome; it
+is not challenge reuse or a duplicate-nullifier error. The verifier retains
+spent-challenge and claim idempotency state through the signed challenge's
+`replayStateExpiresAt`. It retains an active reservation until a non-disbursed
+terminal transition releases it, or retains the permanently spent nullifier
+for the policy's full duplicate-prevention lifetime after disbursement.
 
 ## 8. State machines
 
@@ -754,10 +794,16 @@ approved -> disbursed | expired
 ```
 
 The transition from `submitted` to `eligibility-verified` is the atomic point
-that records the claim, marks its challenge spent, and consumes its nullifier.
-No rejected or expired transition consumes either value. Retrying the exact
-same `claimId` and claim digest returns the already recorded state without a
-new transition; a different digest under that ID is rejected.
+that records the claim, marks its challenge spent, and reserves its nullifier
+for the exact claim ID and digest. That reservation rejects concurrent claims
+using the same nullifier. The `approved -> disbursed` transition permanently
+spends it. Every `rejected` or `expired` transition from a reserved state
+atomically releases it; the terminal claim cannot be reopened, and a later
+attempt requires a new claim ID, challenge, presentation, and claim-scoped key.
+The old challenge remains spent through its replay-state window. While that
+state is retained, retrying the exact same `claimId` and claim digest returns
+the already recorded outcome without a new transition; a different digest
+under that ID is rejected.
 
 Approval is not disbursement. Public evidence must not reveal which private
 claimant followed a nullifier into a real-world payout.
@@ -928,9 +974,9 @@ The port returns typed outcomes rather than provider text as control flow:
 | `CHALLENGE_REUSED` | a different claim already spent this challenge within its replay-state window | reject without consuming state, reveal no other claim details, and tell an authenticated claimant to reconcile only a locally known claim ID |
 | `CLAIMANT_BINDING_INVALID` | claim authorization does not match the claimant key proven in the presentation | reject without consuming the nullifier |
 | `PRESENTATION_BINDING_MISMATCH` | claim restates campaign, revision, policy, or nullifier differently from the referenced presentation | reject without consuming challenge or nullifier state |
-| `NULLIFIER_USED` | entitlement was already claimed in this scope | show scoped duplicate refusal |
+| `NULLIFIER_USED` | entitlement is reserved by another active claim or was disbursed in this scope | show scoped duplicate refusal without implying that a non-disbursed terminal claim permanently consumed it |
 | `IDEMPOTENCY_CONFLICT` | a stable intent or claim ID was reused with different canonical bytes | reject without changing the original operation or consuming new state |
-| `SUBMISSION_UNKNOWN` | provider accepted request but outcome is unresolved | reconcile using the stable intent or claim ID; an identical retry returns the original outcome |
+| `SUBMISSION_UNKNOWN` | provider accepted request but outcome is unresolved | reconcile using the stable intent or claim ID; only while replay state is retained does an identical retry return the original outcome |
 | `FINALITY_PENDING` | evidence is valid but not final | keep pending |
 | `REFUND_DENIED` | refund policy did not authorize a refund | show authenticated reason and dispute route |
 | `PRIVACY_PROFILE_MISMATCH` | requested flow would exceed accepted disclosure | stop and require explicit new choice |
@@ -948,12 +994,15 @@ change the meaning of a code or cause the application to sign a new operation.
 4. Organization trust is derived from an explicit issuer policy, not UI brand.
 5. Campaign changes cannot mutate an already authorized intent.
 6. Submission is idempotent and reconciliation never creates a second payment
-   or aid claim; an identical stable-ID retry returns the original outcome.
+   or aid claim; an identical stable-ID retry returns the original outcome only
+   while the operation's declared replay state is retained.
 7. Public records contain no intentional donor or beneficiary PII.
 8. Eligibility nullifiers are scoped; they are not global person identifiers.
 9. Eligibility presentations bind a verifier, signed claim-scoped challenge,
-   and fresh claim-scoped key; preflight consumes nothing, while only the first
-   atomic, correctly authorized claim spends the challenge and nullifier.
+   and fresh claim-scoped key; preflight consumes nothing, while the first
+   atomic, correctly authorized claim spends the challenge and reserves the
+   nullifier until disbursement permanently spends it or a non-disbursed
+   terminal transition releases it.
 10. A verifier retains the challenge-to-claim idempotency mapping through the
     signed replay-state bound and rejects a different claim that reuses it.
 11. Aggregate reports exclude or correct duplicates, refunds, and reversals.
@@ -987,10 +1036,12 @@ A conforming implementation publishes:
 3. trust-policy and revocation test vectors;
 4. amount, fee, precision, and rounding vectors;
 5. donation idempotency, timeout, finality, refund, and reversal tests;
-6. challenge issuance, proof-statement field placement, audience, expiry,
-   replay-state retention, preflight non-consumption, atomic challenge/nullifier
-   spend, presentation-to-claim equality, claimant binding, identical retry,
-   conflicting stable-ID reuse, and duplicate-claim tests if aid is supported;
+6. bounded stateless challenge issuance, proof-statement field placement,
+   audience, expiry, replay-state retention, preflight non-consumption, atomic
+   challenge spend/nullifier reservation, terminal release, disbursement spend,
+   presentation-to-claim equality, claimant binding, authorized bounded retry,
+   conflicting stable-ID precedence, and duplicate-claim tests if aid is
+   supported;
 7. privacy-field inventory and negative PII fixtures;
 8. aggregate measurement and correction vectors;
 9. malformed, oversized, replayed, and unknown-critical-field fixtures; and
