@@ -173,10 +173,12 @@ campaign, Onym resolves:
 1. the Charity Profile and deployment;
 2. campaign signature, status, revision, and time bounds;
 3. organization credential and current revocation state;
-4. the user's selected `TrustPolicy` result;
-5. bound financial and notary deployments;
-6. privacy, allocation, reporting, finality, and refund policies; and
-7. any local warning or block rule.
+4. organization-signed operator authorization, scope, validity, and revocation;
+5. organization-and-recipient destination bindings and control evidence;
+6. the user's selected `TrustPolicy` result;
+7. bound financial and notary deployments;
+8. privacy, allocation, reporting, finality, and refund policies; and
+9. any local warning or block rule.
 
 Onym preserves the friendly title from the signed campaign but renders it as
 operator-authored content. A campaign preview cannot imitate a system prompt,
@@ -187,11 +189,13 @@ authorization dialog, verified badge, navigation control, or OS payment sheet.
 The campaign screen shows, with drill-down evidence:
 
 - campaign operator and organization;
+- the organization's authorization of that operator and its exact scope;
 - organization name source;
 - credential issuer, policy, scope, issue/expiry, and revocation status;
 - whether that issuer satisfies the current user-selected trust policy;
 - campaign purpose and the author of that description;
-- target, dates, accepted assets, and destinations;
+- target, dates, accepted assets, destinations, financial recipients, and any
+  fiscal-sponsor or authorized-agent relationships;
 - allocation, reporting, refund, and dispute policies;
 - known public metadata leakage; and
 - notary, financial provider, auditor, and charity operator as distinct roles.
@@ -211,6 +215,8 @@ quote and displays one canonical confirmation screen containing:
 - every fee and fee recipient;
 - expected net amount to the campaign;
 - exact financial destination and organization binding;
+- financial recipient, its relationship to the organization, and destination
+  control evidence;
 - financial provider and finality rule;
 - refund and reversal terms;
 - donor data disclosed to the provider, charity, notary, and public;
@@ -545,8 +551,10 @@ guaranteeing funds raised.
 |---|---|
 | forged charity card | re-resolve signatures and trust policy; render sender content as untrusted |
 | look-alike organization name | show registry, organization key, credential issuer, and destination binding |
+| operator borrows another organization's credential | require an organization-signed, current, scope-limited operator authorization |
 | credential revoked after share | refresh status before quote and authorization |
 | destination swap | bind destination into campaign, quote, preview, and user authorization |
+| operator self-assigns a destination | require organization and recipient signatures plus profile-defined destination-control evidence |
 | fee injection | canonical fee list and arithmetic; any change invalidates preview |
 | message requests automatic payment | never execute from a message; require fresh quote and local confirmation |
 | stale quote replay | check expiry, intent ID, campaign revision, and provider signature |
@@ -571,6 +579,8 @@ Onym maps every abstract error code into a stable user action:
 | `CAMPAIGN_NOT_ACTIVE` | Disable new donations or claims, show whether the campaign is paused, closed, revoked, or unavailable, and preserve history. |
 | `CREDENTIAL_UNTRUSTED` | Show the issuer and policy mismatch; permit only a deliberate scoped policy override where policy allows it. |
 | `CREDENTIAL_REVOKED` | Block new action, show authenticated revocation status, and preserve already finalized evidence. |
+| `OPERATOR_UNAUTHORIZED` | Block new action and show whether the organization delegation is missing, out of scope, expired, or revoked. |
+| `DESTINATION_UNBOUND` | Block quoting or authorization and show which organization, recipient, or destination-control link failed. |
 | `QUOTE_EXPIRED` | Fetch a fresh quote and re-present every term; never reuse the previous authorization. |
 | `TERMS_CHANGED` | Compare old and new amount, fee, recipient, provider, privacy, or policy and require a new decision. |
 | `AUTHORIZATION_INVALID` | Stop without blind retry, discard the invalid authorization, and return to the canonical preview. |
@@ -642,8 +652,9 @@ An Onym Messenger implementation of this profile must test:
 1. campaign references arriving through message, deep link, QR, registry, and
    manual input all resolve through the same verification path;
 2. untrusted rich content cannot imitate system verification or authorization;
-3. issuer, policy, revocation, deployment, campaign revision, and destination
-   are visible and pinned;
+3. issuer, policy, revocation, organization-to-operator delegation, deployment,
+   campaign revision, financial recipient, and destination binding are visible
+   and pinned;
 4. any amount, asset, fee, destination, campaign, expiry, provider, or privacy
    mutation invalidates prior authorization;
 5. the identity vault rejects seed export and unscoped signing requests;

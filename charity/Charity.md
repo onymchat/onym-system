@@ -107,6 +107,7 @@ to join the domains:
 
 - profiles and deployment bindings;
 - organization credentials and trust policy;
+- organization-to-operator authorizations and financial-destination bindings;
 - campaign records and signed updates;
 - donation quotes, intents, outcomes, refunds, and receipts;
 - beneficiary eligibility policies, presentations, claims, and outcomes;
@@ -156,6 +157,12 @@ The identities of the campaign operator, financial recipient, credential
 issuer, financial provider, notary, auditor, and UI publisher must be
 separately inspectable. A brand, app-store listing, domain name, registry name,
 or transport route does not bind these roles unless a signed profile says so.
+
+A valid organization credential does not authorize an unrelated operator to
+run a campaign in that organization's name. The organization-to-operator
+delegation and the organization-to-financial-recipient relationship are
+separate signed links in the trust path. Neither is inferred from a shared
+display name or from possession of a credential copy.
 
 ## 4. Logical topology
 
@@ -321,7 +328,70 @@ profile may map this object to that data model. Private source documents stay
 with the responsible issuer unless a separate, consented disclosure is
 required.
 
-### 6.3 Charity Campaign
+### 6.3 Organization Operator Authorization
+
+An organization explicitly delegates bounded campaign authority to an
+operator. The authorization is signed by the organization key named as the
+subject of the organization credential, or by a threshold/key-successor rule
+that the pinned organization profile permits.
+
+```json
+{
+  "operatorAuthorizationVersion": 1,
+  "authorizationId": "<stable-id>",
+  "organization": "onym:key:<organization-id>",
+  "organizationCredential": "<credential-id-and-digest>",
+  "operator": "onym:key:<charity-operator>",
+  "authorizedScopes": ["create-campaign", "update-campaign", "request-quotes"],
+  "jurisdictions": ["<declared-scope>"],
+  "campaignConstraints": "<optional-content-addressed-constraints>",
+  "delegationAllowed": false,
+  "issuedAt": "<timestamp>",
+  "expiresAt": "<timestamp>",
+  "status": "<revocation-status-reference>",
+  "signature": "<organization-signature>"
+}
+```
+
+The authorization does not permit the operator to alter the organization's
+credential, appoint a new financial recipient, or delegate again unless those
+powers are explicitly present. Its expiry or revocation blocks new actions but
+does not invalidate evidence for operations authorized while it was valid.
+
+### 6.4 Financial Destination Binding
+
+A financial destination is independently bound to the organization and the
+party that will legally or operationally receive the funds:
+
+```json
+{
+  "destinationBindingVersion": 1,
+  "bindingId": "<stable-id>",
+  "organization": "onym:key:<organization-id>",
+  "recipient": "onym:key:<financial-recipient>",
+  "relationship": "direct | fiscal-sponsor | authorized-agent",
+  "financialProvider": "onym:key:<provider-id>",
+  "assetAndNetwork": "<asset-and-network-id>",
+  "destination": "<canonical-destination>",
+  "campaignScope": ["<campaign-id-or-declared-scope>"],
+  "controlEvidence": "<profile-defined-provider-attestation-or-control-proof>",
+  "issuedAt": "<timestamp>",
+  "expiresAt": "<timestamp>",
+  "status": "<revocation-status-reference>",
+  "organizationSignature": "<organization-signature>",
+  "recipientSignature": "<recipient-signature>"
+}
+```
+
+For a direct relationship, the organization and recipient keys are the same.
+For a fiscal sponsor or authorized agent, the UI names both entities and the
+relationship. The selected financial profile defines how
+`controlEvidence` proves control of, or provider-recognized authority over,
+the destination. An operator signature alone is never sufficient destination
+evidence unless the operator is also the organization or separately named
+recipient and signs in those roles.
+
+### 6.5 Charity Campaign
 
 ```json
 {
@@ -331,13 +401,14 @@ required.
   "operator": "onym:key:<charity-operator>",
   "organization": "onym:key:<organization-id>",
   "organizationCredential": "<credential-id-and-digest>",
+  "operatorAuthorization": "<operator-authorization-id-and-digest>",
   "title": "<human-readable-title>",
   "purpose": "<content-addressed-description>",
   "jurisdictions": ["<declared-scope>"],
   "startsAt": "<timestamp>",
   "endsAt": "<timestamp>",
   "acceptedAssets": ["<asset-and-network-id>"],
-  "financialDestinations": ["<signed-destination-binding>"],
+  "financialDestinations": ["<destination-binding-id-and-digest>"],
   "allocationPolicy": "<content-addressed-policy>",
   "refundPolicy": "<content-addressed-policy>",
   "reportingPolicy": "<content-addressed-policy>",
@@ -349,10 +420,13 @@ required.
 ```
 
 Material updates create a new revision. A donation intent pins the exact
-campaign revision, credential digest, destination, and provider bindings it
-accepted.
+campaign revision, credential digest, operator-authorization digest,
+destination-binding digest, destination, and provider bindings it accepted.
+Campaign resolution verifies the complete chain: credential issuer to
+organization, organization to operator, operator to campaign, organization and
+recipient to destination, and financial provider to quote.
 
-### 6.4 Donation Quote
+### 6.6 Donation Quote
 
 ```json
 {
@@ -361,6 +435,7 @@ accepted.
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
   "financialProvider": "onym:key:<provider-id>",
+  "destinationBinding": "<destination-binding-id-and-digest>",
   "asset": "<asset-and-network-id>",
   "grossAmount": "100.00",
   "fees": [
@@ -385,7 +460,7 @@ accepted.
 `grossAmount = netAmount + sum(fees)` under the profile's fixed precision and
 rounding rule. Fees never appear only after authorization.
 
-### 6.5 Donation Intent
+### 6.7 Donation Intent
 
 ```json
 {
@@ -395,6 +470,8 @@ rounding rule. Fees never appear only after authorization.
   "campaignId": "<campaign-id>",
   "campaignRevision": 1,
   "organizationCredentialDigest": "<credential-digest>",
+  "operatorAuthorizationDigest": "<operator-authorization-digest>",
+  "destinationBindingDigest": "<destination-binding-digest>",
   "grossAmount": "100.00",
   "asset": "<asset-and-network-id>",
   "destination": "<canonical-destination>",
@@ -411,7 +488,7 @@ campaign channel—not a person, device, install, contact, or persistent
 referral. It is weak source evidence and must never control authorization,
 eligibility, price, or service.
 
-### 6.6 Donation Receipt
+### 6.8 Donation Receipt
 
 ```json
 {
@@ -424,6 +501,10 @@ eligibility, price, or service.
   "campaignRevision": 1,
   "organization": "onym:key:<organization-id>",
   "organizationCredentialDigest": "<credential-digest>",
+  "operator": "onym:key:<charity-operator>",
+  "operatorAuthorizationDigest": "<operator-authorization-digest>",
+  "financialRecipient": "onym:key:<financial-recipient>",
+  "destinationBindingDigest": "<destination-binding-digest>",
   "asset": "<asset-and-network-id>",
   "grossAmount": "100.00",
   "fees": [
@@ -458,7 +539,7 @@ value. A mismatch invalidates channel-based measurement. Omission from any of
 the three objects means the donation is not attributable to an interface
 channel under this profile.
 
-### 6.7 Eligibility Policy and Presentation
+### 6.9 Eligibility Policy and Presentation
 
 An `EligibilityPolicy` defines a predicate, trusted issuers, validity window,
 proof system, public inputs, nullifier scope, and disclosure profile. An
@@ -487,7 +568,7 @@ permanent beneficiary identifier. If a proof profile cannot avoid revealing
 identity, the UI must state that before submission and require explicit user
 choice.
 
-### 6.8 Aid Claim and Disbursement Receipt
+### 6.10 Aid Claim and Disbursement Receipt
 
 An `AidClaim` pins the exact campaign revision, eligibility policy,
 presentation digest, requested entitlement, private delivery binding, expiry,
@@ -576,7 +657,7 @@ scoped nullifier or an unlinked commitment—not the beneficiary's name,
 contact, messenger identity, government identifier, private payout address,
 pickup secret, or physical delivery location.
 
-### 6.9 Aggregate Fund-Flow Report
+### 6.11 Aggregate Fund-Flow Report
 
 ```json
 {
@@ -611,8 +692,8 @@ reconciliation loop invokes `read-donation`, and `watchAidClaim` invokes
 
 | Canonical wire operation | Caller intent | Required checks | Success evidence |
 |---|---|---|---|
-| `resolve-campaign` | inspect a campaign | profile, deployment, signatures, credential policy, status, freshness | verified view plus explicit warnings |
-| `quote-donation` | request current terms | campaign revision, provider binding, asset, destination, arithmetic, expiry | signed quote |
+| `resolve-campaign` | inspect a campaign | profile, deployment, signatures, credential policy, organization-to-operator authorization, destination bindings, status, freshness | verified view plus explicit warnings |
+| `quote-donation` | request current terms | campaign revision, operator authorization, destination and provider bindings, asset, arithmetic, expiry | signed quote |
 | `prepare-donation` | freeze exact operation | quote, privacy disclosure, authorization schema | canonical intent bytes/digest |
 | `submit-donation` | move declared value | local authorization, current quote, destination, idempotency | pending outcome/provider reference |
 | `read-donation` | reconcile state | evidence and finality rule | finalized, failed, refunded, or still pending |
@@ -640,6 +721,9 @@ Only an authorized campaign controller may change status. An organization
 credential becoming invalid changes the resolved trust result immediately,
 even if the campaign record still says `active`. A UI blocks new donations
 under its trust policy and preserves evidence for already finalized actions.
+The same rule applies when the operator authorization or selected destination
+binding expires or is revoked. Replacing either requires a new campaign
+revision and fresh user authorization.
 
 ### 8.2 Donation
 
@@ -823,6 +907,8 @@ The port returns typed outcomes rather than provider text as control flow:
 | `CAMPAIGN_NOT_ACTIVE` | campaign is absent, paused, closed, or revoked | block new action; preserve history |
 | `CREDENTIAL_UNTRUSTED` | credential does not satisfy selected policy | show issuer/policy mismatch |
 | `CREDENTIAL_REVOKED` | current status is revoked | block new action |
+| `OPERATOR_UNAUTHORIZED` | the organization did not validly authorize this operator and scope | block new action and show the missing, expired, or revoked delegation |
+| `DESTINATION_UNBOUND` | the selected recipient or destination lacks the required organization and control evidence | block quoting or authorization and identify the failed binding |
 | `QUOTE_EXPIRED` | financial terms are no longer valid | fetch and re-present a quote |
 | `TERMS_CHANGED` | destination, amount, fee, privacy, or policy changed | require fresh authorization |
 | `AUTHORIZATION_INVALID` | signature/capability does not cover operation | fail without retrying blindly |
@@ -846,15 +932,19 @@ change the meaning of a code or cause the application to sign a new operation.
 3. A message, link, QR code, or Discovery entry can propose an operation but
    cannot authorize it.
 4. Organization trust is derived from an explicit issuer policy, not UI brand.
-5. Campaign changes cannot mutate an already authorized intent.
-6. Submission is idempotent and reconciliation never creates a second payment.
-7. Public records contain no intentional donor or beneficiary PII.
-8. Eligibility nullifiers are scoped; they are not global person identifiers.
-9. Aggregate reports exclude or correct duplicates, refunds, and reversals.
-10. Financial settlement, organization verification, and impact reporting are
+5. A campaign operator acts only through a current, organization-signed,
+   scope-limited authorization.
+6. A destination is accepted only through a current organization-and-recipient
+   binding plus profile-defined control evidence.
+7. Campaign changes cannot mutate an already authorized intent.
+8. Submission is idempotent and reconciliation never creates a second payment.
+9. Public records contain no intentional donor or beneficiary PII.
+10. Eligibility nullifiers are scoped; they are not global person identifiers.
+11. Aggregate reports exclude or correct duplicates, refunds, and reversals.
+12. Financial settlement, organization verification, and impact reporting are
     distinct claims with distinct issuers.
-11. A paid provider refusal does not make an invalid operation valid.
-12. Every remote object is size-bounded, schema-checked, and signature-checked
+13. A paid provider refusal does not make an invalid operation valid.
+14. Every remote object is size-bounded, schema-checked, and signature-checked
     before rendering or execution.
 
 ## 14. Versioning, migration, and revocation
@@ -878,7 +968,8 @@ A conforming implementation publishes:
 
 1. supported Charity Profile and schema hashes;
 2. canonicalization and signature test vectors;
-3. trust-policy and revocation test vectors;
+3. trust-policy, organization-operator delegation, destination-control, and
+   revocation test vectors;
 4. amount, fee, precision, and rounding vectors;
 5. donation idempotency, timeout, finality, refund, and reversal tests;
 6. eligibility proof, scope, expiry, and duplicate-claim tests if aid is
