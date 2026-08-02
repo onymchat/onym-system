@@ -437,7 +437,6 @@ eligibility, price, or service.
   ],
   "netAmount": "99.00",
   "interfaceChannelId": "<optional-non-user-specific-channel>",
-  "status": "settled-reversible | settled-final",
   "settledAt": "<timestamp>",
   "settlementRule": "<finality-rule-id-and-digest>",
   "financialEvidence": "<profile-defined-settlement-evidence>",
@@ -453,12 +452,10 @@ flow with its own controller, purpose, retention, and disclosure terms.
 `intentDigest` binds the receipt to the exact canonical intent bytes the donor
 authorized; matching a human-readable `intentId` alone is insufficient.
 
-`settled-reversible` means the provider has recognized settlement but the
-selected rail still permits an ordinary chargeback or reversal.
-`settled-final` means the pinned profile treats the supplied evidence as final
-and exposes no ordinary reversal transition. A rail that permits chargebacks
-must not label its receipt `settled-final`. A voluntary refund is a new
-adjustment event and does not rewrite the historical settlement receipt.
+The receipt is a frozen record that settlement was recognized at `settledAt`;
+it has no mutable settlement status. The authenticated event-chain projection
+derives `settled-reversible` or `settled-final`. A voluntary refund, reversal,
+or later finality event does not rewrite the historical receipt.
 
 When `interfaceChannelId` is present, the quote proposes it, the donation
 intent pins the quote and repeats the same value, and the receipt copies that
@@ -481,13 +478,8 @@ how competing chains or provider equivocation fail closed.
   "intentDigest": "<digest-of-canonical-authorized-intent>",
   "sequence": 3,
   "previousEventDigest": null,
-  "kind": "submission-accepted | settlement-pending | settled-reversible | settled-final | failed | expired | refund-requested | refund-denied | refunded | reversed",
-  "adjustment": {
-    "amount": "<optional-canonical-amount>",
-    "asset": "<optional-asset-and-network-id>",
-    "refundRequestDigest": "<optional-refund-request-digest>",
-    "reasonCode": "<optional-profile-defined-code>"
-  },
+  "kind": "submission-accepted | settlement-pending | settled-reversible | settled-final | failed | expired | refund-requested | refund-denied | refund-request-expired | refund-request-withdrawn | refunded | reversed",
+  "adjustment": null,
   "evidence": "<profile-defined-financial-evidence>",
   "recordedAt": "<timestamp>",
   "issuer": "onym:key:<financial-provider>",
@@ -495,11 +487,31 @@ how competing chains or provider equivocation fail closed.
 }
 ```
 
-`refunded` and `reversed` events state the exact adjustment amount. Multiple
-partial refunds are separate events. A projection computes cumulative refunded
-and reversed amounts and the remaining settled balance without changing or
-deleting any prior event. An adjustment that would make either a cumulative
-amount negative or exceed the applicable settled amount is invalid.
+For `refunded` and `reversed`, `adjustment` is required and has this shape:
+
+```json
+{
+  "amount": "<positive-canonical-amount>",
+  "asset": "<same-asset-as-the-receipt>",
+  "reasonCode": "<profile-defined-code>"
+}
+```
+
+`refunded` additionally requires `refundRequestDigest` for the active request;
+`reversed` omits it because no requester initiated an ordinary rail reversal.
+Multiple partial adjustments are separate events. A projection computes
+cumulative refunded and reversed amounts and the remaining settled balance
+without changing or deleting any prior event. For every prefix of the chain,
+`sum(refunded.amount) + sum(reversed.amount)` must be non-negative and must not
+exceed the original receipt's `netAmount`; the two categories do not receive
+independent caps. Every adjustment asset must exactly equal the receipt asset.
+The base profile defines no cross-asset adjustment.
+
+`settled-reversible` means the selected rail still permits an ordinary
+chargeback or reversal. A later `settled-final` event is the normal transition
+when the pinned settlement rule's reversal window elapses and its finality
+evidence is satisfied. A rail that permits ordinary reversals indefinitely
+stays `settled-reversible` and cannot emit `settled-final`.
 `previousEventDigest` is `null` only at sequence 1; every later sequence is
 exactly one greater and pins the prior canonical event digest.
 
@@ -515,6 +527,7 @@ stores them separately and reconciles them against authenticated events.
   "refundRequestId": "<user-generated-random-id>",
   "receipt": "<receipt-id-and-digest>",
   "intentDigest": "<digest-of-canonical-authorized-intent>",
+  "refundRule": "<refund-policy-id-and-digest>",
   "requestedAmount": "<canonical-amount>",
   "asset": "<asset-and-network-id>",
   "reasonCode": "<profile-defined-code>",
@@ -524,11 +537,26 @@ stores them separately and reconciles them against authenticated events.
 }
 ```
 
-A refund request pins the original receipt and policy through their digests.
-Its authorization proves only authority to request the stated adjustment. The
-provider answers with a `refund-denied` or `refunded` outcome event; a denial
-does not replace the settled projection, and an accepted refund is not implied
-to reverse the original rail transaction.
+A refund request pins the original receipt and refund rule through their
+digests. Its authorization proves only authority to request the stated
+adjustment. The provider answers with linked `refunded`, `refund-denied`,
+`refund-request-expired`, or `refund-request-withdrawn` outcome events. These
+events do not replace the settled projection, and an accepted refund is not
+implied to reverse the original rail transaction.
+
+`asset` must equal the receipt asset, and `requestedAmount` must be positive and
+no greater than the remaining balance after the combined refund-plus-reversal
+total. The base profile has no cross-asset refund request.
+
+A `refund-requested` event requires `adjustment.amount`, `adjustment.asset`, and
+`adjustment.refundRequestDigest` matching the request. A `refund-denied`,
+`refund-request-expired`, or `refund-request-withdrawn` event requires the same
+request digest and closes the unfulfilled remainder. Withdrawal requires a
+scoped requester cancellation; expiry is valid only after `expiresAt`. At most
+one request per receipt may be outstanding. A later request is accepted only
+after the prior one is fully refunded or closed by denial, expiry, or
+withdrawal. Every response and partial refund links the active request digest;
+partial refunds leave only the unfulfilled remainder outstanding.
 
 ### 6.7 Eligibility Policy and Presentation
 
@@ -647,6 +675,9 @@ provider or safely publishable as a commitment. Public evidence uses the
 scoped nullifier or an unlinked commitment—not the beneficiary's name,
 contact, messenger identity, government identifier, private payout address,
 pickup secret, or physical delivery location.
+`finalizedAt` is deliberately unchanged for aid: an entitlement may use a
+physical or non-financial delivery profile, so Donation's financial
+`settledAt` terminology does not apply.
 
 ### 6.9 Aggregate Fund-Flow Report
 
@@ -656,10 +687,11 @@ pickup secret, or physical delivery location.
   "reportId": "<stable-id>",
   "campaignId": "<campaign-id>",
   "period": {"from": "<timestamp>", "to": "<timestamp>"},
-  "measurement": "net-settled-finality-qualified",
+  "measurement": "eligible-net-after-fees-and-adjustments",
+  "acceptedSettlementClasses": ["settled-final"],
   "asset": "<asset-and-network-id>",
-  "settledGross": "<amount>",
-  "settledNet": "<amount>",
+  "settledGrossBeforeAdjustments": "<amount>",
+  "settledNetBeforeAdjustments": "<amount>",
   "refunds": "<amount>",
   "reversals": "<amount>",
   "eligibleDonationVolume": "<amount>",
@@ -673,6 +705,18 @@ pickup secret, or physical delivery location.
 
 The report never contains donor or beneficiary identities. Counts smaller
 than a profile-defined privacy threshold should be suppressed or bucketed.
+`acceptedSettlementClasses` declares exactly which event projections enter the
+report; a profile may include `settled-reversible` only when it explicitly
+accepts that risk. `settledGrossBeforeAdjustments` is before fees and
+adjustments. `settledNetBeforeAdjustments` is after fees but before refunds and
+reversals. The base measurement is unambiguous:
+
+```text
+eligibleDonationVolume = settledNetBeforeAdjustments - refunds - reversals
+```
+
+`refunds` and `reversals` are not subtracted anywhere else, and the combined
+adjustment cap from Section 6.6.1 applies to every included receipt.
 
 ## 7. Operations
 
@@ -688,12 +732,12 @@ reconciliation loop invokes `read-donation`, and `watchAidClaim` invokes
 | `quote-donation` | request current terms | campaign revision, provider binding, asset, destination, arithmetic, expiry | signed quote |
 | `prepare-donation` | freeze exact operation | quote, privacy disclosure, authorization schema | canonical intent bytes/digest |
 | `submit-donation` | move declared value | local authorization, current quote, destination, idempotency | pending outcome/provider reference |
-| `read-donation` | reconcile state | event-chain continuity, evidence, adjustment arithmetic, and finality rule | authenticated event chain and derived projection |
-| `request-refund` | invoke declared policy | requester authority, receipt, amount, deadline, provider rule | hash-linked refund-requested event followed by a denial or exact refund adjustment |
+| `read-donation` | reconcile state | event-chain continuity, evidence, exact receipt asset, combined refund-plus-reversal cap, request lifecycle, and finality rule | authenticated event chain and derived projection |
+| `request-refund` | invoke declared policy | exact refund request and digest, requester authority, pinned refund rule, receipt, amount and asset, deadline, single-outstanding-request rule | hash-linked request event followed by exact refund adjustments or authenticated denial, expiry, or withdrawal |
 | `present-eligibility` | prove entitlement | policy, issuer, proof, scope, expiry, nullifier | verified presentation outcome |
 | `claim-aid` | request aid | campaign state, presentation, duplicate rule, delivery binding | pending claim or rejection |
 | `read-aid-claim` | reconcile claim | profile-defined finality and evidence | disbursement receipt or terminal refusal |
-| `read-fund-flow` | inspect aggregate movement | report signature, source commitment, measurement profile | verified aggregate report |
+| `read-fund-flow` | inspect aggregate movement | report signature, source commitment, declared settlement classes, metric profile, and exact net-before-adjustments equation | verified aggregate report |
 
 Read operations must not require identifying the user unless the selected
 provider has a lawful, disclosed reason. Submission operations are
@@ -717,28 +761,36 @@ under its trust policy and preserves evidence for already settled actions.
 ### 8.2 Donation
 
 ```text
-local: prepared -> submitted -> submission-unknown
-                         \-> reconciled
+local observations:
+prepared -> submitted -> submission-unknown
+submitted -----------------------------------> authenticated provider event
+submission-unknown -- reconcile same intent -> authenticated provider event
 
 provider event chain:
-submission-accepted -> settlement-pending -> settled-reversible
-                                         \-> settled-final
-                                         \-> failed | expired
+submission-accepted -> settlement-pending -> settled-reversible -> settled-final
+submission-accepted -> failed | expired
+settlement-pending -> failed | expired
 
-settled-reversible -> refunded (zero or more partial adjustments)
-                   \-> reversed (zero or more reversal adjustments)
-settled-*          -> refund-requested -> refund-denied | refunded
+settled-reversible -> reversed (zero or more adjustments within the combined cap)
+settled-* -> refund-requested -> refunded (one or more partial adjustments)
+                              \-> refund-denied
+                              \-> refund-request-expired
+                              \-> refund-request-withdrawn
 ```
 
 `submitted` is a local action, not settlement. `submission-unknown` means the
 client cannot yet prove whether the provider accepted it; reconciliation keeps
-the same intent ID. The authenticated provider projection is a fold over its
-ordered events, never a mutation of a prior receipt.
+the same intent ID. Reconciliation is an action that replaces uncertainty with
+an authenticated provider event, not another provider status. A UI may retain a
+local “reconciled after uncertainty” annotation for history. The authenticated
+provider projection is a fold over its ordered events, never a mutation of a
+prior receipt.
 
 The profile defines settlement evidence and which event kinds the rail allows.
-A reversible rail stops at `settled-reversible`; subsequent chargebacks,
-reversals, and partial refunds append adjustments. A profile may emit
-`settled-final` only when ordinary reversal is not part of its semantics.
+A reversible rail initially projects `settled-reversible`; subsequent
+chargebacks, reversals, and partial refunds append adjustments. It advances to
+`settled-final` only after the pinned rule proves the ordinary reversal window
+has elapsed. A rail with no such boundary remains reversible.
 Exceptional evidence invalidation is reported as an integrity incident with
 the conflicting evidence preserved, not represented by silently changing a
 final receipt.
@@ -825,12 +877,13 @@ qualifying settlement events that:
    binding; and
 4. are deduplicated and reduced by exact refund and reversal adjustment amounts.
 
-Every report declares the accepted settlement class and whether volume means
-gross settled value or net value received. The recommended default is **net
-settled value**, with refunds and reversals separately totaled and subtracted,
-and fees reported separately. Cross-asset totals require
-a separately declared valuation source, timestamp, currency, and rounding
-rule; otherwise amounts remain per asset.
+Every report declares `acceptedSettlementClasses`. The base measurement is
+**eligible net after fees and adjustments**: it starts from
+`settledNetBeforeAdjustments` and subtracts each refund and reversal exactly
+once. Gross before adjustments and net before adjustments remain separately
+reported context; neither is the eligible headline value. Cross-asset totals
+require a separately declared valuation source, timestamp, currency, and
+rounding rule; otherwise amounts remain per asset.
 
 This metric proves qualifying financial flow into selected campaigns. It does
 not prove:
@@ -940,8 +993,9 @@ change the meaning of a code or cause the application to sign a new operation.
 6. Submission is idempotent and reconciliation never creates a second payment.
 7. Public records contain no intentional donor or beneficiary PII.
 8. Eligibility nullifiers are scoped; they are not global person identifiers.
-9. Aggregate reports fold an append-only event chain and separately subtract
-   duplicates, refunds, and reversals without rewriting settlement evidence.
+9. Aggregate reports fold an append-only event chain, exclude duplicates, and
+   subtract refunds and reversals exactly once from net before adjustments
+   without rewriting settlement evidence.
 10. Financial settlement, organization verification, and impact reporting are
     distinct claims with distinct issuers.
 11. A paid provider refusal does not make an invalid operation valid.
@@ -971,8 +1025,10 @@ A conforming implementation publishes:
 2. canonicalization and signature test vectors;
 3. trust-policy and revocation test vectors;
 4. amount, fee, precision, and rounding vectors;
-5. donation idempotency, timeout, event-chain continuity, settlement class,
-   partial-refund arithmetic, full-refund, and reversal tests;
+5. donation idempotency, timeout, event-chain continuity,
+   reversible-to-final progression, frozen receipts, refund-rule binding,
+   single-outstanding-request lifecycle, combined adjustment-cap arithmetic,
+   full-refund, and reversal tests;
 6. eligibility proof, scope, expiry, and duplicate-claim tests if aid is
    supported;
 7. privacy-field inventory and negative PII fixtures;

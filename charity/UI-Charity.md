@@ -124,7 +124,7 @@ prepareDonation(verifiedCampaign, quote, privacyChoice) -> DonationPreview
 authorizeDonation(previewDigest, scopedCapability) -> DonationIntent
 submitDonation(intent) -> SubmissionOutcome
 watchDonation(intentId, afterEventDigest?) -> DonationProjection | Pending | TerminalError
-requestRefund(receiptId, amount, reason, scopedCapability) -> RefundOutcome
+requestRefund(refundRequest, authorization) -> RefundOutcomeEvents
 prepareEligibility(campaign, policy, sourceCredential) -> EligibilityPreview
 authorizeEligibility(previewDigest, scopedCapability) -> EligibilityPresentation
 submitAidClaim(presentation, deliveryChoice) -> AidClaimOutcome
@@ -234,12 +234,16 @@ again,” preventing an uncertain submission from becoming a second donation.
 The activity screen distinguishes:
 
 - prepared locally;
+- submission outcome unknown as a local observation;
+- reconciled after uncertainty to a named authenticated provider event as a
+  local history annotation;
 - accepted for submission;
 - settlement pending;
 - settled but reversible;
 - settled final under the pinned profile;
 - failed or expired;
-- refund requested, denied, partially refunded, or fully refunded; and
+- refund requested, denied, expired, withdrawn, partially refunded, or fully
+  refunded; and
 - partially or fully reversed when the profile permits reversals.
 
 The receipt is stored locally in the user's encrypted application storage. A
@@ -262,8 +266,19 @@ adjusted amount, and remaining settled balance.
 Onym reads the signed refund policy pinned by the original intent, not the
 campaign's newest policy. It tells the user which operator decides, which
 private data would be sent, the deadline, and the authenticated support route.
-A refund request may be signed or accompanied by evidence, but Onym does not
-promise its acceptance.
+It generates a fresh `refundRequestId` and expiry, then previews canonical
+request bytes that pin the receipt ID and digest, intent digest, refund-rule ID
+and digest, exact amount and same receipt asset, reason, and user-selected
+evidence. The user authorizes that digest before
+`requestRefund(refundRequest, authorization)` is invoked.
+
+Onym accepts a `refund-requested` event only when its `refundRequestDigest`
+matches those authorized bytes. It permits only one outstanding request for a
+receipt, shows partial fulfillment against the requested amount, and requires
+the first request to be fully fulfilled, denied, expired, or withdrawn before
+preparing another. Withdrawal receives its own scoped authorization. None of
+these outcomes rewrites the settlement receipt, and Onym does not promise a
+request will be accepted.
 
 ### 5.6 Privately claim aid
 
@@ -536,8 +551,9 @@ as follows:
    the pinned campaign destination;
 4. duplicates, failed, pending, and expired operations do not count, while
    partial/full refunds and reversals are separately totaled and subtracted;
-5. the report declares settlement class plus gross and net amounts separately,
-   with net settled value as the default headline metric; and
+5. the report declares accepted settlement classes, gross and net before
+   adjustments, and the exact headline equation `eligible = net before
+   adjustments - refunds - reversals`; and
 6. aggregate evidence is public without donor PII or messenger analytics.
 
 This demonstrates campaign volume under the declared channel convention. It
@@ -563,7 +579,8 @@ guaranteeing funds raised.
 | stale quote replay | check expiry, intent ID, campaign revision, and provider signature |
 | duplicate submission after timeout | preserve `submission-unknown` locally and reconcile the stable intent before resubmission |
 | provider rewrites settlement history | require a signed hash-linked outcome-event chain and preserve conflicting evidence |
-| partial refund counted as full refund | fold exact adjustment amounts and show cumulative refunded and remaining balances |
+| refunds and reversals exceed settlement | enforce one combined refund-plus-reversal cap in the receipt asset and retain the last valid projection |
+| concurrent refund requests race | permit one outstanding request per receipt and bind every request event and adjustment to the authorized request digest |
 | malicious rich report | digest verification, type/size limits, sandboxed rendering |
 | global beneficiary correlation | campaign/epoch-scoped nullifiers and scoped identity capabilities |
 | public compliance refusal leak | keep reason private; public outcome is minimal typed state |
@@ -594,7 +611,7 @@ Onym maps every abstract error code into a stable user action:
 | `SUBMISSION_UNKNOWN` | Keep one pending operation and reconcile its stable identifier; do not suggest an immediate duplicate submission. |
 | `FINALITY_PENDING` | Explain the selected provider's settlement rule without declaring success. |
 | `EVENT_CHAIN_INVALID` | Stop at the last valid event, preserve the conflicting signed records, and show an authenticated provider support route. |
-| `ADJUSTMENT_INVALID` | Ignore the invalid adjustment, retain the prior settled balance, and identify the failed amount, asset, or request binding. |
+| `ADJUSTMENT_INVALID` | Ignore the invalid adjustment, retain the prior settled balance, and identify the failed amount, receipt asset, request binding, or combined refund-plus-reversal cap. |
 | `REFUND_DENIED` | Show the authenticated policy reason, original terms, and available dispute or support route. |
 | `PRIVACY_PROFILE_MISMATCH` | Stop and show the additional disclosure; never downgrade the user's privacy choice silently. |
 
@@ -677,9 +694,9 @@ An Onym Messenger implementation of this profile must test:
 11. blobs enforce digest, size, media, decompression, and active-content rules;
 12. inaccessible, expired, revoked, malformed, oversized, replayed, and
     unknown-critical-field inputs fail safely;
-13. aggregate volume excludes duplicates and pending operations, then
-    separately subtracts exact partial/full refund and reversal amounts under
-    declared arithmetic;
+13. aggregate volume excludes duplicates and pending operations, declares its
+    accepted settlement classes, and subtracts exact refund and reversal
+    amounts once from net before adjustments under the combined cap;
 14. the same campaign and receipt verify through an independent conforming UI;
     and
 15. a mock non-Stellar adapter can satisfy the local Charity and financial
