@@ -187,16 +187,20 @@ untrusted until it validates the evidence required by the pinned profiles.
 
 ## 5. Profiles and bindings
 
-### 5.1 Charity Profile
+### 5.1 Charity Profiles
 
-A `CharityProfile` defines portable semantics without selecting an operator or
-backend:
+A `CharityProfile` defines portable semantics and one independently conformant
+capability set without selecting an operator or backend. Donation collection
+and beneficiary aid are separate v1 profiles. An implementation may support
+either or both; conformance to one never implies conformance to the other.
+
+The first implementation target is [Donation v1](Donation-v1.md):
 
 ```json
 {
   "profileVersion": 1,
-  "profileId": "onym:charity-profile:donation-aid-v1",
-  "interface": "onym-charity-v1",
+  "profileId": "onym:charity-profile:donation-v1",
+  "interface": "onym-charity-donation-v1",
   "operations": [
     "resolve-campaign",
     "quote-donation",
@@ -204,12 +208,9 @@ backend:
     "submit-donation",
     "read-donation",
     "request-refund",
-    "present-eligibility",
-    "claim-aid",
-    "read-aid-claim",
     "read-fund-flow"
   ],
-  "schemas": "<content-addressed-schema-set>",
+  "schemas": "<content-addressed-donation-schema-set>",
   "trustSemantics": "<content-addressed-trust-semantics>",
   "privacyProfile": "<content-addressed-disclosure-profile>",
   "metricProfile": "<content-addressed-volume-profile>",
@@ -219,9 +220,40 @@ backend:
 }
 ```
 
-The profile fixes object meaning, canonicalization, authorization coverage,
+Private beneficiary coordination is the separate [Aid v1](Aid-v1.md)
+profile:
+
+```json
+{
+  "profileVersion": 1,
+  "profileId": "onym:charity-profile:aid-v1",
+  "interface": "onym-charity-aid-v1",
+  "operations": [
+    "resolve-campaign",
+    "present-eligibility",
+    "claim-aid",
+    "read-aid-claim",
+    "read-fund-flow"
+  ],
+  "schemas": "<content-addressed-aid-schema-set>",
+  "trustSemantics": "<content-addressed-trust-semantics>",
+  "privacyProfile": "<content-addressed-beneficiary-disclosure-profile>",
+  "metricProfile": "<content-addressed-aid-flow-profile>",
+  "errorSchema": "onym-charity-aid-errors-v1",
+  "specification": "<content-addressed-specification>",
+  "signature": "<profile-publisher-signature>"
+}
+```
+
+Each profile fixes its object meaning, canonicalization, authorization coverage,
 state transitions, evidence, errors, and privacy requirements. It does not fix
 a currency, network, smart-contract language, UI, operator, or price.
+
+The common profile ID is included in every request, response, authorization,
+and receipt. Operations with the same name across profiles share only the
+semantics explicitly declared by both profiles. A deployment that supports
+both profiles may reuse a campaign record, but it publishes and tests each
+profile binding independently.
 
 ### 5.2 Charity Deployment
 
@@ -231,7 +263,10 @@ A `CharityDeployment` binds the abstract profile to concrete providers:
 {
   "deploymentVersion": 1,
   "deploymentId": "onym:charity-deployment:<id>",
-  "charityProfileId": "onym:charity-profile:donation-aid-v1",
+  "charityProfiles": [
+    "onym:charity-profile:donation-v1",
+    "onym:charity-profile:aid-v1"
+  ],
   "operator": "onym:key:<charity-operator>",
   "organizationCredentialPolicy": "<trust-policy-id-and-hash>",
   "campaignRegistry": "<adapter-profile-and-endpoint>",
@@ -609,18 +644,18 @@ or UI ports are non-wire aliases. In particular, a local `watchDonation`
 reconciliation loop invokes `read-donation`, and `watchAidClaim` invokes
 `read-aid-claim`; watching does not define additional wire operations.
 
-| Canonical wire operation | Caller intent | Required checks | Success evidence |
-|---|---|---|---|
-| `resolve-campaign` | inspect a campaign | profile, deployment, signatures, credential policy, status, freshness | verified view plus explicit warnings |
-| `quote-donation` | request current terms | campaign revision, provider binding, asset, destination, arithmetic, expiry | signed quote |
-| `prepare-donation` | freeze exact operation | quote, privacy disclosure, authorization schema | canonical intent bytes/digest |
-| `submit-donation` | move declared value | local authorization, current quote, destination, idempotency | pending outcome/provider reference |
-| `read-donation` | reconcile state | evidence and finality rule | finalized, failed, refunded, or still pending |
-| `request-refund` | invoke declared policy | requester authority, receipt, deadline, provider rule | decision and financial evidence |
-| `present-eligibility` | prove entitlement | policy, issuer, proof, scope, expiry, nullifier | verified presentation outcome |
-| `claim-aid` | request aid | campaign state, presentation, duplicate rule, delivery binding | pending claim or rejection |
-| `read-aid-claim` | reconcile claim | profile-defined finality and evidence | disbursement receipt or terminal refusal |
-| `read-fund-flow` | inspect aggregate movement | report signature, source commitment, measurement profile | verified aggregate report |
+| Profile | Canonical wire operation | Caller intent | Required checks | Success evidence |
+|---|---|---|---|---|
+| Donation v1, Aid v1 | `resolve-campaign` | inspect a campaign | profile, deployment, signatures, credential policy, status, freshness | verified view plus explicit warnings |
+| Donation v1 | `quote-donation` | request current terms | campaign revision, provider binding, asset, destination, arithmetic, expiry | signed quote |
+| Donation v1 | `prepare-donation` | freeze exact operation | quote, privacy disclosure, authorization schema | canonical intent bytes/digest |
+| Donation v1 | `submit-donation` | move declared value | local authorization, current quote, destination, idempotency | pending outcome/provider reference |
+| Donation v1 | `read-donation` | reconcile state | evidence and finality rule | finalized, failed, refunded, or still pending |
+| Donation v1 | `request-refund` | invoke declared policy | requester authority, receipt, deadline, provider rule | decision and financial evidence |
+| Aid v1 | `present-eligibility` | prove entitlement | policy, issuer, proof, scope, expiry, nullifier | verified presentation outcome |
+| Aid v1 | `claim-aid` | request aid | campaign state, presentation, duplicate rule, delivery binding | pending claim or rejection |
+| Aid v1 | `read-aid-claim` | reconcile claim | profile-defined finality and evidence | disbursement receipt or terminal refusal |
+| Donation v1, Aid v1 | `read-fund-flow` | inspect aggregate movement | report signature, source commitment, measurement profile | verified aggregate report |
 
 Read operations must not require identifying the user unless the selected
 provider has a lawful, disclosed reason. Submission operations are
@@ -874,7 +909,9 @@ change the meaning of a code or cause the application to sign a new operation.
 
 ## 15. Conformance
 
-A conforming implementation publishes:
+A conforming implementation publishes the artifacts required by each profile
+it claims. Donation v1 requires items 1–5 and 7–10 below. Aid v1 requires items
+1–3 and 6–10. Supporting both requires the union:
 
 1. supported Charity Profile and schema hashes;
 2. canonicalization and signature test vectors;
@@ -926,3 +963,8 @@ The abstract charity boundary is acceptable when:
   an explicit migration rather than a silent operator redirect; and
 - responsibility for charity operations, compliance, funds, messenger UX,
   credentials, and evidence is visible at every boundary.
+
+Donation v1 may reach implementation readiness without an eligibility proof
+system or aid-disbursement adapter. Aid v1 independently requires its private
+eligibility, nullifier, delivery, and beneficiary-safety criteria; the presence
+of working donation screens is not evidence of Aid v1 conformance.

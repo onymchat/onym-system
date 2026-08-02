@@ -116,6 +116,11 @@ required programming language. The mapping to canonical kebab-case operations
 in `CharityProfile` is explicit below; local-only helpers do not create wire
 operations.
 
+The repository negotiates Donation v1 and Aid v1 independently. A UI can ship
+the donation methods without including eligibility-proof code, beneficiary
+state, or aid-delivery adapters. It renders an aid journey only when the
+selected deployment and installed client both support Aid v1.
+
 ```text
 resolveProfile(profileReference) -> VerifiedCharityProfile | CharityError
 resolveCampaign(campaignReference, trustPolicy) -> CampaignResolution
@@ -133,22 +138,22 @@ readFundFlow(campaignId, period) -> VerifiedFundFlowReport
 reportIssue(objectReference, category, userSelectedEvidence) -> SupportHandoff
 ```
 
-| Local port method | Canonical wire operation or local behavior |
-|---|---|
-| `resolveProfile` | local verification of signed profile resources; no Charity wire operation |
-| `resolveCampaign` | `resolve-campaign` |
-| `quoteDonation` | `quote-donation` |
-| `prepareDonation` | `prepare-donation` |
-| `authorizeDonation` | local identity-vault authorization; no wire operation |
-| `submitDonation` | `submit-donation` |
-| `watchDonation` | repeated `read-donation` reconciliation |
-| `requestRefund` | `request-refund` |
-| `prepareEligibility` | local policy/proof preparation; no wire operation |
-| `authorizeEligibility` | local presentation authorization; no wire operation |
-| `submitAidClaim` | `present-eligibility`, then `claim-aid` if accepted |
-| `watchAidClaim` | repeated `read-aid-claim` reconciliation |
-| `readFundFlow` | `read-fund-flow` |
-| `reportIssue` | user-selected support handoff through the Message boundary; no Charity wire operation |
+| Profile | Local port method | Canonical wire operation or local behavior |
+|---|---|---|
+| Donation v1, Aid v1 | `resolveProfile` | local verification of signed profile resources; no Charity wire operation |
+| Donation v1, Aid v1 | `resolveCampaign` | `resolve-campaign` |
+| Donation v1 | `quoteDonation` | `quote-donation` |
+| Donation v1 | `prepareDonation` | `prepare-donation` |
+| Donation v1 | `authorizeDonation` | local identity-vault authorization; no wire operation |
+| Donation v1 | `submitDonation` | `submit-donation` |
+| Donation v1 | `watchDonation` | repeated `read-donation` reconciliation |
+| Donation v1 | `requestRefund` | `request-refund` |
+| Aid v1 | `prepareEligibility` | local policy/proof preparation; no wire operation |
+| Aid v1 | `authorizeEligibility` | local presentation authorization; no wire operation |
+| Aid v1 | `submitAidClaim` | `present-eligibility`, then `claim-aid` if accepted |
+| Aid v1 | `watchAidClaim` | repeated `read-aid-claim` reconciliation |
+| Donation v1, Aid v1 | `readFundFlow` | `read-fund-flow` |
+| Donation v1, Aid v1 | `reportIssue` | user-selected support handoff through the Message boundary; no Charity wire operation |
 
 The repository returns verified domain objects, typed warnings, and evidence.
 It never returns a remote provider's HTML, transaction builder, RPC response,
@@ -637,7 +642,9 @@ They are intentionally not inferred or finalized by this protocol document.
 
 ## 16. Onym conformance tests
 
-An Onym Messenger implementation of this profile must test:
+An Onym Messenger implementation must run the common tests and the test set for
+every profile it advertises. Tests 1–5 and 10–12 are common; 6–7 and 13 are
+Donation v1; 8–9 are Aid v1. Tests 14–15 apply to each supported profile:
 
 1. campaign references arriving through message, deep link, QR, registry, and
    manual input all resolve through the same verification path;
@@ -664,20 +671,18 @@ An Onym Messenger implementation of this profile must test:
     reversals under declared arithmetic;
 14. the same campaign and receipt verify through an independent conforming UI;
     and
-15. a mock non-Stellar adapter can satisfy the local Charity and financial
-    ports, proving ledger independence.
+15. a mock non-Stellar adapter can satisfy each advertised Charity capability
+    and its financial or delivery ports, proving ledger independence.
 
 ## 17. Acceptance criteria
 
-This Onym profile is ready for implementation when:
+The Onym Donation v1 profile is ready for implementation when:
 
 - users can discover, authenticate, donate to, and reconcile a campaign without
   giving the charity their Onym root secret or unrelated message history;
 - every trust, financial, notary, registry, and report claim names its author;
 - every value-moving operation receives an exact local preview and scoped
   authorization;
-- beneficiaries can complete a supported private eligibility flow without a
-  public identity record;
 - the Onym client contains no required charity behavioral analytics;
 - public volume is verifiable under a declared metric without attributing
   people;
@@ -687,3 +692,8 @@ This Onym profile is ready for implementation when:
   test vectors; and
 - a future Soroban/Stellar adapter can be added without changing Onym screens,
   identity semantics, or the abstract Charity objects.
+
+Aid v1 is independently ready when beneficiaries can complete a supported
+private eligibility and delivery flow without a public identity record, its
+additional proof/privacy tests pass, and disabling it removes its credential,
+presentation, claim, and delivery code without affecting Donation v1.
