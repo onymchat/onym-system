@@ -673,7 +673,10 @@ The boundary is defined in:
   responsibility contract; and
 - [charity/UI-Charity.md](charity/UI-Charity.md), the Onym Messenger user
   interface, private-message, local-authorization, receipt, and aid-claim
-  profile.
+  profile; and
+- [charity/Attribution-Extension.md](charity/Attribution-Extension.md), the
+  optional weak aggregate interface-attribution profile, kept outside base
+  donation validity.
 
 The split is strict. The user application presents authenticated claims and
 exact transaction intent, requests scoped local authorization, and verifies
@@ -694,11 +697,12 @@ use derived proofs and campaign-scoped nullifiers where possible. Financial
 rails may still reveal addresses, values, timing, or regulated identity data;
 the UI discloses those limits before authorization.
 
-The collaboration metric “funds through Onym” is defined as qualifying,
-finalized value received by verified campaigns under a pinned measurement
-profile, net of refunds and reversals by default. It is measured from financial
-and notary evidence without messenger PII or behavioral analytics. A shared
-`onym-messenger` channel marker can provide weak aggregate source evidence but
+Base fund flow is qualifying, finalized value received by verified campaigns
+under a pinned measurement profile, net of refunds and reversals by default. It
+is measured from financial and notary evidence without messenger PII or
+behavioral analytics and makes no interface-source claim. When separately
+selected and authorized, the optional Interface Attribution extension can add
+a shared `onym-messenger` marker as weak aggregate source evidence. That marker
 cannot prove an install, a unique user, or causation and cannot support a
 person-level royalty.
 
@@ -1503,9 +1507,11 @@ deployment.
 
 The abstract charity contract and Onym Messenger profile are now published in
 [charity/Charity.md](charity/Charity.md) and
-[charity/UI-Charity.md](charity/UI-Charity.md). Their deployed implementations
-remain proposed, but publishing those specifications is no longer a roadmap
-item.
+[charity/UI-Charity.md](charity/UI-Charity.md), with optional interface
+attribution specified separately in
+[charity/Attribution-Extension.md](charity/Attribution-Extension.md). Their
+deployed implementations remain proposed, but publishing those specifications
+is no longer a roadmap item.
 
 The abstract Recovery Trustee contract and its first cloud-custody and Shamir
 profiles are now published in

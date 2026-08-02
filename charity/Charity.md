@@ -374,7 +374,6 @@ accepted.
   ],
   "netAmount": "99.00",
   "destination": "<canonical-destination>",
-  "interfaceChannelId": "<optional-non-user-specific-channel>",
   "finalityRule": "<profile-defined-rule>",
   "refundRule": "<policy-id-and-digest>",
   "expiresAt": "<timestamp>",
@@ -399,17 +398,17 @@ rounding rule. Fees never appear only after authorization.
   "asset": "<asset-and-network-id>",
   "destination": "<canonical-destination>",
   "donorDisclosure": "private-to-extent-supported",
-  "interfaceChannelId": "<optional-non-user-specific-channel>",
   "expiresAt": "<timestamp>",
   "authorization": "<scoped-user-authorization>"
 }
 ```
 
-Authorization covers every state-changing and value-moving field. An
-`interfaceChannelId`, when present, identifies a shared interface profile or
-campaign channel—not a person, device, install, contact, or persistent
-referral. It is weak source evidence and must never control authorization,
-eligibility, price, or service.
+Authorization covers every state-changing and value-moving field. The base
+donation intent carries no interface, acquisition, referral, install, device,
+contact, or person-attribution identifier. Deployments that need a weak
+aggregate interface signal use the separately selected
+[Interface Attribution extension](Attribution-Extension.md); its absence never
+invalidates or changes the donation.
 
 ### 6.6 Donation Receipt
 
@@ -436,7 +435,6 @@ eligibility, price, or service.
     }
   ],
   "netAmount": "99.00",
-  "interfaceChannelId": "<optional-non-user-specific-channel>",
   "status": "finalized",
   "finalizedAt": "<timestamp>",
   "financialEvidence": "<profile-defined-settlement-evidence>",
@@ -451,12 +449,6 @@ record may require additional personal data and must use a separate, explicit
 flow with its own controller, purpose, retention, and disclosure terms.
 `intentDigest` binds the receipt to the exact canonical intent bytes the donor
 authorized; matching a human-readable `intentId` alone is insufficient.
-
-When `interfaceChannelId` is present, the quote proposes it, the donation
-intent pins the quote and repeats the same value, and the receipt copies that
-value. A mismatch invalidates channel-based measurement. Omission from any of
-the three objects means the donation is not attributable to an interface
-channel under this profile.
 
 ### 6.7 Eligibility Policy and Presentation
 
@@ -753,13 +745,12 @@ not prove:
 - that the charity spent funds as intended; or
 - that impact occurred.
 
-An optional shared `interfaceChannelId` can distinguish broad interface
-profiles, such as `onym-messenger`, when both quote and receipt bind it. It is
-not reliable person-level attribution and can be copied or spoofed. It must not
-be used for surveillance, per-user royalties, discrimination, or eligibility.
-Campaign-specific efficiency can be computed as qualifying volume divided by
-declared campaign spend, but must be labeled a campaign estimate rather than a
-user conversion rate.
+The base profile makes no claim about which interface, message, or campaign
+channel influenced a donation. A deployment may additionally select the
+[Interface Attribution extension](Attribution-Extension.md), which defines a
+copyable, non-person-specific aggregate signal with separate consent and
+evidence. Attribution is never an input to donation validity, price,
+eligibility, trust, or service.
 
 ## 11. Financial safety, participant offers, and compliance
 

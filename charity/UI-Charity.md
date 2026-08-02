@@ -339,7 +339,6 @@ A charity deep link contains only:
 - interface and profile version;
 - campaign or deployment reference;
 - optional expected digest/revision;
-- optional non-user-specific interface channel; and
 - optional sender-authenticated context inside an encrypted message.
 
 It must not contain a mnemonic, private credential, donor ID, beneficiary ID,
@@ -445,9 +444,12 @@ charity. The same is true for every other participant. A replacement UI may
 offer different terms without changing the campaign or user identity.
 
 Offer fulfillment may be proven by an aggregate campaign statement or scoped
-receipt references. Onym does not create a persistent donor tag, beneficiary
-tag, or downstream royalty relationship. Store billing, direct settlement,
-grant funding, sponsorship, and other payment rails require their own current
+receipt references. When a buyer specifically selects the optional
+[Interface Attribution extension](Attribution-Extension.md), that extension
+can supply weak aggregate channel evidence without entering the base donation
+objects. Onym does not create a persistent donor tag, beneficiary tag, or
+downstream royalty relationship. Store billing, direct settlement, grant
+funding, sponsorship, and other payment rails require their own current
 implementation profiles and do not alter charity authorization semantics.
 
 ## 9. Names and organization credentials
@@ -485,11 +487,11 @@ screen-view beacons, transaction-tracking pixels, address-book upload, device
 fingerprinting, or campaign-to-person referral tokens. It does not disclose
 who opened, dismissed, donated to, or claimed from a campaign.
 
-The public acquisition metric is contract-observed qualifying fund flow, as
-defined by `Charity.md`. A shared `interfaceChannelId = onym-messenger` may be
-bound to a campaign quote and receipt when the deployment chooses that weak
-aggregate signal. It is not an install measurement, user attribution, or
-basis for a continuing cut.
+Base charity quotes, intents, and receipts contain no interface, acquisition,
+referral, install, device, contact, or person-attribution identifier. A user or
+deployment may separately select the
+[Interface Attribution extension](Attribution-Extension.md); the charity flow
+works normally when it is absent or declined.
 
 Onym may compute private on-device history or summaries for the user. Those
 values do not leave the device unless the user explicitly exports them.
@@ -513,26 +515,18 @@ claim universal anonymity or guaranteed zero incidents. The UI names metadata
 exposed by the selected financial rail, notary, issuer, provider, operating
 system, and network path.
 
-## 11. Fund-flow metric in Onym
+## 11. Optional interface-attribution extension
 
-For the proposed collaboration, “funds attracted through Onym” is implemented
-as follows:
+Base `Charity.md` fund-flow reports prove qualifying movement for a campaign;
+they do not claim that Onym or another interface caused it. A deployment that
+needs the narrower statement “funds carrying the shared Onym interface
+channel” selects [Attribution-Extension.md](Attribution-Extension.md).
 
-1. a signed financial quote proposes the shared `onym-messenger` interface
-   channel for an exact campaign revision;
-2. the donor-authorized intent pins that quote and repeats the same channel;
-3. a finalized receipt copies the channel and proves qualifying funds reached
-   the pinned campaign destination;
-4. duplicates, refunds, reversals, failed, pending, and expired operations do
-   not count;
-5. the report declares gross and net amounts separately, with net finalized
-   value as the default headline metric; and
-6. aggregate evidence is public without donor PII or messenger analytics.
-
-This demonstrates campaign volume under the declared channel convention. It
-cannot prove that a person was newly acquired, installed Onym because of the
-campaign, saw a particular message, or was uniquely influenced by one party.
-The interface channel is copyable; reports must describe this limitation.
+The extension is separately previewed and authorized, remains optional, and
+cannot alter payment terms or validity. Its channel is shared rather than
+person-specific and is intentionally copyable. It can support aggregate
+campaign-volume evidence, but cannot prove acquisition, installation, message
+exposure, unique influence, or person-level conversion.
 
 The charity operator remains responsible for donor outreach, organization
 pipeline, beneficiary participation, and any volume target it accepts. Onym is
@@ -622,7 +616,7 @@ complete public architecture sources for the described boundary.
 | verified NGOs as issuers | organization issuers are explicit and trust-policy qualified; NGOs may also issue beneficiary eligibility credentials |
 | anonymous aid recipients | derived presentations and scoped nullifiers where the selected proof profile supports them |
 | transparent donor fund use | separate fund-flow, allocation, expenditure, audit, and impact claims |
-| funds through Onym | aggregate qualifying receipts under a shared interface-channel convention, with stated attribution limits |
+| funds through Onym | optional Interface Attribution extension, separate from base donation validity and carrying stated attribution limits |
 | no PII analytics | no person-level charity analytics or referral tokens; public aggregate evidence only |
 | zero messenger-side PII incidents | reframed as zero intentional protocol publication plus concrete minimization, testing, and incident duties |
 | separate-layer ownership | compatible delivery/ownership declaration |
