@@ -123,8 +123,8 @@ quoteDonation(campaignRevision, amount, asset, financialBinding) -> DonationQuot
 prepareDonation(verifiedCampaign, quote, privacyChoice) -> DonationPreview
 authorizeDonation(previewDigest, scopedCapability) -> DonationIntent
 submitDonation(intent) -> SubmissionOutcome
-watchDonation(intentId) -> DonationReceipt | Pending | TerminalError
-requestRefund(receiptId, reasonCapability) -> RefundOutcome
+watchDonation(intentId, afterEventDigest?) -> DonationProjection | Pending | TerminalError
+requestRefund(receiptId, amount, reason, scopedCapability) -> RefundOutcome
 prepareEligibility(campaign, policy, sourceCredential) -> EligibilityPreview
 authorizeEligibility(previewDigest, scopedCapability) -> EligibilityPresentation
 submitAidClaim(presentation, deliveryChoice) -> AidClaimOutcome
@@ -150,9 +150,11 @@ reportIssue(objectReference, category, userSelectedEvidence) -> SupportHandoff
 | `readFundFlow` | `read-fund-flow` |
 | `reportIssue` | user-selected support handoff through the Message boundary; no Charity wire operation |
 
-The repository returns verified domain objects, typed warnings, and evidence.
-It never returns a remote provider's HTML, transaction builder, RPC response,
-or untrusted display string as executable UI state.
+`watchDonation` returns the latest verified projection plus its append-only
+outcome events; `DonationReceipt` is present only after a qualifying settlement
+event. The repository returns verified domain objects, typed warnings, and
+evidence. It never returns a remote provider's HTML, transaction builder, RPC
+response, or untrusted display string as executable UI state.
 
 ## 5. User-facing journeys
 
@@ -233,19 +235,27 @@ The activity screen distinguishes:
 
 - prepared locally;
 - accepted for submission;
-- pending finality;
-- finalized;
+- settlement pending;
+- settled but reversible;
+- settled final under the pinned profile;
 - failed or expired;
-- refund pending, refunded, or refund denied; and
-- reversed after apparent finality, when the profile permits reversals.
+- refund requested, denied, partially refunded, or fully refunded; and
+- partially or fully reversed when the profile permits reversals.
 
 The receipt is stored locally in the user's encrypted application storage. A
 portable export contains the receipt and verification material selected by
 the user, excluding local contacts and unrelated messages. A public proof link
-is optional and must contain no intentional PII. “Finalized” means only the
-pinned financial profile's finality rule was satisfied. Before showing that
-state, Onym verifies that the receipt's `intentDigest` matches the exact local
-intent bytes the donor authorized.
+is optional and must contain no intentional PII. “Settled final” means only
+that the pinned financial profile permits no ordinary reversal after the
+supplied evidence. A reversible card or bank rail is labeled “settled,
+reversible,” not final. Before showing either settlement state, Onym verifies
+that the receipt's `intentDigest` matches the exact local intent bytes the donor
+authorized.
+
+Refund, reversal, and denial records append to the activity history. The UI
+derives totals from the authenticated event chain and never overwrites the
+original settlement receipt. Partial adjustments show their amount, cumulative
+adjusted amount, and remaining settled balance.
 
 ### 5.5 Request a refund or dispute an outcome
 
@@ -393,8 +403,8 @@ CharityFinancialPort
   quote(campaignRevision, amount, asset) -> signed DonationQuote
   prepare(quote, intentDigest) -> canonical FinancialAuthorizationPreview
   submit(intent, financialAuthorization) -> SubmissionOutcome
-  reconcile(intentId) -> FinancialOutcome + verifiable evidence
-  requestRefund(receiptId, authorization) -> RefundOutcome
+  reconcile(intentId, afterEventDigest?) -> ordered FinancialOutcomeEvents + derived projection
+  requestRefund(refundRequest, authorization) -> RefundOutcomeEvents
 ```
 
 An adapter maps this port to its technology. Wallet SDK types, Soroban
@@ -463,7 +473,8 @@ The UI distinguishes:
 - **policy accepted** — the credential satisfies this user's trust policy;
 - **campaign active** — the campaign controller currently permits actions;
 - **financial destination bound** — the exact recipient is signed; and
-- **financial outcome finalized** — provider evidence satisfies finality.
+- **financial outcome settled** — provider evidence satisfies the displayed
+  reversible or final settlement class.
 
 None implies the next. A registry operator can also be an issuer, but the UI
 still shows both roles and both policies.
@@ -521,12 +532,12 @@ as follows:
 1. a signed financial quote proposes the shared `onym-messenger` interface
    channel for an exact campaign revision;
 2. the donor-authorized intent pins that quote and repeats the same channel;
-3. a finalized receipt copies the channel and proves qualifying funds reached
+3. a qualifying settlement receipt copies the channel and proves funds reached
    the pinned campaign destination;
-4. duplicates, refunds, reversals, failed, pending, and expired operations do
-   not count;
-5. the report declares gross and net amounts separately, with net finalized
-   value as the default headline metric; and
+4. duplicates, failed, pending, and expired operations do not count, while
+   partial/full refunds and reversals are separately totaled and subtracted;
+5. the report declares settlement class plus gross and net amounts separately,
+   with net settled value as the default headline metric; and
 6. aggregate evidence is public without donor PII or messenger analytics.
 
 This demonstrates campaign volume under the declared channel convention. It
@@ -550,7 +561,9 @@ guaranteeing funds raised.
 | fee injection | canonical fee list and arithmetic; any change invalidates preview |
 | message requests automatic payment | never execute from a message; require fresh quote and local confirmation |
 | stale quote replay | check expiry, intent ID, campaign revision, and provider signature |
-| duplicate submission after timeout | reconcile stable intent before resubmission |
+| duplicate submission after timeout | preserve `submission-unknown` locally and reconcile the stable intent before resubmission |
+| provider rewrites settlement history | require a signed hash-linked outcome-event chain and preserve conflicting evidence |
+| partial refund counted as full refund | fold exact adjustment amounts and show cumulative refunded and remaining balances |
 | malicious rich report | digest verification, type/size limits, sandboxed rendering |
 | global beneficiary correlation | campaign/epoch-scoped nullifiers and scoped identity capabilities |
 | public compliance refusal leak | keep reason private; public outcome is minimal typed state |
@@ -570,7 +583,7 @@ Onym maps every abstract error code into a stable user action:
 | `DEPLOYMENT_INVALID` | Block the action and identify the failed binding, signature, hash, status, or validity check. |
 | `CAMPAIGN_NOT_ACTIVE` | Disable new donations or claims, show whether the campaign is paused, closed, revoked, or unavailable, and preserve history. |
 | `CREDENTIAL_UNTRUSTED` | Show the issuer and policy mismatch; permit only a deliberate scoped policy override where policy allows it. |
-| `CREDENTIAL_REVOKED` | Block new action, show authenticated revocation status, and preserve already finalized evidence. |
+| `CREDENTIAL_REVOKED` | Block new action, show authenticated revocation status, and preserve already settled evidence. |
 | `QUOTE_EXPIRED` | Fetch a fresh quote and re-present every term; never reuse the previous authorization. |
 | `TERMS_CHANGED` | Compare old and new amount, fee, recipient, provider, privacy, or policy and require a new decision. |
 | `AUTHORIZATION_INVALID` | Stop without blind retry, discard the invalid authorization, and return to the canonical preview. |
@@ -579,7 +592,9 @@ Onym maps every abstract error code into a stable user action:
 | `PROOF_INVALID` | Keep proof diagnostics private and offer the authenticated issuer or operator support route. |
 | `NULLIFIER_USED` | Show that the entitlement was already claimed in this campaign/epoch without exposing a public person identifier. |
 | `SUBMISSION_UNKNOWN` | Keep one pending operation and reconcile its stable identifier; do not suggest an immediate duplicate submission. |
-| `FINALITY_PENDING` | Explain the selected provider's finality rule without declaring success. |
+| `FINALITY_PENDING` | Explain the selected provider's settlement rule without declaring success. |
+| `EVENT_CHAIN_INVALID` | Stop at the last valid event, preserve the conflicting signed records, and show an authenticated provider support route. |
+| `ADJUSTMENT_INVALID` | Ignore the invalid adjustment, retain the prior settled balance, and identify the failed amount, asset, or request binding. |
 | `REFUND_DENIED` | Show the authenticated policy reason, original terms, and available dispute or support route. |
 | `PRIVACY_PROFILE_MISMATCH` | Stop and show the additional disclosure; never downgrade the user's privacy choice silently. |
 
@@ -648,8 +663,10 @@ An Onym Messenger implementation of this profile must test:
    mutation invalidates prior authorization;
 5. the identity vault rejects seed export and unscoped signing requests;
 6. uncertain submission reconciles without creating a second intent;
-7. pending, final, refunded, reversed, and failed receipts survive restart,
-   and every final receipt matches the locally authorized `intentDigest`;
+7. pending, reversible-settled, final-settled, partially/fully refunded,
+   reversed, and failed projections survive restart; their event chains remain
+   continuous, and every settlement receipt matches the locally authorized
+   `intentDigest`;
 8. eligibility proofs bind campaign revision, policy, epoch, public inputs,
    and scoped nullifier;
 9. aid claims bind the exact presentation, campaign revision, entitlement,
@@ -660,8 +677,9 @@ An Onym Messenger implementation of this profile must test:
 11. blobs enforce digest, size, media, decompression, and active-content rules;
 12. inaccessible, expired, revoked, malformed, oversized, replayed, and
     unknown-critical-field inputs fail safely;
-13. aggregate volume excludes duplicates, pending operations, refunds, and
-    reversals under declared arithmetic;
+13. aggregate volume excludes duplicates and pending operations, then
+    separately subtracts exact partial/full refund and reversal amounts under
+    declared arithmetic;
 14. the same campaign and receipt verify through an independent conforming UI;
     and
 15. a mock non-Stellar adapter can satisfy the local Charity and financial
