@@ -461,7 +461,8 @@ channel under this profile.
 ### 6.7 Eligibility Policy and Presentation
 
 An `EligibilityPolicy` defines a predicate, trusted issuers, validity window,
-proof system, public inputs, nullifier scope, and disclosure profile. An
+proof system, intended verifier, challenge rules, public inputs, claimant-key
+binding, nullifier scope, and disclosure profile. An
 `EligibilityPresentation` proves the requested predicate without publishing
 the underlying credential when the selected proof system supports it.
 
@@ -472,6 +473,9 @@ the underlying credential when the selected proof system supports it.
   "campaignRevision": 1,
   "policyId": "<eligibility-policy-id-and-version>",
   "epoch": "<policy-defined-claim-window>",
+  "audience": "onym:key:<eligibility-verifier>",
+  "challenge": "<verifier-issued-single-use-challenge>",
+  "claimantKey": "onym:key:<claim-scoped-ephemeral-key>",
   "publicInputs": "<canonical-policy-defined-inputs>",
   "nullifier": "<campaign-and-epoch-scoped-nullifier>",
   "proof": "<proof-bytes>",
@@ -479,13 +483,24 @@ the underlying credential when the selected proof system supports it.
 }
 ```
 
-The presentation binds the exact campaign revision so it cannot be reinterpreted
-under a later eligibility, allocation, or privacy policy. Its nullifier remains
-stable across revisions within the same campaign and epoch to prevent a policy
-update from enabling a second claim. It must not become a cross-campaign or
-permanent beneficiary identifier. If a proof profile cannot avoid revealing
-identity, the UI must state that before submission and require explicit user
-choice.
+The proof covers the audience, challenge, claimant key, campaign, revision,
+policy, epoch, public inputs, nullifier, and expiry. The audience prevents a
+presentation prepared for one verifier from being replayed to another. The
+challenge is unpredictable, single-use, scoped to this campaign and purpose,
+and short-lived; it must not contain or derive from a beneficiary identifier.
+The claimant key is newly generated for this claim and proves only that the
+same holder who prepared the presentation authorized the subsequent claim.
+
+The presentation binds the exact campaign revision so it cannot be
+reinterpreted under a later eligibility, allocation, or privacy policy. Its
+nullifier remains stable across revisions within the same campaign and epoch
+to prevent a policy update from enabling a second claim. It must not become a
+cross-campaign or permanent beneficiary identifier. Merely validating or
+preflighting a presentation does not consume or reserve its nullifier. The
+`claim-aid` transition verifies the presentation and claimant authorization,
+then consumes the nullifier and records the claim atomically. If a proof
+profile cannot provide these bindings or avoid revealing identity, the UI must
+state that before submission and require explicit user choice.
 
 ### 6.8 Aid Claim and Disbursement Receipt
 
@@ -502,6 +517,7 @@ and claimant authorization:
   "eligibilityPolicyId": "<policy-id-and-version>",
   "presentationDigest": "<digest-of-eligibility-presentation>",
   "nullifier": "<campaign-and-epoch-scoped-nullifier>",
+  "claimantKey": "onym:key:<claim-scoped-ephemeral-key>",
   "entitlement": {
     "class": "<policy-defined-entitlement-class>",
     "amount": "<optional-canonical-amount>",
@@ -521,8 +537,12 @@ and claimant authorization:
 }
 ```
 
-The claimant authorization covers the canonical digest of every field,
-including the delivery binding. `recipientCommitment` is randomized and scoped
+The claimant authorization is verified by the exact `claimantKey` committed as
+a public input of the referenced presentation and covers the canonical digest
+of every claim field, including the delivery binding. A copied presentation
+therefore cannot be attached to an attacker's claim without the claim-scoped
+private key. The key must not be reused across campaigns, epochs, or claims.
+`recipientCommitment` is randomized and scoped
 to this claim so repeated delivery coordinates do not intentionally create a
 public correlation key. `encryptedRecipient` contains only the payout address,
 pickup capability, shipping coordinate, or other recipient data required by
@@ -617,14 +637,17 @@ reconciliation loop invokes `read-donation`, and `watchAidClaim` invokes
 | `submit-donation` | move declared value | local authorization, current quote, destination, idempotency | pending outcome/provider reference |
 | `read-donation` | reconcile state | evidence and finality rule | finalized, failed, refunded, or still pending |
 | `request-refund` | invoke declared policy | requester authority, receipt, deadline, provider rule | decision and financial evidence |
-| `present-eligibility` | prove entitlement | policy, issuer, proof, scope, expiry, nullifier | verified presentation outcome |
-| `claim-aid` | request aid | campaign state, presentation, duplicate rule, delivery binding | pending claim or rejection |
+| `present-eligibility` | preflight entitlement without consuming it | policy, issuer, proof, audience, challenge, claimant key, scope, expiry, nullifier | short-lived verified presentation outcome |
+| `claim-aid` | atomically consume entitlement and request aid | campaign state, presentation, audience, challenge, claimant authorization, duplicate rule, delivery binding | pending claim or rejection |
 | `read-aid-claim` | reconcile claim | profile-defined finality and evidence | disbursement receipt or terminal refusal |
 | `read-fund-flow` | inspect aggregate movement | report signature, source commitment, measurement profile | verified aggregate report |
 
 Read operations must not require identifying the user unless the selected
 provider has a lawful, disclosed reason. Submission operations are
-idempotent by their stable intent or claim identifier.
+idempotent by their stable intent or claim identifier. `present-eligibility`
+is a non-consuming preflight: only a successful `claim-aid` transition may
+consume a nullifier, and it does so in the same atomic transition that records
+the claimant-key-bound claim.
 
 ## 8. State machines
 
@@ -829,6 +852,8 @@ The port returns typed outcomes rather than provider text as control flow:
 | `PAYMENT_REQUIRED` | provider requires a declared service payment | show signed offer separately |
 | `COMPLIANCE_REQUIRED` | selected provider needs an additional private flow | identify provider and disclosure before consent |
 | `PROOF_INVALID` | eligibility proof failed | reveal no unnecessary diagnostic publicly |
+| `CHALLENGE_EXPIRED` | eligibility challenge is absent, expired, reused, or for another audience | obtain a fresh scoped challenge and rebuild the presentation |
+| `CLAIMANT_BINDING_INVALID` | claim authorization does not match the claimant key proven in the presentation | reject without consuming the nullifier |
 | `NULLIFIER_USED` | entitlement was already claimed in this scope | show scoped duplicate refusal |
 | `SUBMISSION_UNKNOWN` | provider accepted request but outcome is unresolved | reconcile using stable intent ID |
 | `FINALITY_PENDING` | evidence is valid but not final | keep pending |
@@ -850,11 +875,14 @@ change the meaning of a code or cause the application to sign a new operation.
 6. Submission is idempotent and reconciliation never creates a second payment.
 7. Public records contain no intentional donor or beneficiary PII.
 8. Eligibility nullifiers are scoped; they are not global person identifiers.
-9. Aggregate reports exclude or correct duplicates, refunds, and reversals.
-10. Financial settlement, organization verification, and impact reporting are
+9. Eligibility presentations bind a single-use verifier challenge and a fresh
+   claim-scoped key; only an atomic, correctly authorized claim consumes the
+   nullifier.
+10. Aggregate reports exclude or correct duplicates, refunds, and reversals.
+11. Financial settlement, organization verification, and impact reporting are
     distinct claims with distinct issuers.
-11. A paid provider refusal does not make an invalid operation valid.
-12. Every remote object is size-bounded, schema-checked, and signature-checked
+12. A paid provider refusal does not make an invalid operation valid.
+13. Every remote object is size-bounded, schema-checked, and signature-checked
     before rendering or execution.
 
 ## 14. Versioning, migration, and revocation
@@ -881,7 +909,8 @@ A conforming implementation publishes:
 3. trust-policy and revocation test vectors;
 4. amount, fee, precision, and rounding vectors;
 5. donation idempotency, timeout, finality, refund, and reversal tests;
-6. eligibility proof, scope, expiry, and duplicate-claim tests if aid is
+6. eligibility proof, audience, single-use challenge, claimant binding, scope,
+   expiry, preflight non-consumption, and duplicate-claim tests if aid is
    supported;
 7. privacy-field inventory and negative PII fixtures;
 8. aggregate measurement and correction vectors;

@@ -145,7 +145,7 @@ reportIssue(objectReference, category, userSelectedEvidence) -> SupportHandoff
 | `requestRefund` | `request-refund` |
 | `prepareEligibility` | local policy/proof preparation; no wire operation |
 | `authorizeEligibility` | local presentation authorization; no wire operation |
-| `submitAidClaim` | `present-eligibility`, then `claim-aid` if accepted |
+| `submitAidClaim` | optional non-consuming `present-eligibility` preflight, then atomic `claim-aid` if accepted |
 | `watchAidClaim` | repeated `read-aid-claim` reconciliation |
 | `readFundFlow` | `read-fund-flow` |
 | `reportIssue` | user-selected support handoff through the Message boundary; no Charity wire operation |
@@ -264,15 +264,25 @@ The beneficiary flow starts from a signed `EligibilityPolicy` and explains:
 - which facts remain private and which public inputs are disclosed;
 - nullifier scope and lifetime;
 - who verifies the presentation;
+- the verifier's single-use challenge and the fresh claim-scoped key;
 - what financial or physical delivery data is subsequently required; and
 - what public metadata the claim or payout may reveal.
 
 The app constructs a derived presentation locally where the proof profile
 supports it. It never uploads the complete identity vault or unrelated
-credentials as a convenience. The user previews the predicate, campaign,
-campaign revision, epoch, public inputs, nullifier scope, and delivery
-disclosure before authorization. A newer campaign revision requires a new
-presentation and a fresh decision; it cannot reinterpret the existing proof.
+credentials as a convenience. It generates a fresh claim-scoped key and binds
+that key, the intended verifier, and a single-use verifier challenge into the
+proof's public inputs. The user previews the predicate, campaign, campaign
+revision, verifier, epoch, public inputs, nullifier scope, and delivery
+disclosure before authorization. A newer campaign revision or expired
+challenge requires a new presentation and a fresh decision; it cannot
+reinterpret the existing proof.
+
+The same claim-scoped key authorizes the canonical `AidClaim`. A remote
+preflight may validate the proof, but it does not reserve or consume the
+nullifier. Submission verifies the presentation and claimant authorization,
+consumes the nullifier, and records the claim atomically. A copied presentation
+cannot be redirected to a different claimant or delivery binding.
 
 The beneficiary UI does not expose public search, leaderboards, shareable
 claim links, or notification text containing aid status. Failed proof details
@@ -554,6 +564,7 @@ guaranteeing funds raised.
 | malicious rich report | digest verification, type/size limits, sandboxed rendering |
 | global beneficiary correlation | campaign/epoch-scoped nullifiers and scoped identity capabilities |
 | public compliance refusal leak | keep reason private; public outcome is minimal typed state |
+| copied or front-run eligibility presentation | bind audience, single-use challenge, and fresh claimant key into the proof; consume the nullifier only with the atomically authorized claim |
 | misleading transparency | label fund flow, allocation, expenditure, and impact separately |
 | compromised read provider | verify profile-defined canonical evidence or compare independent reads |
 | adapter requests seed | hard fail; adapters receive scoped operations only |
@@ -577,6 +588,8 @@ Onym maps every abstract error code into a stable user action:
 | `PAYMENT_REQUIRED` | Show the provider's signed service offer separately from the donation or aid value and ask whether to accept it. |
 | `COMPLIANCE_REQUIRED` | Name the requesting provider and preview its private compliance handoff before continuing. |
 | `PROOF_INVALID` | Keep proof diagnostics private and offer the authenticated issuer or operator support route. |
+| `CHALLENGE_EXPIRED` | Fetch a fresh verifier challenge, rebuild the presentation locally, and explain that no entitlement was consumed. |
+| `CLAIMANT_BINDING_INVALID` | Reject the claim without consuming the nullifier and rebuild it with the claim-scoped key proven by the presentation. |
 | `NULLIFIER_USED` | Show that the entitlement was already claimed in this campaign/epoch without exposing a public person identifier. |
 | `SUBMISSION_UNKNOWN` | Keep one pending operation and reconcile its stable identifier; do not suggest an immediate duplicate submission. |
 | `FINALITY_PENDING` | Explain the selected provider's finality rule without declaring success. |
@@ -650,21 +663,24 @@ An Onym Messenger implementation of this profile must test:
 6. uncertain submission reconciles without creating a second intent;
 7. pending, final, refunded, reversed, and failed receipts survive restart,
    and every final receipt matches the locally authorized `intentDigest`;
-8. eligibility proofs bind campaign revision, policy, epoch, public inputs,
-   and scoped nullifier;
-9. aid claims bind the exact presentation, campaign revision, entitlement,
+8. eligibility proofs bind campaign revision, policy, audience, single-use
+   challenge, fresh claimant key, epoch, public inputs, and scoped nullifier;
+9. copied presentations and mismatched claimant keys fail without consuming a
+   nullifier, while a valid `claim-aid` atomically consumes it and records the
+   claim;
+10. aid claims bind the exact presentation, campaign revision, entitlement,
    expiry, and private delivery binding, while public receipts omit recipient
    details;
-10. public events, deep links, notifications, logs, and reports pass negative
+11. public events, deep links, notifications, logs, and reports pass negative
    PII fixtures;
-11. blobs enforce digest, size, media, decompression, and active-content rules;
-12. inaccessible, expired, revoked, malformed, oversized, replayed, and
+12. blobs enforce digest, size, media, decompression, and active-content rules;
+13. inaccessible, expired, revoked, malformed, oversized, replayed, and
     unknown-critical-field inputs fail safely;
-13. aggregate volume excludes duplicates, pending operations, refunds, and
+14. aggregate volume excludes duplicates, pending operations, refunds, and
     reversals under declared arithmetic;
-14. the same campaign and receipt verify through an independent conforming UI;
+15. the same campaign and receipt verify through an independent conforming UI;
     and
-15. a mock non-Stellar adapter can satisfy the local Charity and financial
+16. a mock non-Stellar adapter can satisfy the local Charity and financial
     ports, proving ledger independence.
 
 ## 17. Acceptance criteria
