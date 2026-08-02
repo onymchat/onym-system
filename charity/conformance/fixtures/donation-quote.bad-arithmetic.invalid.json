@@ -1,6 +1,6 @@
 {
   "quoteVersion": 1,
-  "quoteId": "quote-20260802-002",
+  "quoteId": "quote-20260802-001",
   "campaignId": "campaign-20260802-001",
   "campaignRevision": 1,
   "financialProvider": "onym:key:financial-provider-1",
@@ -9,14 +9,15 @@
   "fees": [
     {
       "kind": "rail",
-      "amount": "2.00",
+      "amount": "1.00",
       "rate": "0.010000",
       "basis": "gross-amount",
       "recipient": "onym:key:financial-provider-1"
     }
   ],
-  "netAmount": "99.00",
+  "netAmount": "98.00",
   "destination": "stellar:public:GDESTINATION",
+  "interfaceChannelId": "onym-messenger",
   "finalityRule": "stellar-finality-v1@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
   "refundRule": "refund-v1@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
   "expiresAt": "2026-08-02T12:05:00Z",

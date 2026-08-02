@@ -82,6 +82,12 @@ A concrete profile may set smaller limits. Referenced descriptions, reports,
 and media larger than these limits cross the Blob boundary; they are never
 embedded to evade an object limit.
 
+The baseline schema records each boundary definition's limit as
+`x-canonicalMaxBytes`. The runner resolves the limit from the selected schema
+name; individual manifest cases do not repeat or override it. The oversized
+quote vector is a deterministic expansion recipe whose generated object remains
+schema-valid but exceeds that schema annotation.
+
 ## Profile refinement
 
 `OpaqueValue` marks fields whose exact shape belongs to a financial, proof,
@@ -91,4 +97,15 @@ replaces every reachable `OpaqueValue`, pins that schema's digest, and supplies
 positive and negative fixtures.
 
 The vectors in [`fixtures/manifest.json`](fixtures/manifest.json) fix canonical
-bytes and digests for the baseline. Run `npm ci && npm test` in this directory.
+bytes and digests for the baseline. The runner decodes UTF-8 in fatal mode and
+uses a strict byte-input parser before schema validation, so duplicate keys,
+lone surrogates, malformed JSON, and non-finite parsed numbers have executable
+negative cases. It derives the omitted proof field from the object itself;
+manifest entries cannot choose an omission or size limit.
+
+The executable set also covers UTF-16 property ordering, non-ASCII strings,
+control-character escaping, nested arrays and objects, exponent-form and
+rounded IEEE-754 numbers, valid/tampered/wrong-key Ed25519 verification, a
+positive object's exact authorization binding, schema-first amount handling,
+minimal fee-arithmetic corruption, oversized objects, and conflicting reuse of
+a stable intent ID. Run `npm ci && npm test` in this directory.

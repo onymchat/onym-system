@@ -1,0 +1,7 @@
+{
+  "name": "donation-intent-authorization-tampered",
+  "suite": "onym:charity-signature:ed25519-v1",
+  "publicKey": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+  "messageDigest": "sha256:37a2b2675715fc6a01f3c1576dadfaf8c8d345bc38a9d89fa28633a16e0de8ad",
+  "signature": "ed25519:330516d07f79798955130d030f7ff7a5dcd95ae1e216bc8c15dadeea6e8f9da6efeb3a310957be4dac2986e4aba2d76a5d9ee1571f931a0eb48d0264f5f18a0b"
+}

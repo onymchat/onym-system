@@ -44,9 +44,7 @@
     },
     "Signature": {
       "type": "string",
-      "pattern": "^[A-Za-z0-9._:-]+$",
-      "minLength": 16,
-      "maxLength": 1024
+      "pattern": "^ed25519:[0-9a-f]{128}$"
     },
     "Fee": {
       "type": "object",
@@ -71,6 +69,7 @@
       }
     },
     "CharityProfile": {
+      "x-canonicalMaxBytes": 65536,
       "type": "object",
       "additionalProperties": false,
       "required": ["profileVersion", "profileId", "interface", "operations", "schemas", "trustSemantics", "privacyProfile", "metricProfile", "errorSchema", "specification", "signature"],
@@ -94,6 +93,7 @@
       }
     },
     "CharityDeployment": {
+      "x-canonicalMaxBytes": 65536,
       "type": "object",
       "additionalProperties": false,
       "required": ["deploymentVersion", "deploymentId", "charityProfileId", "operator", "organizationCredentialPolicy", "campaignRegistry", "financialBindings", "notaryBindings", "eligibilityBindings", "auditBindings", "privacyProfile", "incidentContact", "validFrom", "validUntil", "signature"],
@@ -116,6 +116,7 @@
       }
     },
     "TrustPolicy": {
+      "x-canonicalMaxBytes": 65536,
       "type": "object",
       "additionalProperties": false,
       "required": ["trustPolicyVersion", "trustPolicyId", "acceptedCredentialTypes", "acceptedIssuers", "minimumAssurance", "jurisdictions", "maximumCredentialAge", "revocationFreshness", "combinationRule", "policyDocument", "signature"],
@@ -134,6 +135,7 @@
       }
     },
     "OrganizationCredential": {
+      "x-canonicalMaxBytes": 65536,
       "type": "object",
       "additionalProperties": false,
       "required": ["credentialVersion", "credentialId", "credentialType", "issuer", "subject", "claims", "policyId", "issuedAt", "expiresAt", "status", "signature"],
@@ -161,6 +163,7 @@
       }
     },
     "CharityCampaign": {
+      "x-canonicalMaxBytes": 65536,
       "type": "object",
       "additionalProperties": false,
       "required": ["campaignVersion", "campaignId", "charityDeploymentId", "operator", "organization", "organizationCredential", "title", "purpose", "jurisdictions", "startsAt", "endsAt", "acceptedAssets", "financialDestinations", "allocationPolicy", "refundPolicy", "reportingPolicy", "beneficiaryPrivacy", "revision", "status", "signature"],
@@ -188,6 +191,7 @@
       }
     },
     "DonationQuote": {
+      "x-canonicalMaxBytes": 65536,
       "type": "object",
       "additionalProperties": false,
       "required": ["quoteVersion", "quoteId", "campaignId", "campaignRevision", "financialProvider", "asset", "grossAmount", "fees", "netAmount", "destination", "finalityRule", "refundRule", "expiresAt", "signature"],
@@ -210,6 +214,7 @@
       }
     },
     "DonationIntent": {
+      "x-canonicalMaxBytes": 65536,
       "type": "object",
       "additionalProperties": false,
       "required": ["intentVersion", "intentId", "quoteId", "campaignId", "campaignRevision", "organizationCredentialDigest", "grossAmount", "asset", "destination", "donorDisclosure", "expiresAt", "authorization"],
@@ -230,6 +235,7 @@
       }
     },
     "DonationReceipt": {
+      "x-canonicalMaxBytes": 65536,
       "type": "object",
       "additionalProperties": false,
       "required": ["receiptVersion", "receiptId", "intentId", "intentDigest", "quoteId", "campaignId", "campaignRevision", "organization", "organizationCredentialDigest", "asset", "grossAmount", "fees", "netAmount", "status", "finalizedAt", "financialEvidence", "signature"],
@@ -257,6 +263,7 @@
       }
     },
     "EligibilityPresentation": {
+      "x-canonicalMaxBytes": 1048576,
       "type": "object",
       "additionalProperties": false,
       "required": ["presentationVersion", "campaignId", "campaignRevision", "policyId", "epoch", "publicInputs", "nullifier", "proof", "expiresAt"],
@@ -287,6 +294,7 @@
       }
     },
     "AidClaim": {
+      "x-canonicalMaxBytes": 1048576,
       "type": "object",
       "additionalProperties": false,
       "required": ["claimVersion", "claimId", "campaignId", "campaignRevision", "eligibilityPolicyId", "presentationDigest", "nullifier", "entitlement", "deliveryBinding", "expiresAt", "authorization"],
@@ -305,6 +313,7 @@
       }
     },
     "AidDisbursementReceipt": {
+      "x-canonicalMaxBytes": 1048576,
       "type": "object",
       "additionalProperties": false,
       "required": ["disbursementReceiptVersion", "receiptId", "claimId", "claimDigest", "campaignId", "campaignRevision", "eligibilityPolicyId", "presentationDigest", "publicClaimReference", "entitlement", "fees", "deliveryBindingDigest", "status", "finalizedAt", "deliveryEvidence", "issuer", "signature"],
@@ -330,6 +339,7 @@
       }
     },
     "AggregateFundFlowReport": {
+      "x-canonicalMaxBytes": 262144,
       "type": "object",
       "additionalProperties": false,
       "required": ["reportVersion", "reportId", "campaignId", "period", "measurement", "asset", "finalizedGross", "finalizedNet", "refundsAndReversals", "eligibleDonationVolume", "sourceCommitment", "evidence", "issuer", "signature"],

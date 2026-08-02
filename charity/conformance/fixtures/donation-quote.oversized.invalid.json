@@ -1,0 +1,12 @@
+{
+  "baseFile": "donation-quote.valid.json",
+  "repeatField": "fees",
+  "repeatCount": 600,
+  "item": {
+    "kind": "rail",
+    "amount": "0.01",
+    "rate": "0.000100",
+    "basis": "gross-amount",
+    "recipient": "onym:key:financial-provider-1"
+  }
+}

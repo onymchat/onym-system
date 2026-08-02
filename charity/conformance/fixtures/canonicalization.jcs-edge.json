@@ -1,0 +1,10 @@
+{
+  "é": {
+    "nested": [3, {"snowman": "☃"}, 1e-7]
+  },
+  "\r": "line\nquote\"backslash\\control\u000f",
+  "€": 1e+30,
+  "😀": [true, null],
+  "number": 333333333.33333329,
+  "a": "ASCII"
+}

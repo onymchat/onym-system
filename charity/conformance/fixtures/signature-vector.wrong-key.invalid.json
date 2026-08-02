@@ -1,0 +1,7 @@
+{
+  "name": "donation-intent-authorization-wrong-key",
+  "suite": "onym:charity-signature:ed25519-v1",
+  "publicKey": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+  "messageDigest": "sha256:37a2b2675715fc6a01f3c1576dadfaf8c8d345bc38a9d89fa28633a16e0de8ad",
+  "signature": "ed25519:330516d07f79798955130d030f7ff7a5dcd95ae1e216bc8c15dadeea6e8f9da6efeb3a310957be4dac2986e4aba2d76a5d9ee1571f931a0eb48d0264f5f18a0a"
+}

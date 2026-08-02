@@ -33,4 +33,4 @@ jobs:
           cache-dependency-path: charity/conformance/package-lock.json
       - run: npm ci
       - run: npm test
-      - run: npm audit
+      - run: npm audit --audit-level=high
