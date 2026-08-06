@@ -225,6 +225,17 @@ lawfully anonymized. This state is neither a publisher account required for
 protocol use nor a behavioral record, and it cannot gate direct or free seat
 access.
 
+If the publisher designates a moderation authority
+([../moderation/Moderation.md](../moderation/Moderation.md)), it may
+additionally hold **sanction state**: mandate enrollments, the signed
+verdicts it executed, the device-mark write log, and platform device marks
+(which by design survive uninstall). Like billing state, this is disclosed
+at consent, bounded by the moderation contract's own retention and expiry
+rules, and is neither an account required for protocol use nor a behavioral
+record — it records adjudicated cases, not usage. It never gates direct
+protocol use, and outside an executed verdict's terms it grants the
+publisher no authority.
+
 What the interface cannot hide: the platform it runs on may observe app
 usage, notifications, and network timing. A conforming interface documents
 this honestly instead of promising privacy it cannot deliver.
@@ -255,6 +266,10 @@ its competitors cannot have for free.
    support state described in §8 may remain until its disclosed retention
    period expires; the interface exposes cancellation and any available
    deletion request, and states what must be retained and until when.
+   Sanction state described in §8 — including platform device marks —
+   deliberately survives uninstall for exactly the terms the executed
+   verdicts declare; it clears by expiry, reversal, and the moderation
+   contract's defaults, not by reinstalling.
 4. A discontinued interface strands nothing: the publisher's disappearance
    removes support, not access.
 

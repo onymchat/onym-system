@@ -123,6 +123,30 @@ tokens are ephemeral and cannot serve as identifiers; the binding is a
 vendor-local record, which keeps the abstract contract's promise that
 no global device identifier is created.
 
+Because tokens are unlinkable, the profile is explicit about what needs
+linkage and what does not:
+
+- **Reading is stateless.** The bits are the sole state the refusal
+  decision consults: any fresh token can be queried, and a set `bit1`
+  refuses service regardless of whether the backend can resolve the
+  enrollment. This is what survives reinstall.
+- **Writing and reconciliation are session-mediated.** Every gate check
+  runs inside a session authenticated by an identity key (mandate
+  signing, launch, notice delivery). The (identity signature, device
+  token) pair presented together in one session is the only
+  token-to-enrollment linkage, and it is refreshed at every session —
+  including the first session after a reinstall, when the user restores
+  a mandated identity. The backend never links a token to an enrollment
+  any other way.
+- **Unresolvable state routes to re-identification.** A device whose
+  bits are set but whose session identity resolves to no active verdict
+  (fresh identity after a wipe, or a new device holder) is shown the
+  re-identification path: the ban UX displays the governing verdict
+  when the session resolves one, and otherwise the authority's
+  new-holder/re-identification procedure, whose outcome is a reversal
+  verdict (clearing the bits) or a confirmation that names the holder's
+  session identity and restores linkage.
+
 Profile requirement — offline and gate-evasion window: the gate check
 runs at launch and at least once per declared interval (default `P1D`)
 while the app runs. A device that cannot reach the backend operates on
@@ -140,10 +164,14 @@ On receiving a verdict from the designated authority, the backend:
    countersigned, class within mandate, marks consistent with
    disposition, `banExpires` present unless the consented class term is
    `permanent`;
-2. resolves `deviceBinding` to the enrollment; if the device has not
-   presented a token recently, the write is queued and executes on the
-   next token presentation (`mark_write_failed` semantics: retry, with
-   identity refusal already in force at the backend);
+2. resolves `deviceBinding` to the enrollment; if the device has no
+   live session, the write is queued and executes in the next session
+   that presents a token together with an identity the enrollment's
+   mandate names (`mark_write_failed` semantics: retry, with the
+   identity refusal already in force at the backend). The `case-open`
+   write has a natural execution point: notice service (Moderation.md
+   §5.5) requires a connected session of the accused, and the write
+   executes in that session;
 3. calls `update_two_bits` with the target bit state; and
 4. schedules the clearing action the verdict itself authorizes:
    `banExpires` → clear `bit1`; decision deadline with no verdict →
@@ -153,10 +181,15 @@ Clearing on expiry or deadline default requires a live device token,
 which the banned app cannot always supply (the user may have deleted
 it). Profile requirement: the backend clears bits **lazily** — the next
 time any app install on that device presents a token, the backend
-reconciles stored verdict state (expiry passed, reversal recorded,
-deadline default) before answering the gate check. A device that never
-returns keeps stale bits in Apple's storage, but no conforming gate
-ever acts on them without reconciliation, so the stale state is inert.
+reconciles verdict state before answering the gate check. Resolution is
+session-mediated (§5): when the session's identity resolves the
+enrollment, the backend applies expiry, reversal, and deadline defaults
+directly; when it resolves nothing, the holder is routed to the
+re-identification procedure, which terminates in a reversal (bits
+cleared) or a confirmation (linkage restored, after which expiry runs
+normally). A device that never returns keeps stale bits in Apple's
+storage, but no conforming gate ever acts on them without
+reconciliation, so the stale state is inert.
 
 ## 7. Error mapping
 
@@ -196,7 +229,16 @@ ever acts on them without reconciliation, so the stale state is inert.
 5. **Simulator and enterprise-signed builds** have no DeviceCheck
    support; conforming builds must fail toward gate-check-required, not
    toward unmoderated operation.
-6. **No Onym implementation exists yet.** No current Onym repository
+6. **A queued ban write can be outrun.** A ban verdict against a device
+   with no live session executes only when a mandated identity next
+   authenticates from it (§6). A user who wipes the app before the
+   write lands and never again presents a mandated identity from that
+   device keeps its bits clean; the identity refusal at the backend
+   still holds for the named keys, so what escapes is the device mark,
+   not access under the banned identity. This is the honest cost of
+   unlinkable tokens, and manifests must not claim device marking is
+   unconditional.
+7. **No Onym implementation exists yet.** No current Onym repository
    implements any part of this profile; everything above is profile
    requirement, none of it is implemented behavior.
 
@@ -206,9 +248,11 @@ Fixtures must cover: JWT construction and key rotation against Apple's
 development endpoint; query/update round-trip including the
 "bit state not found" clean state; verdict-to-bit execution for every
 disposition; lazy reconciliation (expiry passed while device absent,
-deadline default, reversal); queued writes on token absence; grace-
-window and gate-check-required degradation; and new-holder fast-track
-progression.
+deadline default, reversal); queued writes on token absence and their
+execution at the next mandated-identity session; identity-mediated
+re-linking after reinstall; routing of a bit-set device with an
+unresolvable session identity to re-identification; grace-window and
+gate-check-required degradation; and new-holder fast-track progression.
 
 ## 10. Acceptance criteria
 
@@ -218,7 +262,11 @@ This profile is successfully implemented when:
    the app refusing service with the full ban UX, using only the
    vendor's DeviceCheck credentials;
 2. deleting and reinstalling the app on the banned device restores the
-   refusal without any backend account state for the user;
+   refusal from the bits alone — the refusal decision consults no
+   backend account state, though the vendor's verdict and enrollment
+   records (sanction state under the interface contract's disclosed
+   carve-out) exist and are consulted for reconciliation and appeal
+   routing;
 3. expiry, reversal, and deadline defaults clear marks with no action
    by the authority or the user beyond the passage of time and one
    token presentation;

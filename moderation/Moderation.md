@@ -109,8 +109,8 @@ A conforming moderation authority can:
    reporter's authority-local track record;
 4. open a case, serve notice to the accused through the interface, and
    hold the response window its manifest declares;
-5. issue a signed, reasoned `Verdict` — dismissal, case closure, or ban —
-   within the decision deadline;
+5. issue a signed, reasoned `Verdict` — case opening (interim), dismissal,
+   or ban — within the decision deadline;
 6. conduct the declared appeal path, including reversal verdicts; and
 7. answer status queries about its own cases within its confidentiality
    rules, and publish the anonymized statistics its manifest promises.
@@ -260,6 +260,7 @@ onboarding (before any case)
       "decisionDeadline": "P7D",
       "banTerm": "permanent",
       "appealWindow": "P30D",
+      "appealEffect": "non-suspensive",
       "lawfulReporting": "<hash-or-url: statutory reporting the authority performs>"
     },
     {
@@ -268,7 +269,8 @@ onboarding (before any case)
       "responseWindow": "P7D",
       "decisionDeadline": "P14D",
       "banTerm": "P365D",
-      "appealWindow": "P30D"
+      "appealWindow": "P30D",
+      "appealEffect": "non-suspensive"
     },
     {
       "classId": "unsolicited-pornography",
@@ -276,7 +278,8 @@ onboarding (before any case)
       "responseWindow": "P7D",
       "decisionDeadline": "P14D",
       "banTerm": "P90D",
-      "appealWindow": "P30D"
+      "appealWindow": "P30D",
+      "appealEffect": "suspensive"
     }
   ],
   "evidenceRules": "<hash-or-url: disclosure and authenticity requirements>",
@@ -293,9 +296,13 @@ onboarding (before any case)
 
 Normative constraints:
 
-1. every class declares all five time terms — response window, decision
-   deadline, ban term, appeal window, and (via `appellate`) where appeal
-   goes; a class missing any of them is invalid at mandate validation;
+1. every class declares five terms — response window, decision deadline,
+   ban term, appeal window, and appeal effect (`suspensive`: the ban does
+   not execute until the appeal window passes unused or the appeal
+   concludes; `non-suspensive`: the ban executes at once and appeal can
+   only reverse it); a class missing any of them is invalid at mandate
+   validation. Where appeals are heard is the manifest-level `appellate`
+   declaration, shared by all classes;
 2. `banTerm` is `permanent` or a declared duration; permanent terms are
    only valid on classes whose definition the manifest justifies as
    warranting them, and every permanent ban remains appealable and
@@ -334,8 +341,14 @@ Normative constraints:
    names; manifest changes bind new mandates, never existing ones;
 3. `deviceBinding` is a platform-scoped reference (the profile defines
    it); it lets a verdict name the device without creating a global
-   device identifier; and
-4. withdrawal is leaving the interface. Withdrawal ends exposure to new
+   device identifier;
+4. a mandate binds one identity–device pair: a user running the
+   interface on several devices signs one mandate per device, and a
+   case names the mandate(s) whose devices the evidence concerns —
+   device marks reach only the devices so named, while the identity
+   refusal in a ban verdict covers the named keys on every surface of
+   the consenting interface for the ban's duration; and
+5. withdrawal is leaving the interface. Withdrawal ends exposure to new
    cases; it does not clear marks already set by valid verdicts —
    otherwise every ban would be voidable by re-onboarding.
 
@@ -402,7 +415,7 @@ statements and counter-evidence (for example, proof of context that
 changes the disclosed item's meaning). A missing response does not
 concede the case; it proceeds to decision on the record — no-show is a
 weakness, not a confession. On case opening, the authority issues an
-interim verdict setting the **case-open mark**; it is procedural state,
+interim `open-case` verdict (§5.6) setting the **case-open mark**; it is procedural state,
 not a sanction, and the interface must not degrade service on it beyond
 displaying the case's existence to the device holder.
 
@@ -417,7 +430,7 @@ displaying the case's existence to the device holder.
   "accusedKeys": ["onym:key:<accused-identity>"],
   "deviceBinding": "<platform-scoped-device-reference>",
   "classId": "unsolicited-pornography",
-  "disposition": "dismiss | ban",
+  "disposition": "open-case | dismiss | ban",
   "marks": {"case-open": false, "banned": true},
   "banExpires": "2026-11-06T00:00:00Z",
   "reasoning": "<content-address: findings against the consented class definition>",
@@ -439,11 +452,17 @@ Normative constraints:
    `permanent`; the interface clears the banned mark at expiry on the
    verdict's own authority, no further object needed;
 4. `final` is false until the appeal deadline passes or the declared
-   appeal concludes; a reversal on appeal is a new verdict that clears
-   marks; and
+   appeal concludes; whether a non-final ban executes meanwhile follows
+   the class's consented `appealEffect`; a reversal on appeal is a new
+   verdict that clears marks;
 5. dismissals clear the case-open mark and are reported to the reporter
    (adjusting their track record) without disclosing the accused's
-   response beyond the outcome.
+   response beyond the outcome; and
+6. an `open-case` verdict is the interim object issued at case opening:
+   its only permitted effect is `marks: {"case-open": true}`, it carries
+   no `banExpires` and no `appealDeadline` (the response window is the
+   accused's remedy), it is never `final`, and it is superseded by the
+   case's terminal verdict or by the decision-deadline default.
 
 ### 5.7 Device marks and enforcement binding
 
@@ -452,7 +471,7 @@ vendor's platform credentials:
 
 | Mark | Meaning | Set by | Cleared by |
 |---|---|---|---|
-| `case-open` | A moderation case exists against this device | Valid interim verdict at case opening | Dismissal, ban verdict (superseded), or decision-deadline default |
+| `case-open` | A moderation case exists against this device | Valid interim `open-case` verdict (§5.6) | Dismissal, ban verdict (superseded), or decision-deadline default |
 | `banned` | A final ban verdict is in force | Valid ban verdict | Verdict expiry, reversal on appeal, or new-holder appeal verdict |
 
 The interface executes verdicts mechanically:
@@ -466,8 +485,10 @@ The interface executes verdicts mechanically:
   verdict reference, the authority's contact, and the appeal path
   (including the new-holder path) — a silent brick is nonconforming;
 - the named identity keys are refused within this interface's surfaces
-  for the ban's duration; the interface does not propagate the refusal
-  to couriers, notaries, or any other seat; and
+  for the ban's duration — on every device, not only the marked ones —
+  while device marks reach only the devices the verdict names; the
+  interface does not propagate the refusal to couriers, notaries, or
+  any other seat; and
 - the authority may publish its verdicts (anonymized per its
   confidentiality policy); other interfaces and seats MAY consult them
   but are bound only by verdicts under mandates their own users signed.
@@ -642,7 +663,7 @@ against suspected reporters.
 | `decision_overdue` | Authority | Dismissal; interface clears case-open mark |
 | `verdict_invalid` | Interface validation | Not executed; bad shape, signature, or bounds |
 | `mark_write_failed` | Platform | Retry; verdict remains valid; identity refusal applies meanwhile |
-| `appeal_filed` | Within window | Ban executes or suspends per manifest's declared appeal effect |
+| `appeal_filed` | Within window | Ban executes or suspends per the class's consented `appealEffect` |
 | `new_holder_claim` | Device transfer | New-holder appeal per manifest; expedited review |
 | `authority_key_compromise` | Authority report | Interfaces suspend designation; marks set after compromise time cleared |
 
@@ -722,7 +743,9 @@ silent authority forever, and no path in which silence bans anyone.
   (valid proof, forged proof, proofless complaint); notice and window
   arithmetic including timezone-hostile boundaries; verdict shape
   validation at interfaces (no mandate, class outside mandate, missing
-  expiry, marks inconsistent with disposition); decision-deadline
+  expiry, marks inconsistent with disposition, open-case verdicts
+  carrying sanction effects); suspensive versus non-suspensive appeal
+  execution; decision-deadline
   default execution; expiry clearing; reversal clearing; and
   new-holder appeal progression.
 - An authority, an interface, and reporter/accused clients from three
@@ -779,8 +802,9 @@ The moderation seat is successfully specified when:
 
 ## References
 
-1. Onym system whitepaper, §1 (minimum authority), §7 (interface seat),
-   §17 (economics): [../WHITEPAPER.md](../WHITEPAPER.md)
+1. Onym system whitepaper, §1 and §3 (the governing minimum-authority
+   rule and the design principles), §7 (interface seat), §17
+   (economics): [../WHITEPAPER.md](../WHITEPAPER.md)
 2. Onym interface contract (consent surfaces, disclosed economics):
    [../interface/Interface.md](../interface/Interface.md)
 3. Onym arbitration boundary (consent-ex-ante, default dispositions):

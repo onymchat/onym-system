@@ -117,6 +117,16 @@ The backend binds the enrollment to the mandate's `deviceBinding`
 identifier at first verified token; integrity tokens are not stable
 identifiers, and the binding stays a vendor-local record.
 
+The linkage model of the DeviceCheck profile §5 applies verbatim:
+**reading is stateless** (recall values are the sole state the refusal
+consults, which is what survives reinstall), **writing and
+reconciliation are session-mediated** (the identity-signature/token
+pair presented in one session is the only token-to-enrollment linkage,
+refreshed every session and restored when a mandated identity returns
+after a reinstall), and a value-set device whose session identity
+resolves no active verdict routes to the authority's
+re-identification/new-holder procedure.
+
 Reconciliation is lazy, exactly as in the DeviceCheck profile §6: the
 backend reconciles stored verdict state (expiry, reversal, deadline
 default) against recall values whenever a token is presented, and
@@ -130,9 +140,13 @@ gate-check-required degradation also apply unchanged.
 Identical to the DeviceCheck profile §6 with one platform difference:
 `deviceRecall.write` requires a **fresh integrity token from the target
 device**. A write against an absent device therefore always queues and
-executes on the device's next token presentation. The identity refusal
-named in the verdict applies at the backend immediately, so the queue
-delay confers no access.
+executes in the device's next session that presents a token together
+with an identity the enrollment's mandate names; the `case-open` write
+executes in the notice-service session. The identity refusal named in
+the verdict applies at the backend immediately, so the queue delay
+confers no access — and, as on iOS, a queued device-mark write can be
+outrun by wiping the app before it lands (DeviceCheck profile §8),
+which manifests must not conceal.
 
 ## 7. Error mapping
 
@@ -182,7 +196,10 @@ delay confers no access.
 Fixtures must cover: token verdict validation with and without recall
 values; write authorization and quota backoff; verdict-to-value
 execution for every disposition; queued writes against an absent
-device; lazy reconciliation (expiry, reversal, deadline default);
+device and their execution at the next mandated-identity session;
+identity-mediated re-linking after reinstall; routing of a value-set
+device with an unresolvable session identity to re-identification;
+lazy reconciliation (expiry, reversal, deadline default);
 `bitThird` remaining untouched through every path; grace-window and
 gate-check-required degradation including the no-Play-services case;
 and new-holder progression.
@@ -195,8 +212,11 @@ This profile is successfully implemented when:
    and the app refusing service with the full ban UX, using only the
    vendor's own Cloud project credentials;
 2. reinstalling the app (or clearing its data) on the banned device
-   restores the refusal without any backend account state for the
-   user;
+   restores the refusal from the recall values alone — the refusal
+   decision consults no backend account state, though the vendor's
+   verdict and enrollment records (sanction state under the interface
+   contract's disclosed carve-out) exist and are consulted for
+   reconciliation and appeal routing;
 3. expiry, reversal, and deadline defaults clear values with nothing
    beyond the passage of time and one token presentation;
 4. no code path outside verdict execution and reconciliation can reach
