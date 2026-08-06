@@ -526,6 +526,14 @@ The interface seat's own obligations — honest presentation, bounded
 authority, protected consent surfaces, disclosed economics, and permanent
 exit — are specified in [interface/Interface.md](interface/Interface.md).
 
+Distribution channels additionally require user-generated-content
+applications to support abuse reporting, blocking, and abuser removal. The
+proposed contract boundary supplying that capability without an in-house
+enforcement desk — consent-bound, competing moderation authorities whose
+signed, expiring, appealable verdicts the interface executes as platform
+device marks — is specified in
+[moderation/Moderation.md](moderation/Moderation.md).
+
 A malicious UI can steal secrets or lie about transaction intent. Open source,
 reproducible builds, signed releases, independent distributions, hardware-backed
 key isolation, and conformance tests reduce this risk but do not eliminate it.
@@ -1539,6 +1547,11 @@ Their implementations remain proposed.
 - Conformance suites for every open seat.
 - An audit-seat contract for signed, expiring, revocable attestations bound
   to exact artifacts ([audit/Audit.md](audit/Audit.md)).
+- A moderation-seat contract for consent-bound abuse adjudication with
+  recipient-disclosed evidence, notice and response windows, reasoned
+  expiring verdicts, and interface-executed device marks
+  ([moderation/Moderation.md](moderation/Moderation.md)), with Apple
+  DeviceCheck and Google Play Integrity device recall profiles.
 - A non-custodial payment capability profile and additional financial-services
   application profiles.
 - Group-state migration between notary deployments.
