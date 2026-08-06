@@ -39,7 +39,7 @@ The document distinguishes:
 | Mark read path | Vendor backend → `query_two_bits` |
 | `deviceBinding` (mandate/verdict field) | An opaque vendor-local identifier for the enrollment; **not** the DeviceCheck token (tokens are ephemeral and unlinkable by design) |
 | Device attestation of "this app on this device" | `DCDevice.generateToken()` on the device, validated by Apple when the backend calls the API |
-| Mark persistence | Bits persist across app reinstallation and device state resets, per Apple's fraud-state design |
+| Mark persistence | Bits persist across app reinstallation as documented platform behavior; persistence across device erase and restore paths is Apple's fraud-state design intent and must be verified and disclosed per deployment (§8) |
 
 ## 2. Ownership mapping
 
@@ -238,7 +238,18 @@ reconciliation, so the stale state is inert.
    not access under the banned identity. This is the honest cost of
    unlinkable tokens, and manifests must not claim device marking is
    unconditional.
-7. **No Onym implementation exists yet.** No current Onym repository
+7. **Reset persistence is asserted, not yet tested.** Apple documents
+   the bits as per-device fraud state; whether they survive every
+   erase and restore path (full device wipe, migration to a
+   replacement device, refurbishment) has not been verified by this
+   project. Conformance testing must exercise these paths and the
+   deployment must disclose the result — the same caveat the Android
+   sibling carries for factory reset
+   ([Moderation-Device-Recall.md](Moderation-Device-Recall.md) §8.1).
+   Until verified, no manifest may present reset survival as
+   unconditional; the abstract contract's evasion-cost rationale
+   (Moderation.md §3.3) is stated with the same qualification.
+8. **No Onym implementation exists yet.** No current Onym repository
    implements any part of this profile; everything above is profile
    requirement, none of it is implemented behavior.
 

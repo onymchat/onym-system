@@ -147,8 +147,11 @@ system's check on moderation power.
 ### 3.3 Identity bans are free to evade; device marks are not
 
 Identity keys cost nothing to mint, so a key-only ban invites instant
-reincarnation. Platform device marks survive app reinstallation and
-device reset, making the cheapest evasion path cost a physical device.
+reincarnation. Platform device marks survive app reinstallation and are
+designed by the platform vendors to survive device resets — a
+persistence claim each implementation profile must verify and disclose
+rather than assume — making the cheapest reliable evasion path cost a
+physical device.
 That is also why the sanction is grave: a device mark punishes hardware
 that may later carry a different, innocent person. The contract answers
 with the tightest bounds in this repository — declared durations,
@@ -305,13 +308,24 @@ Normative constraints:
    declaration, shared by all classes;
 2. `banTerm` is `permanent` or a declared duration; permanent terms are
    only valid on classes whose definition the manifest justifies as
-   warranting them, and every permanent ban remains appealable and
-   subject to the new-holder procedure;
+   warranting them, **and only where the manifest's `appellate` names
+   an authority other than the issuer** — a permanent ban remains
+   appealable at that external appellate for as long as it is in
+   force, not merely within the appeal window, and remains subject to
+   the new-holder procedure, so no permanent sanction depends on its
+   issuer staying alive;
 3. class definitions are content-addressed: a user consents to exact
    wording, and the authority cannot edit the definition under existing
    mandates; and
 4. an authority operated by (or affiliated with) an interface vendor
-   states so in the manifest, or is nonconforming.
+   states so in the manifest, or is nonconforming; and
+5. `validUntil` bounds the authority's power to accept new mandates and
+   open new cases, not to finish live process: cases opened before
+   expiry proceed to their declared deadlines, appeals of in-force bans
+   remain hearable for as long as the ban runs, and an authority whose
+   manifest lapses without renewal or declared succession is defunct —
+   open cases fall to the dismissal default and interfaces may revoke
+   the designation (§5.7).
 
 ### 5.3 Moderation Mandate
 
@@ -389,7 +403,19 @@ Normative constraints:
    lesser classes; and
 4. reporter identity is visible to the authority, never to the accused
    unless the reporter consents; retaliation against inferred reporters
-   is itself a violation class authorities should declare.
+   is itself a violation class authorities should declare; and
+5. jurisdiction follows the accused's mandate and standing follows the
+   reporter's: a conforming authority accepts reports only against
+   accused who mandated it, and only from reporters whose own mandate
+   names it. Abuse arriving from a user of a different interface or
+   authority is outside the reporter's authority's reach — the honest
+   disposition is refusal (`no_jurisdiction`), with the reporter's
+   local remedies (blocking, filtering) remaining interface features
+   outside this seat. An authority MAY, with the reporter's consent,
+   countersign and forward the disclosed evidence to the accused's own
+   authority, which treats it as a report with no local track record:
+   lowest intake weight, identical authenticity verification, never an
+   anonymous accusation.
 
 ### 5.5 Case Notice and Response
 
@@ -432,9 +458,9 @@ displaying the case's existence to the device holder.
   "classId": "unsolicited-pornography",
   "disposition": "open-case | dismiss | ban",
   "marks": {"case-open": false, "banned": true},
-  "banExpires": "2026-11-06T00:00:00Z",
+  "banExpires": "2026-12-16T00:00:00Z",
   "reasoning": "<content-address: findings against the consented class definition>",
-  "appealDeadline": "2026-09-05T00:00:00Z",
+  "appealDeadline": "2026-09-17T00:00:00Z",
   "decidedAt": "2026-08-18T00:00:00Z",
   "signature": "<authority-signature>",
   "final": false
@@ -449,8 +475,19 @@ Normative constraints:
 2. `reasoning` is mandatory — an unexplained ban is nonconforming even
    where confidentiality keeps it private between authority and accused;
 3. `banExpires` is required unless the consented class term is
-   `permanent`; the interface clears the banned mark at expiry on the
-   verdict's own authority, no further object needed;
+   `permanent`, and the served term is always the class's `banTerm`
+   measured from **execution**, never from decision: a
+   `non-suspensive` ban executes at `decidedAt`; a `suspensive` ban
+   executes only when the appeal window lapses unused or the declared
+   appeal concludes upholding it. The verdict's `banExpires` states
+   the unappealed path (`decidedAt + banTerm`, or
+   `appealDeadline + banTerm` for suspensive classes — the example
+   above shows the suspensive case: decided 2026-08-18, appeal window
+   to 2026-09-17, ban served to 2026-12-16); when an actual appeal
+   shifts execution, the interface derives the operative expiry as
+   execution time plus `banTerm` and records it in its write log. The
+   interface clears the banned mark at expiry on the verdict's own
+   authority, no further object needed;
 4. `final` is false until the appeal deadline passes or the declared
    appeal concludes; whether a non-final ban executes meanwhile follows
    the class's consented `appealEffect`; a reversal on appeal is a new
@@ -471,15 +508,18 @@ vendor's platform credentials:
 
 | Mark | Meaning | Set by | Cleared by |
 |---|---|---|---|
-| `case-open` | A moderation case exists against this device | Valid interim `open-case` verdict (§5.6) | Dismissal, ban verdict (superseded), or decision-deadline default |
-| `banned` | A final ban verdict is in force | Valid ban verdict | Verdict expiry, reversal on appeal, or new-holder appeal verdict |
+| `case-open` | A moderation case exists against this device | Valid interim `open-case` verdict (§5.6) | Dismissal, ban verdict (superseded), decision-deadline default, or designation revocation |
+| `banned` | An executed ban verdict is in force | Valid ban verdict, at execution per the class's `appealEffect` and the verdict's finality (§5.6 constraints 3–4) | Verdict expiry, reversal on appeal, new-holder appeal verdict, or designation revocation |
 
 The interface executes verdicts mechanically:
 
 - it validates verdict shape — authority signature, mandate reference to
   a mandate its user actually signed, class within the mandate, marks
-  consistent with disposition, expiry present where required — never the
-  verdict's wisdom;
+  consistent with disposition, expiry present where required, and
+  execution timing permitted by the class's `appealEffect` at this
+  verdict's finality (a non-final ban in a `suspensive` class is valid
+  but not yet executable, and writing its mark early is nonconforming) —
+  never the verdict's wisdom;
 - a device whose `banned` mark is set is refused service by this
   interface: the application declines to operate and displays the
   verdict reference, the authority's contact, and the appeal path
@@ -495,9 +535,17 @@ The interface executes verdicts mechanically:
 
 The authority's key can sign verdicts; it can never write marks. The
 interface can write marks; it can never originate them. A compromised
-authority key is bounded to its consented population and is remedied by
-interfaces revoking the designation and clearing marks set after the
-compromise time the authority reports.
+authority key is bounded to its consented population, and the remedy
+does not depend on the authority's candor. An interface that
+determines, on its own evidence, that the designated authority's key is
+compromised, or that the authority is unreachable or defunct, revokes
+the designation — a public, disclosed act recorded in its write log —
+and **revocation clears every mark that designation set**: open cases
+fall to the dismissal default and in-force bans end early rather than
+survive their issuer's failure, the same absent-authority-is-a-non-event
+rule applied everywhere else. An authority that reports its own
+compromise names the compromise time, and marks set after that time
+clear immediately even where the designation itself survives.
 
 ## 6. Common moderation surface
 
@@ -607,8 +655,10 @@ Conforming moderation authorities must:
 5. decide on the record, against the consented class definition, within
    the deadline, with signed reasoning;
 6. keep case materials under the declared confidentiality terms, retain
-   disclosed content no longer than the case and its appeal require,
-   and never reuse it commercially;
+   disclosed content no longer than the case and its appeal require —
+   except where the declared lawful-reporting path (obligation 7)
+   imposes statutory preservation duties, which govern for exactly the
+   material and period the law names — and never reuse it commercially;
 7. perform the lawful statutory reporting its manifest declares for
    classes such as CSAM, and nothing beyond it;
 8. publish the promised anonymized statistics consistently — not only
@@ -658,6 +708,7 @@ against suspected reporters.
 | `class_outside_mandate` | Verdict validation | Refused; only consented classes bind |
 | `authenticity_unverified` | Evidence intake | Item is complaint, not evidence; cannot alone support a verdict |
 | `reporter_unconsented` | Report intake | Report refused; reporting requires a mandate |
+| `no_jurisdiction` | Report intake | Accused holds no mandate naming this authority; refused, with consented forwarding per §5.4 constraint 5 |
 | `window_closed` | Time | Late response enters record at authority's declared discretion; late filing of appeal is refused |
 | `no_response` | Accused | Decide on record per manifest |
 | `decision_overdue` | Authority | Dismissal; interface clears case-open mark |
@@ -665,7 +716,8 @@ against suspected reporters.
 | `mark_write_failed` | Platform | Retry; verdict remains valid; identity refusal applies meanwhile |
 | `appeal_filed` | Within window | Ban executes or suspends per the class's consented `appealEffect` |
 | `new_holder_claim` | Device transfer | New-holder appeal per manifest; expedited review |
-| `authority_key_compromise` | Authority report | Interfaces suspend designation; marks set after compromise time cleared |
+| `authority_key_compromise` | Authority report or interface determination | Marks set after compromise time cleared; unremedied compromise escalates to revocation |
+| `authority_defunct` | Manifest lapsed, authority unreachable, or designation revoked | New mandates and cases refused; open cases fall to deadline default; revocation clears the designation's marks; permanent bans remain appealable at the external appellate |
 
 Case lifecycle:
 
@@ -695,7 +747,9 @@ silent authority forever, and no path in which silence bans anyone.
 2. **Marks move only on verdicts.** No interface discretion, no
    authority write access, no platform-initiated state; every mark
    transition traces to one signed, validated object or a declared
-   expiry or deadline default.
+   default — expiry, decision deadline, or the mark-clearing revocation
+   of a dead or compromised designation (§5.7). Defaults only ever
+   clear marks; nothing but a verdict sets one.
 3. **Evidence is recipient-disclosed or it is nothing.** No scanning,
    no client-side detection, no key or plaintext demands, no metadata
    dragnets; the E2EE floor of every other seat is the floor of every
@@ -781,8 +835,11 @@ The moderation seat is successfully specified when:
 3. no verdict lacking a mandate, reasoning, duration (or justified
    permanent term), or appeal path executes at any conforming
    interface;
-4. an authority that disappears costs the accused nothing: marks clear
-   on schedule without its participation;
+4. an authority that disappears costs the accused nothing that outlives
+   it: open cases clear on schedule without its participation, expiring
+   bans run to their declared expiry, permanent bans remain appealable
+   at the declared external appellate, and revocation of a dead
+   designation clears its marks;
 5. no conforming object can express scanning obligations, key or
    plaintext demands, per-ban compensation, or reporter bounties;
 6. a banned device holder can see why, until when, and how to appeal —
