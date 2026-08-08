@@ -14,11 +14,12 @@ date: 08.08.2026
 
 This document is a concrete implementation of
 [Moderation.md](Moderation.md) §5.7 (device marks and enforcement
-binding). That contract takes its current v1 wire and lifecycle behavior from
-[onym-moderation PR #2](https://github.com/onymchat/onym-moderation/pull/2).
-This document defines the Apple platform mapping and
-records both the Rust reference behavior and the remaining iOS/deployment
-gaps.
+binding). The abstract contract remains authoritative for mandates, reports,
+cases, verdicts, obligations, and invariants. The merged
+[`onym-moderation` main](https://github.com/onymchat/onym-moderation/tree/9a5f50a80d58e7093f407a0a141c6358691ce74c)
+defines the concrete v1 Rust wire and implemented lifecycle. This document
+defines the Apple platform mapping and records where that implementation falls
+short of the abstract rail.
 
 The document distinguishes:
 
@@ -33,10 +34,10 @@ slice**, not a deployed DeviceCheck enforcement system. It implements the
 domain objects, authenticated consent boundary, backend protocol, device
 token provider, verdict validator, gate state machine, persistence seams,
 and honest development stub described in §9. It does not yet include the
-vendor backend inside the app repository. The separate Rust service in
-onym-moderation PR #2 implements the `.p8`-holding backend, DeviceCheck reads
-and writes, countersigning, verdict receipt, reconciliation, and audit log, but
-is reference code with no production deployment or credentials.
+vendor backend inside the app repository. The merged Rust service implements
+the `.p8`-holding backend, DeviceCheck reads and writes, countersigning, verdict
+receipt, reconciliation, and audit log, but is reference code with no
+production deployment or credentials.
 
 ## 1. Conformance declaration
 
@@ -102,17 +103,17 @@ prevents a sibling app from becoming an undeclared write path.
 
 | Bit | Abstract mark | Set when | Cleared when |
 |---|---|---|---|
-| `bit0` | `case-open` | Backend validates an interim verdict opening a case against this device's enrollment | Later dismissal or ban verdict for that case; the authority's deadline sweep emits a dismissal |
-| `bit1` | `banned` | Backend validates a ban verdict whose `executeAfter` has arrived; a non-suspensive ban may execute before `final` becomes true | `banExpires` passes or a later dismissal/reversal arrives for that case |
+| `bit0` | `case-open` | Backend validates an interim verdict opening a case against this device's enrollment | Dismissal, superseding ban, decision-deadline default, or designation revocation |
+| `bit1` | `banned` | Backend validates a ban verdict whose `executeAfter` has arrived; a non-suspensive ban may execute before `final` becomes true | `banExpires`, reversal/new-holder remedy, or designation revocation where no forum survives |
 
 Profile requirements:
 
 1. bits change **only** inside verdict execution and declared
-   deadline/expiry reconciliation; no
+   deadline/expiry/revocation reconciliation; no
    administrative tool, support desk, sibling-app backend, or store-pressure
    path may touch `update_two_bits` (Moderation.md §8, interface obligation 6);
 2. every `update_two_bits` call is logged against the verdict hash (or
-   the expiry/deadline rule) that authorized it, and the log is
+   the expiry/deadline/revocation rule) that authorized it, and the log is
    auditable by the audit seat — this is the profile's substitute for a
    platform-level proof that the vendor wrote faithfully; and
 3. `last_update_time` (returned by Apple at `YYYY-MM` granularity) is
@@ -282,17 +283,19 @@ On receiving a verdict from the designated authority, the backend:
    §5.5) requires a connected session of the accused, and the write
    executes in that session;
 3. calls `update_two_bits` with the target bit state; and
-4. stores enough state to clear `bit1` after `banExpires` or apply a later
-   dismissal/reversal. A decision deadline is not an Interface timer: the
-   Authority sweep must deliver its signed default dismissal.
+4. stores enough state to reconcile `banExpires`, dismissal/reversal,
+   decision-deadline default, and designation revocation. The merged reference
+   currently implements only expiry plus delivered verdicts; §8 records the
+   missing independent defaults.
 
-Clearing on expiry or a delivered dismissal/reversal requires a live device token,
+Clearing on expiry, a delivered dismissal/reversal, or another declared default requires a live device token,
 which the banned app cannot always supply (the user may have deleted
 it). Profile requirement: the backend clears bits **lazily** — the next
 time any app install on that device presents a token, the backend
 reconciles verdict state before answering the gate check. Resolution is
 session-mediated (§5): when the session's identity resolves the
-enrollment, the backend applies expiry and later dismissal/reversal verdicts
+enrollment, a conforming backend applies expiry, later dismissal/reversal, and
+deadline/revocation defaults
 directly; when it resolves nothing, the reference returns
 `checkRequired(reidentificationRequired)`. No implemented re-identification
 flow turns that state into a reversal or restored linkage. A device that never
@@ -368,8 +371,8 @@ backend performs the same checks before every Apple write.
    unconditional; the abstract contract's evasion-cost rationale
    (Moderation.md §3.3) is stated with the same qualification.
 8. **The backend is reference code, not a production deployment.** The current
-   iOS code stops at `EnforcementBackendClient` and ships an honest stub. PR #2
-   implements the Rust network service, DeviceCheck calls, countersigning,
+   iOS code stops at `EnforcementBackendClient` and ships an honest stub. Merged
+   `onym-moderation` implements the Rust network service, DeviceCheck calls, countersigning,
    lazy reconciliation, and write log, but no deployed Onym service currently
    holds production DeviceCheck credentials. The
    stub's `clear` response to a nil token is a development-only exception;
@@ -378,10 +381,20 @@ backend performs the same checks before every Apple write.
    iOS package implements detached authority-directory and manifest
    verification plus verdict verification, but the relevant enforcement
    switches remain off, and the Rust backend likewise defaults authority
-   verdict-signature enforcement off. PR #2 fixes the current Rust HTTP shapes
+   verdict-signature enforcement off. The merged reference fixes the current Rust HTTP shapes
    and UTF-8-byte-order canonical JSON form, but the Swift authority client has
    no network transport and its report signing must use the same ordering.
    Turning enforcement on requires real keys plus cross-language fixtures.
+10. **Ban recourse is not wired end to end.** The abstract contract requires
+    the gate to display working ordinary-appeal and new-holder paths. The Rust
+    `BanState` has `appealUrl` and `newHolderUrl`, but the merged Apple backend
+    leaves both absent, and the iOS client has no Authority transport. A ban
+    screen without usable recourse remains nonconforming.
+11. **Authority-failure defaults are missing.** The Rust Interface clears
+    `case-open` only after the Authority sweep delivers a dismissal and has no
+    designation-revocation or successor-forum state. Permanent Authority
+    disappearance can therefore strand a procedural mark, contrary to the
+    abstract deadline and revocation requirements.
 
 ## 9. Current Onym iOS implementation
 
@@ -401,25 +414,25 @@ and the gate result in
 | Consent-time constraints | Expiry, supported profile ID, mandatory new-holder procedure, and parsed external appellate for permanent classes |
 | Mandate lifecycle | One identity-device mandate, user signature, signature-only countersigning response, exact manifest snapshot persistence, immutable history on authority switch |
 | Device attestation | `DCDevice.generateToken()` provider seam; nil represents unsupported attestation and is never fabricated into a token |
-| Backend boundary | Typed enrollment, countersignature, and gate-check protocol; the iOS package still uses a development stub, while PR #2 supplies a separate Rust reference backend |
+| Backend boundary | Typed enrollment, countersignature, and gate-check protocol; the iOS package still uses a development stub, while merged `onym-moderation` supplies a separate Rust reference backend |
 | Gate behavior | Launch/interval state machine, persisted last-known result, P3D grace, fail-closed clock rollback, stale-completion guard, and blocking `checkRequired` reasons |
 | Verdict handling | Domain objects and mechanical validator for mandate/manifest bindings, marks, appeal timing, execution timing, and consented ban duration |
 | Authority client boundary | `ModerationAuthorityClient` exposes `fileReport`, `respond` (including additional evidence), `appeal` (ordinary or new-holder), and `queryStatus`; typed request/result objects and an honest throwing stub exist, but no endpoint resolution or network transport does |
 | Authority outbound delivery | `GateCheckResult.caseOpen` carries `CaseNotice` values and `.banned` carries ban/verdict display state from the interface backend; the authority has no client-side mark-write method |
 | Mandate registration | Missing: the client appends and persists the interface countersignature but exposes no path that registers the finalized mandate with the named authority |
-| Authority reference service | [onym-moderation PR #2](https://github.com/onymchat/onym-moderation/pull/2) is the source of truth for current v1 request/response shapes and exposes mandate registration, the four client operations, verdict delivery, and a DeviceCheck backend; it remains unmerged and undeployed |
+| Authority reference service | [Merged `onym-moderation` main](https://github.com/onymchat/onym-moderation/tree/9a5f50a80d58e7093f407a0a141c6358691ce74c) defines the concrete v1 request/response shapes and exposes mandate registration, the four client operations, local-model triage, moderator review, verdict delivery, and a DeviceCheck backend; it remains undeployed |
 | App composition | Package is linked but PR #216 does not wire onboarding, foreground checks, root gating, or ban/case UI; those integrations belong to later stack layers |
-| Authority service and Apple writes | PR #2 implements the Authority, reconciliation, write log, and `update_two_bits` path; no production deployment exists, verdict-signature enforcement defaults off, external appellate routing is absent, and the iOS app does not call mandate registration |
+| Authority service and Apple writes | Merged PRs #2 and #4 implement the Authority, triage/review, reconciliation, write log, and `update_two_bits` path; no production deployment exists, verdict-signature enforcement defaults off, external appellate routing is absent, and the iOS app does not call mandate registration |
 
 The iOS reviewed-manifest path is stricter than the v1 Rust reference: it
 requires a new-holder procedure and parses an external appellate for permanent
-classes. PR #2 treats both manifest fields as optional metadata. Authority
+classes. The merged Rust reference treats both manifest fields as optional metadata. Authority
 startup validates the five per-class terms, while the Apple service validates
 mandate, manifest-hash, class, and verdict bindings; neither rejects a permanent
 class because `appellate` is absent, malformed, or names the issuing authority.
 The Authority records local appeals but does not route them to an external
-component. Because PR #2 is the v1 source of truth, those iOS consent checks are
-additional client policy rather than a cross-interface contract requirement.
+component. Those iOS checks implement the abstract contract; the merged Rust
+services' failure to repeat or route them is a documented conformance gap.
 
 This table is descriptive and deliberately narrower than the profile's
 acceptance criteria. A package or stub passing local tests is not evidence
@@ -431,8 +444,8 @@ real authority follows the abstract procedure.
 Fixtures must cover: JWT construction and key rotation against Apple's
 development endpoint; query/update round-trip including the
 "bit state not found" clean state; verdict-to-bit execution for every
-disposition; lazy reconciliation (expiry passed while device absent and a
-later dismissal/reversal); queued writes on token absence and their
+disposition; lazy reconciliation (expiry passed while device absent, later
+dismissal/reversal, decision default, and revocation); queued writes on token absence and their
 execution at the next mandated-identity session; identity-mediated
 re-linking after reinstall; routing of a bit-set device with an
 unresolvable session identity to re-identification; grace-window and
@@ -453,9 +466,9 @@ This profile is successfully implemented when:
    records (sanction state under the interface contract's disclosed
    carve-out) exist and are consulted for reconciliation and appeal
    routing;
-3. expiry and delivered dismissal/reversal verdicts clear marks after a token
-   presentation; a decision deadline clears only after the Authority sweep
-   emits and delivers its dismissal;
+3. expiry, dismissal/reversal, decision-deadline default, and applicable
+   revocation clear marks without authority or user discretion beyond a token
+   presentation;
 4. no code path outside verdict execution and reconciliation — including a
    sibling app or its backend — can reach `update_two_bits`, and the write log
    accounts for every call; and
