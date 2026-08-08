@@ -358,11 +358,12 @@ must perform the same checks before every Apple write.
    iOS package implements detached authority-directory and manifest
    verification plus verdict verification, but the relevant enforcement
    switches remain off until real authority keys and signatures are
-   published. Mandate, verdict,
-   enrollment, and gate-check signing bytes are deterministic inside the
-   Swift implementation, but the cross-language canonical or wire encoding
-   is not fixed. Turning enforcement on and deploying the backend require
-   published fixtures that freeze these byte forms.
+   published. Mandate, verdict, enrollment, gate-check, report, response,
+   appeal, and status objects exist inside the Swift implementation, but the
+   cross-language canonical or wire encoding and the authority service's
+   endpoint/authentication contract are not fixed. Turning enforcement on or
+   deploying either backend requires published fixtures that freeze these
+   forms.
 
 ## 9. Current Onym iOS implementation
 
@@ -381,8 +382,10 @@ abstract contract to the following client components:
 | Backend boundary | Typed enrollment, countersignature, and gate-check protocol; development stub only, no network client or Apple credentials |
 | Gate behavior | Launch/interval state machine, persisted last-known result, P3D grace, fail-closed clock rollback, stale-completion guard, and blocking `checkRequired` reasons |
 | Verdict handling | Domain objects and mechanical validator for mandate/manifest bindings, marks, appeal timing, execution timing, and consented ban duration |
+| Authority client boundary | `ModerationAuthorityClient` exposes `fileReport`, `respond` (including additional evidence), `appeal` (ordinary or new-holder), and `queryStatus`; typed request/result objects and an honest throwing stub exist, but no endpoint resolution or network transport does |
+| Authority outbound delivery | `GateCheckResult.caseOpen` carries `CaseNotice` values and `.banned` carries ban/verdict display state from the interface backend; the authority has no client-side mark-write method |
 | App composition | Package is linked but PR #216 does not wire onboarding, foreground checks, root gating, or ban/case UI; those integrations belong to later stack layers |
-| Reports, live cases, appeals, and Apple writes | Domain types or requirements only; no production authority transport, case service, appellate service, reconciliation worker, or `update_two_bits` implementation |
+| Authority service and Apple writes | No production authority transport, case service, appellate service, reconciliation worker, or `update_two_bits` implementation |
 
 The Rust reference services in
 [onym-moderation PR #2](https://github.com/onymchat/onym-moderation/pull/2)
