@@ -1,12 +1,12 @@
 ---
 status: draft
 proposed: Claude & @rinat-enikeev
-date: 06.08.2026
+date: 08.08.2026
 ---
 
 # Onym Moderation ↔ Device Mark: Apple DeviceCheck Implementation
 
-**Implementation profile draft 0.1 — August 2026**
+**Implementation profile draft 0.2 — August 2026**
 
 > This profile maps the abstract device-mark rail onto Apple DeviceCheck:
 > two per-device bits scoped to the interface vendor's Apple developer
@@ -26,6 +26,15 @@ The document distinguishes:
   enforcement backend must implement; and
 - **gaps**, where the platform or current code cannot yet meet the
   abstract contract and a declared mitigation applies.
+
+The current Onym iOS implementation is a **client-side conformance
+slice**, not a deployed DeviceCheck enforcement system. It implements the
+domain objects, authenticated consent boundary, backend protocol, device
+token provider, verdict validator, gate state machine, persistence seams,
+and honest development stub described in §9. It does not yet include the
+vendor backend that holds an Apple `.p8` key, reads or writes DeviceCheck
+bits, or issues real countersignatures. Requirements stated for that
+backend remain requirements, not claims about deployed code.
 
 ## 1. Conformance declaration
 
@@ -83,7 +92,7 @@ vendor executes, Apple stores.
 | Bit | Abstract mark | Set when | Cleared when |
 |---|---|---|---|
 | `bit0` | `case-open` | Backend validates an interim verdict opening a case against this device's enrollment | Dismissal verdict, superseding ban verdict, decision-deadline default, or reversal |
-| `bit1` | `banned` | Backend validates a final ban verdict | `banExpires` passes, reversal verdict, or new-holder appeal verdict |
+| `bit1` | `banned` | Backend validates a ban verdict whose `executeAfter` has arrived; a non-suspensive ban may execute before `final` becomes true | `banExpires` passes, reversal verdict, or new-holder appeal verdict |
 
 Profile requirements:
 
@@ -101,21 +110,82 @@ Profile requirements:
 
 ## 5. Enrollment and the gate check
 
-At onboarding (mandate signing) and thereafter at app launch:
+### 5.1 Reviewed terms and enrollment
 
-1. the app calls `DCDevice.generateToken()` and sends the token with
-   its session context to the enforcement backend;
+Consent is one transaction with a pause for human review, not two
+manifest fetches:
+
+1. the client asks its moderation repository for
+   `manifestForReview(listing)`;
+2. inside that repository boundary, the authority-directory key is
+   pinned, the exact manifest bytes and detached signature are fetched,
+   the signature and directory bindings are evaluated, the consent-time
+   conditions are validated, and the hash is computed. A conforming build
+   rejects failed authenticity checks; the current soft-enforcement caveat
+   is recorded in §8.9;
+3. the repository returns an opaque `ReviewedManifest`. Its initializer
+   is not public, so application code can display its decoded manifest and
+   hash but cannot manufacture the value accepted by signing or pair one
+   manifest's decoded fields with another manifest's raw bytes; and
+4. after agreement, `consent(to:reviewedManifest:)` consumes that same
+   value, re-runs the time-sensitive validity conditions, and never
+   refetches. The mandate's classes, `manifestHash`, and persisted manifest
+   bytes therefore come from exactly what the user reviewed.
+
+The device enrollment then proceeds:
+
+1. the app calls `DCDevice.generateToken()` when DeviceCheck is supported;
+   it sends `nil` when attestation is unavailable and never fabricates a
+   token;
+2. it sends an `EnrollmentRequest` containing the optional token,
+   `userKey`, UTC timestamp, and the user's signature over those same
+   transmitted fields;
+3. the backend validates the session signature, freshness, and token,
+   calls `query_two_bits` as required, and returns an opaque vendor-local
+   `deviceBinding`;
+4. the client builds and signs the mandate from its retained reviewed
+   artifact and that binding; and
+5. the backend returns only its detached countersignature. The client
+   appends that signature to its own mandate, so the countersigning
+   round-trip cannot replace authority, classes, hash, user, or binding.
+
+The current iOS session-signing form is provisional until the backend wire
+contract is fixed. Each field is prefixed with a big-endian 32-bit byte
+length. Enrollment uses the domain string
+`onym-moderation-enroll-v1`; gate checks use
+`onym-moderation-gate-v1` and additionally cover `mandateRef`. Both cover
+the user key and UTC ISO-8601 timestamp. The different domains prevent an
+enrollment signature from being replayed as a gate-check signature, and
+including every transmitted signed field lets the backend reconstruct the
+payload it verifies.
+
+### 5.2 Gate checks
+
+At launch, on foreground, on explicit retry, and at least once per the
+declared interval while the app runs:
+
+1. the client sends a `GateCheckRequest` containing a fresh optional
+   device token, user key, active `mandateRef`, timestamp, and session
+   signature;
 2. the backend calls `query_two_bits` (ES256 JWT from the `.p8` key;
-   `device_token`, fresh `transaction_id`, `timestamp`);
-3. `bit1` set → the backend returns the governing verdict reference;
-   the app refuses to operate and displays the verdict, authority
-   contact, expiry, and appeal path — including the new-holder path
-   (a silent brick is nonconforming);
-4. `bit1` clear, `bit0` set → the app operates normally and displays
-   the open case to the device holder (procedural state, no service
-   degradation); and
-5. Apple's "bit state not found" response (bits never set for this
-   device/account pair) is the clean state, not an error.
+   `device_token`, fresh `transaction_id`, `timestamp`) and reconciles the
+   bit state with its verdict records;
+3. `bit1` set → it returns `banned` with the governing verdict reference
+   and full display state; the app refuses to operate and displays the
+   authority contact, expiry, ordinary appeal, and new-holder path (a
+   silent brick is nonconforming);
+4. `bit1` clear, `bit0` set → it returns `caseOpen` with notices; the app
+   operates normally and displays the open case (procedural state, no
+   service degradation);
+5. both bits clear, including Apple's "bit state not found" response → it
+   returns `clear`; and
+6. an invalid or unavailable attestation, unresolved holder, exhausted
+   offline grace, or otherwise untrustworthy answer → it returns or the
+   client derives `checkRequired`, which blocks operation.
+
+No active mandate is not an operational answer: it routes to the consent
+gate. Losing local mandate storage must therefore lead to re-consent and
+an immediate fresh bit check, never past the gate into an unmoderated app.
 
 The backend associates the enrollment with the mandate's
 `deviceBinding` identifier at first token validation. DeviceCheck
@@ -155,15 +225,29 @@ degrades to gate-check-required. The verdict's identity refusal applies
 at the backend regardless, so a banned identity gains nothing from
 keeping the app offline.
 
+The iOS gate repository persists the last successful result and its wall
+clock time. An unreachable backend within grace serves that last result;
+no history, expired grace, or a clock earlier than the last success blocks
+with `neverChecked`, `offlineGraceExpired`, or `clockRollback`
+respectively. Concurrent checks carry a monotonically increasing
+generation so a stale slow `clear` cannot overwrite a newer `banned`
+answer. Its internal interval loop re-anchors to wall-clock deadlines;
+the application composition must still call `checkNow()` on foreground,
+because iOS may suspend the loop.
+
 ## 6. Verdict execution
 
 On receiving a verdict from the designated authority, the backend:
 
 1. validates shape per Moderation.md §5.6 — authority signature against
-   the designation, mandate reference to a mandate this vendor
-   countersigned, class within mandate, marks consistent with
-   disposition, `banExpires` present unless the consented class term is
-   `permanent`;
+   the operator key in the mandate's exact consented manifest; consented
+   manifest hash, authority, mandate reference, accused user,
+   `deviceBinding`, and class bindings; mandatory reasoning; marks and
+   fields consistent with the disposition; `appealDeadline` equal to
+   `decidedAt + appealWindow`; `executeAfter` consistent with the
+   consented appeal effect; and `banExpires` equal to
+   `executeAfter + banTerm` for duration classes or absent for permanent
+   classes;
 2. resolves `deviceBinding` to the enrollment; if the device has no
    live session, the write is queued and executes in the next session
    that presents a token together with an identity the enrollment's
@@ -190,6 +274,13 @@ cleared) or a confirmation (linkage restored, after which expiry runs
 normally). A device that never returns keeps stale bits in Apple's
 storage, but no conforming gate ever acts on them without
 reconciliation, so the stale state is inert.
+
+The iOS package provides this validation as a pure `VerdictValidator`
+returning either `execute` or `storeUntilExecuteAfter`. It compares
+derived timestamps with one second of serialization tolerance. Client
+integration must invoke it before rendering a returned verdict as
+legitimate; the validator is not the mark executor, and the future backend
+must perform the same checks before every Apple write.
 
 ## 7. Error mapping
 
@@ -249,11 +340,49 @@ reconciliation, so the stale state is inert.
    Until verified, no manifest may present reset survival as
    unconditional; the abstract contract's evasion-cost rationale
    (Moderation.md §3.3) is stated with the same qualification.
-8. **No Onym implementation exists yet.** No current Onym repository
-   implements any part of this profile; everything above is profile
-   requirement, none of it is implemented behavior.
+8. **The production backend does not exist yet.** The current iOS code
+   stops at `EnforcementBackendClient` and ships an honest stub. No Onym
+   service currently holds a DeviceCheck `.p8` key, validates these
+   requests over a network transport, reads or writes Apple bits, performs
+   lazy reconciliation, or issues a real interface countersignature. The
+   stub's `clear` response to a nil token is a development-only exception;
+   a real backend must return gate-check-required.
+9. **Cryptographic enforcement and wire encodings are provisional.** The
+   iOS package implements detached authority-directory and manifest
+   verification plus verdict verification, but the relevant enforcement
+   switches remain off until real authority keys and signatures are
+   published. Mandate, verdict,
+   enrollment, and gate-check signing bytes are deterministic inside the
+   Swift implementation, but the cross-language canonical or wire encoding
+   is not fixed. Turning enforcement on and deploying the backend require
+   published fixtures that freeze these byte forms.
 
-## 9. Conformance tests
+## 9. Current Onym iOS implementation
+
+The `OnymModeration` package introduced by
+[onym-ios PR #216](https://github.com/onymchat/onym-ios/pull/216) maps the
+abstract contract to the following client components:
+
+| Contract/profile responsibility | Current iOS status |
+|---|---|
+| Authority designation | `KnownAuthoritiesFetcher` with signed-asset verification for the interface's authority directory |
+| Manifest authenticity | Exact-byte fetch and SHA-256 pin; directory/manifest component and operator-key binding; detached Ed25519 verification path, currently in soft-enforcement mode |
+| Consent transaction | Repository-minted `ReviewedManifest`; the signer accepts the retained artifact and cannot refetch or accept a caller-built `SignedManifest` |
+| Consent-time constraints | Expiry, supported profile ID, mandatory new-holder procedure, and parsed external appellate for permanent classes |
+| Mandate lifecycle | One identity-device mandate, user signature, signature-only countersigning response, exact manifest snapshot persistence, immutable history on authority switch |
+| Device attestation | `DCDevice.generateToken()` provider seam; nil represents unsupported attestation and is never fabricated into a token |
+| Backend boundary | Typed enrollment, countersignature, and gate-check protocol; development stub only, no network client or Apple credentials |
+| Gate behavior | Launch/interval state machine, persisted last-known result, P3D grace, fail-closed clock rollback, stale-completion guard, and blocking `checkRequired` reasons |
+| Verdict handling | Domain objects and mechanical validator for mandate/manifest bindings, marks, appeal timing, execution timing, and consented ban duration |
+| App composition | Package is linked but PR #216 does not wire onboarding, foreground checks, root gating, or ban/case UI; those integrations belong to later stack layers |
+| Reports, live cases, appeals, and Apple writes | Domain types or requirements only; no production authority transport, case service, appellate service, reconciliation worker, or `update_two_bits` implementation |
+
+This table is descriptive and deliberately narrower than the profile's
+acceptance criteria. A package or stub passing local tests is not evidence
+that Apple state is durable, that a backend writes faithfully, or that a
+real authority follows the abstract procedure.
+
+## 10. Conformance tests
 
 Fixtures must cover: JWT construction and key rotation against Apple's
 development endpoint; query/update round-trip including the
@@ -265,7 +394,7 @@ re-linking after reinstall; routing of a bit-set device with an
 unresolvable session identity to re-identification; grace-window and
 gate-check-required degradation; and new-holder fast-track progression.
 
-## 10. Acceptance criteria
+## 11. Acceptance criteria
 
 This profile is successfully implemented when:
 
@@ -296,3 +425,5 @@ This profile is successfully implemented when:
    <https://developer.apple.com/documentation/devicecheck/accessing-and-modifying-per-device-data>
 4. Onym audit seat (write-log attestation):
    [../audit/Audit.md](../audit/Audit.md)
+5. Current Onym iOS client implementation:
+   [onym-ios PR #216](https://github.com/onymchat/onym-ios/pull/216)

@@ -1,12 +1,12 @@
 ---
 status: draft
 proposed: Claude & @rinat-enikeev
-date: 06.08.2026
+date: 08.08.2026
 ---
 
 # Onym Moderation Authority Contract Boundary
 
-**Proposal draft 0.1 — August 2026**
+**Proposal draft 0.2 — August 2026**
 
 > A moderation authority decides published violation classes over users who
 > consented to its mandate before any case existed. Its verdicts are
@@ -30,6 +30,14 @@ requirement and refuses its usual shape — a hidden trust-and-safety desk
 inside the app vendor with unreviewable power. Moderation here is a
 **separately owned, competing, consent-bound seat** whose entire authority
 is enumerated in this contract.
+
+This document is the abstract contract. It defines what must be bound,
+validated, and enforced without choosing a device-attestation vendor or
+client architecture. The implementation profiles in §13 map those
+invariants onto a platform. Where a profile describes current code, that
+description is informative: an incomplete implementation does not weaken
+the normative boundary, and a convenient implementation detail does not
+silently become a cross-platform requirement.
 
 Two scope statements up front:
 
@@ -292,10 +300,21 @@ onboarding (before any case)
   "confidentiality": "<hash-or-url: what is published, what stays private>",
   "statistics": "<hash-or-url: promised anonymized transparency reporting>",
   "offers": ["<fee-offer-ids>"],
-  "validUntil": "2027-06-30T23:59:59Z",
-  "signature": "<authority-signature>"
+  "validUntil": "2027-06-30T23:59:59Z"
 }
 ```
+
+The JSON above is the manifest body, not a self-signing envelope. In the
+current `consent-bound-v1` asset realization, the designating interface
+publishes an authority directory entry containing the authority's `componentId`,
+manifest URL, and pinned Ed25519 operator key. The authority publishes a
+detached signature at `<manifest-url>.sig` over the **exact manifest
+response bytes**. The interface verifies that signature against the
+directory-pinned key, requires the decoded `componentId` and `operator` to
+match the directory entry, and computes `manifestHash` as lowercase
+hexadecimal SHA-256 over those same exact bytes. A future transport may
+carry the signature in another envelope, but it must preserve these
+bindings and define its byte representation before claiming conformance.
 
 Normative constraints:
 
@@ -309,25 +328,35 @@ Normative constraints:
 2. `banTerm` is `permanent` or a declared duration; permanent terms are
    only valid on classes whose definition the manifest justifies as
    warranting them, **and only where the manifest's `appellate` names
-   an authority other than the issuer** (`self` remains valid only for
-   manifests declaring no permanent class) — a permanent ban remains
+   a well-formed, non-empty `onym:component:` reference to an authority
+   other than the issuer** (`self` remains valid only for manifests
+   declaring no permanent class) — a permanent ban remains
    appealable at that external appellate for as long as it is in
    force, not merely within the appeal window, and remains subject to
    the new-holder procedure, so no permanent sanction depends on its
    issuer staying alive (on issuer failure the appellate is
    successor-of-record under §5.7's forum rule);
-3. class definitions are content-addressed: a user consents to exact
+3. `newHolderAppeal` is mandatory: device marks can survive a transfer to
+   a different person, so every manifest must publish the procedure by
+   which that person can obtain review;
+4. class definitions are content-addressed: a user consents to exact
    wording, and the authority cannot edit the definition under existing
    mandates;
-4. an authority operated by (or affiliated with) an interface vendor
-   states so in the manifest, or is nonconforming; and
-5. `validUntil` bounds the authority's power to accept new mandates and
+5. an authority operated by (or affiliated with) an interface vendor
+   states so in the manifest, or is nonconforming;
+6. `validUntil` bounds the authority's power to accept new mandates and
    open new cases, not to finish live process: cases opened before
    expiry proceed to their declared deadlines, appeals of in-force bans
    remain hearable for as long as the ban runs, and an authority whose
    manifest lapses without renewal or declared succession is defunct —
    open cases fall to the dismissal default and interfaces revoke the
-   designation under §5.7's bounded procedure.
+   designation under §5.7's bounded procedure; and
+7. authenticity and consent bind one byte artifact: the manifest fields
+   used to derive mandate classes, the bytes whose hash the mandate pins,
+   the bytes authenticated by the authority, and the bytes retained for
+   later display and verdict validation are the same artifact. Pairing the
+   decoded fields of one manifest with the bytes of another is
+   nonconforming.
 
 ### 5.3 Moderation Mandate
 
@@ -349,22 +378,34 @@ Signed by the user at onboarding, countersigned by the interface:
 
 Normative constraints:
 
-1. the interface presents the manifest's classes, terms, and appeal
-   paths before signing, with the same prominence its own contract
-   requires for economics disclosures
-   ([../interface/Interface.md](../interface/Interface.md) §7);
-2. the mandate binds the user only for the classes and manifest hash it
+1. the interface presents one authenticated manifest snapshot — classes,
+   terms, appeal paths, and its computed hash — before signing, with the
+   same prominence its own contract requires for economics disclosures
+   ([../interface/Interface.md](../interface/Interface.md) §7). The
+   implementation retains that reviewed artifact across the user's
+   decision and passes it to signing; it must not fetch the manifest again
+   when the user agrees. If the authority changes the hosted file during
+   review, the new bytes require a new review;
+2. only the validation boundary that authenticated the manifest may mint
+   the reviewed-consent artifact accepted by the signer. A caller-created
+   pair of decoded fields and raw bytes is not a consent artifact, even if
+   its types look structurally identical;
+3. the mandate binds the user only for the classes and manifest hash it
    names; manifest changes bind new mandates, never existing ones;
-3. `deviceBinding` is a platform-scoped reference (the profile defines
+4. `deviceBinding` is a platform-scoped reference (the profile defines
    it); it lets a verdict name the device without creating a global
    device identifier;
-4. a mandate binds one identity–device pair: a user running the
+5. a mandate binds one identity–device pair: a user running the
    interface on several devices signs one mandate per device, and a
    case names the mandate(s) whose devices the evidence concerns —
    device marks reach only the devices so named, while the identity
    refusal in a ban verdict covers the named keys on every surface of
-   the consenting interface for the ban's duration; and
-5. withdrawal is leaving the interface. Withdrawal ends exposure to new
+   the consenting interface for the ban's duration;
+6. the interface countersigns the exact user-signed mandate. A
+   countersigning service returns only its signature (or an equivalently
+   immutable envelope); it cannot replace mandate fields and ask the
+   client to persist the rebuilt object; and
+7. withdrawal is leaving the interface. Withdrawal ends exposure to new
    cases; it does not clear marks already set by valid verdicts —
    otherwise every ban would be voidable by re-onboarding — and it
    neither dissolves a case already opened nor tolls its windows:
@@ -842,7 +883,10 @@ silent authority forever, and no path in which silence bans anyone.
   after it. Verdicts are immutable; corrections travel as reversal
   verdicts through the declared appeal path, never edits.
 - Cross-platform fixtures cover: mandate validation (manifest hash
-  mismatch, missing class terms); report authenticity verification
+  mismatch, missing class terms, directory/manifest component and
+  operator mismatch, invalid detached signature, raw-bytes/decoded-fields
+  mismatch, and a hosted manifest changing between review and agreement);
+  report authenticity verification
   (valid proof, forged proof, proofless complaint); notice and window
   arithmetic including timezone-hostile boundaries; verdict shape
   validation at interfaces (no mandate, class outside mandate, missing
@@ -864,8 +908,9 @@ Two device-mark platform profiles accompany this boundary:
 
 - **[Moderation-DeviceCheck.md](Moderation-DeviceCheck.md)** — Apple
   DeviceCheck: two per-device bits scoped to the interface vendor's
-  Apple developer account, written server-side on verdict execution;
-  and
+  Apple developer account, written server-side on verdict execution. It
+  also records the current Onym iOS client slice and distinguishes that
+  code from the still-missing production enforcement backend; and
 - **[Moderation-Device-Recall.md](Moderation-Device-Recall.md)** —
   Google Play Integrity device recall: per-device recall values scoped
   to the app, written server-side, read inside integrity verdicts.
@@ -878,9 +923,11 @@ only: vendor A's marks are physically invisible to vendor B.
 
 The moderation seat is successfully specified when:
 
-1. a user can read an authority's classes, terms, and appeal path
-   before consenting, and no case can reach them under terms they never
-   saw;
+1. a user can read one authenticated snapshot of an authority's classes,
+   terms, appeal path, and hash before consenting; the exact retained
+   snapshot — not a second fetch — supplies the classes, hash, and stored
+   bytes of the signed mandate, so no case can reach the user under terms
+   they never saw;
 2. a report with verified authenticity proof can proceed through
    notice, response, verdict, and mark execution using only published
    profiles and fixtures;
