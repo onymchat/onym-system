@@ -33,7 +33,10 @@ The document distinguishes:
 - **gaps**, where the platform or current code cannot yet meet the abstract
   contract and a declared mitigation applies.
 
-No current Onym Android code implements this profile. The existing Android
+The Authority-side wire and lifecycle semantics follow
+[onym-moderation PR #2](https://github.com/onymchat/onym-moderation/pull/2), the
+current v1 source of truth. No current Onym Android code implements this
+profile. The existing Android
 application has no moderation domain, authenticated manifest review,
 Play Integrity token client, enforcement backend transport, gate, or device
 recall integration. Every implementation statement below is therefore a
@@ -43,6 +46,8 @@ requirement, not a claim about deployed behavior; §9 records that boundary.
 
 | Abstract concept | Device recall mapping |
 |---|---|
+| Enforcement profile | `onym:moderation-enforcement-profile:device-mark-v1`, version 1 |
+| Gate notice schema | `onym-moderation-case-notice-v1` |
 | Device-mark platform | Google Play Integrity API, device recall (beta) |
 | Mark scope (per interface vendor) | Three values are per device **per Google Play developer account**. Every app in that account can access the same values; they are not isolated by package name or linked Cloud project |
 | `case-open` mark | `bitFirst` |
@@ -101,8 +106,8 @@ in §1 rather than claiming package-level isolation it does not have.
 
 | Value | Abstract mark | Set when | Cleared when |
 |---|---|---|---|
-| `bitFirst` | `case-open` | Backend validates an interim `open-case` verdict against this device's enrollment | Dismissal, superseding ban verdict, decision-deadline default, reversal, or designation revocation |
-| `bitSecond` | `banned` | Backend validates a ban verdict whose `executeAfter` has arrived; a non-suspensive ban may execute before `final` becomes true | `banExpires`, reversal, new-holder appeal verdict, or designation revocation **where no forum survives** under Moderation.md §5.7 |
+| `bitFirst` | `case-open` | Backend validates an interim `open-case` verdict against this device's enrollment | Later dismissal or ban verdict for that case; the authority's deadline sweep emits a dismissal |
+| `bitSecond` | `banned` | Backend validates a ban verdict whose `executeAfter` has arrived; a non-suspensive ban may execute before `final` becomes true | `banExpires` or a later dismissal/reversal for that case |
 | `bitThird` | — | — | — |
 
 This profile neither sets nor clears `bitThird`; every write omits it, which
@@ -111,7 +116,7 @@ preserves its account-wide value.
 Profile requirements:
 
 1. values change **only** inside verdict execution and declared
-   deadline/expiry/revocation reconciliation; no administrative, support,
+   deadline/expiry reconciliation; no administrative, support,
    sibling-app, or store-pressure path may reach `deviceRecall:write`;
 2. every write is logged against the authorizing verdict hash or declared
    clearing rule, and the log is auditable by the audit seat;
@@ -163,9 +168,11 @@ Enrollment then proceeds:
    and that binding; and
 6. the backend returns only its detached countersignature. It cannot replace
    mandate fields or ask the client to persist a rebuilt mandate; and
-7. the exact finalized two-signature mandate is registered with the named
+7. the interface registers the exact finalized two-signature mandate with the named
    authority as Moderation.md §6.2 requires. Registration is idempotent by
-   `mandateRef`; failure leaves consent incomplete.
+   `mandateRef`; failure leaves authority enrollment incomplete. The signed
+   consent artifact remains immutable, but the gate fails closed and retries
+   until the Authority has usable jurisdiction.
 
 Steps 1–4 bind `enroll-device`, steps 5–6 bind `countersign-mandate`, and step
 7 binds `register-mandate`; the next section binds `gate-check`. Signed
@@ -303,14 +310,15 @@ On receiving a verdict from the designated authority, the backend:
    access under the banned key;
 4. calls `deviceRecall:write` with only the values this transition changes and
    records the response against the authorizing object; and
-5. schedules and lazily reconciles clearing actions authorized by expiry,
-   reversal, decision-deadline default, or the abstract revocation forum rule.
+5. schedules and lazily reconciles clearing actions authorized by expiry or a
+   later dismissal/reversal verdict.
 
 The `case-open` write normally executes during notice service, which already
 requires a connected accused session. Clearing and delayed writes require a
 usable token from the target device. When the device returns, the backend
-reconciles before answering its gate. A resolvable enrollment applies expiry,
-reversal, and deadline defaults directly; an unresolvable marked holder enters
+reconciles before answering its gate. A resolvable enrollment applies expiry
+and delivered dismissal/reversal verdicts directly; an unresolvable marked
+holder enters
 the re-identification path. A stale value on a device that never returns is
 inert because no conforming gate acts on it without reconciliation.
 
@@ -354,8 +362,9 @@ enforcement after more than three years of platform inactivity.
    retain backend identity refusal but cannot promise a permanent device mark.
 4. **The values survive the person.** Google documents persistence through
    reinstall and reset, so resale and refurbishment can carry a sanction to a
-   new holder. Mandatory new-holder review and displayed recourse mitigate but
-   do not eliminate that harm. Reset and transfer behavior must still be
+   new holder. The reference Authority's unauthenticated, bounded new-holder
+   claim path offers human review but is not proof of transfer and can be
+   exhausted. Reset and transfer behavior must still be
    exercised on deployment devices.
 5. **The rail excludes valid Android environments.** Device recall requires
    recent enabled Play Store and Play services, a Play-licensed account, and a
@@ -434,7 +443,7 @@ Fixtures must cover:
   `yyyymm*` field on clear,
   separate rate limiting, propagation delay, and mandatory provider refresh;
 - queued writes and their execution only in a valid target-device session;
-- lazy reconciliation for expiry, reversal, deadline default, and revocation;
+- lazy reconciliation for expiry and later dismissal/reversal verdicts;
 - re-linking after reinstall and routing unresolved marked devices to
   re-identification/new-holder review;
 - developer-account sibling-app visibility and app-transfer namespace change;
@@ -457,9 +466,8 @@ This profile is successfully implemented when:
 3. reinstalling or resetting the device restores refusal from recall state
    within Google's declared retention and platform-support bounds, without a
    backend account lookup deciding whether a set banned value should gate;
-4. expiry, reversal, deadline default, and applicable revocation clear values
-   without authority or user discretion beyond a subsequent valid device
-   session;
+4. the backend applies expiry and later dismissal/reversal verdicts
+   mechanically in a subsequent valid device session;
 5. no path outside validated verdict execution and declared reconciliation can
    write `bitFirst` or `bitSecond`, no profile path touches `bitThird`, and the
    log accounts for every call;
