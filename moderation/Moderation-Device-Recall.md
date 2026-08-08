@@ -81,29 +81,28 @@ in §1 rather than claiming package-level isolation it does not have.
 ## 3. Physical topology
 
 ```text
-┌──────────────────────┐  token + requestHash  ┌──────────────────────┐
-│ Android interface app│──────────────────────>│ Enforcement backend  │
-│ case / ban / appeal  │<──────────────────────│ interface vendor     │
-└──────────────────────┘  gate result + state └──────┬───────▲───────┘
-                                                    │       │ signed
-                                      decode / write │       │ Verdict
-                                                    v       │
-                                ┌───────────────────────────┐  │
-                                │ Google Play Integrity     │  │
-                                │ verdicts · device recall  │  │
-                                └───────────────────────────┘  │
-                                          ┌─────────────────┤
-                                          │ Moderation authority │
-                                          │ no Google access     │
-                                          └───────────────────────┘
+┌──────────────────────┐  token + requestHash          ┌──────────────────────┐
+│ Android interface app│──────────────────────────────>│ Enforcement backend  │
+│ case / ban / appeal  │<──────────────────────────────│ interface vendor     │
+└──────────────────────┘  gate result + state          └──────┬───────▲───────┘
+                                               decode / write │       │ signed
+                                                              v       │ Verdict
+                                        ┌──────────────────────────┐  │
+                                        │ Google Play Integrity    │  │
+                                        │ verdicts · device recall │  │
+                                        └──────────────────────────┘  │
+                                                      ┌───────────────┴──────┐
+                                                      │ Moderation authority │
+                                                      │ (no Google access)   │
+                                                      └──────────────────────┘
 ```
 
 ## 4. Value mapping
 
 | Value | Abstract mark | Set when | Cleared when |
 |---|---|---|---|
-| `bitFirst` | `case-open` | Backend validates an interim `open-case` verdict against this device's enrollment | Dismissal, superseding ban verdict, decision-deadline default, reversal, or applicable designation revocation |
-| `bitSecond` | `banned` | Backend validates a ban verdict whose `executeAfter` has arrived; a non-suspensive ban may execute before `final` becomes true | `banExpires`, reversal, new-holder appeal verdict, or applicable designation revocation |
+| `bitFirst` | `case-open` | Backend validates an interim `open-case` verdict against this device's enrollment | Dismissal, superseding ban verdict, decision-deadline default, reversal, or designation revocation |
+| `bitSecond` | `banned` | Backend validates a ban verdict whose `executeAfter` has arrived; a non-suspensive ban may execute before `final` becomes true | `banExpires`, reversal, new-holder appeal verdict, or designation revocation **where no forum survives** under Moderation.md §5.7 |
 | `bitThird` | — | Never under this profile version | Never touched; omission from writes preserves its account-wide value |
 
 Profile requirements:
@@ -186,11 +185,33 @@ declared interval while the app runs:
    nonconforming;
 4. `bitSecond` clear and `bitFirst` set → it returns `caseOpen` with notices.
    The app operates normally and displays the procedural case state;
-5. both values clear or absent → it returns `clear` only after request and
-   verdict validation and reconciliation succeed; and
-6. an unevaluated or invalid verdict, request mismatch, unresolved marked
-   holder, exhausted offline grace, missing Play licensing/services, or other
-   untrustworthy answer → `checkRequired`, which blocks operation.
+5. a present `deviceRecall` object whose values are false or absent → it
+   returns `clear` only after the prerequisite verdict tuple below and
+   reconciliation succeed; and
+6. a missing `deviceRecall` object, failed prerequisite, invalid request,
+   unresolved marked holder, exhausted offline grace, or other untrustworthy
+   answer → `checkRequired`, which blocks operation.
+
+The concrete evaluation rule is deliberately stricter than testing whether
+`values` is empty. Before interpreting any recall value, the backend requires:
+
+1. matching and fresh `requestDetails`, including package name and
+   `requestHash`;
+2. `appRecognitionVerdict == PLAY_RECOGNIZED`, with the expected package and
+   signing-certificate digest;
+3. `appLicensingVerdict == LICENSED`;
+4. `deviceRecognitionVerdict` containing `MEETS_DEVICE_INTEGRITY`; and
+5. the `deviceIntegrity.deviceRecall` object to be present.
+
+Failure of any condition is `checkRequired`, regardless of the contents of
+`values`. If all five pass, a present `deviceRecall` object with empty maps is
+the profile's clean never-written state; absent bit fields are false. Google
+does not expose a separate "device recall evaluated" boolean and also
+documents an unavailable recall value as an object with empty `values` and
+`writeDates`. A technically unavailable result that nevertheless satisfies
+all four outer verdict conditions is therefore indistinguishable from a clean
+device. The profile cannot honestly claim to fail closed across that final
+ambiguity; §8 records the limitation and required monitoring.
 
 No active mandate is not `clear`; it routes to the consent gate. Losing local
 mandate storage leads to re-consent followed by an immediate fresh mark check,
@@ -273,9 +294,10 @@ enforcement after more than three years of platform inactivity.
 |---|---|---|
 | `mark_write_failed` | Write rejected, token unusable, API failure, or rate limit | Retry in the next valid target-device session; verdict and identity refusal remain in force |
 | `verdict_invalid` | Pre-platform validation failure | Refuse execution; never call Google |
-| Clean platform state | Values absent or all false in a fully evaluated verdict | Reconcile against the resolved enrollment before returning `clear` |
+| Clean platform state | `deviceRecall` present with values absent or false, and the full request/app/licensing/device prerequisite tuple passes | Reconcile against the resolved enrollment before returning `clear` |
 | Token/request invalid | Decode failure, replay-cleared verdict, bad package/certificate/verdict, stale request, identity signature failure, or `requestHash` mismatch | Reject and re-request; repeated failure becomes `checkRequired` |
-| Device recall unevaluated | Unlicensed account or recall unavailable in verdict | `checkRequired`; never treat as clean |
+| Recall prerequisites fail | `deviceRecall` missing, app not `PLAY_RECOGNIZED`, account not `LICENSED`, or device missing `MEETS_DEVICE_INTEGRITY` | `checkRequired`; never treat as clean |
+| Recall object present but empty | All prerequisite verdicts pass and both maps are empty | Treat as never-written clean state, subject to Google's documented evaluation ambiguity in §8 |
 | No supported Play environment | Play Store/services absent or outdated, unsupported device, emulator | `checkRequired`; never unmoderated operation |
 | Propagation/cache lag | A post-write token still carries old values | Preserve just-executed backend state, re-prepare provider, and retry after the propagation window |
 | `new_holder_claim` | Holder asserts transfer at ban UX or marked state cannot resolve | Route to the manifest's procedure and execute the resulting reversal or confirmation normally |
@@ -305,24 +327,33 @@ enforcement after more than three years of platform inactivity.
    supported physical device; emulators and de-Googled or otherwise unsupported
    distributions fail to `checkRequired`. The interface manifest must disclose
    this reach limitation.
-6. **Three values and coarse dates are not a verdict store.** Verdict
+6. **Google exposes no definitive evaluated/clean discriminator.** Both a
+   never-written device and an unavailable recall value can produce a present
+   `deviceRecall` object with empty `values` and `writeDates`. The profile
+   requires the request/app/licensing/device tuple in §5.2 and fails closed
+   when the object or any prerequisite is missing, but a technical recall
+   failure with every outer prerequisite still passing is indistinguishable
+   from clean state. Deployments must monitor empty-result anomalies and
+   disclose this residual fail-open platform ambiguity; no implementation may
+   claim a stronger signal than Google returns.
+7. **Three values and coarse dates are not a verdict store.** Verdict
    references, classes, expiries, and appeal state live in the vendor backend.
    `bitThird` remains reserved. Losing backend state makes the values
    uninterpretable and cannot be repaired from month/year write dates.
-7. **A queued write can be outrun.** A verdict received without a usable
+8. **A queued write can be outrun.** A verdict received without a usable
    target-device token must wait for another session. Wiping the app before that
    session and never returning under a mandated identity can evade the device
    write, though backend refusal of the named identity remains. Standard-request
    caching and up-to-30-second propagation also require explicit handling.
-8. **No third-party proof of faithful writes exists.** Google attests the
+9. **No third-party proof of faithful writes exists.** Google attests the
    device and stores values, not the vendor's obedience. Signed write logs and
    audit-seat attestation are the declared substitute and remain a paper
    control until a deployed auditor verifies them.
-9. **Google is a silent party.** Developer-account or Cloud-project failure,
+10. **Google is a silent party.** Developer-account or Cloud-project failure,
    app transfer, quota policy, beta change, or feature deprecation can alter or
    orphan state outside this contract. The dependency and its failure behavior
    must be disclosed.
-10. **No Onym Android implementation or frozen wire contract exists.** The
+11. **No Onym Android implementation or frozen wire contract exists.** The
     current app contains none of the client or backend components in this
     profile. Cross-language consent, request, mandate, verdict, and signature
     fixtures must be published before implementation; passing the iOS package's
@@ -359,7 +390,9 @@ Fixtures must cover:
   signed mandate artifact;
 - standard token preparation and decoding; package, certificate, licensing,
   device, timestamp, replay, identity-signature, and `requestHash` validation;
-- evaluated absent/false values versus unevaluated recall;
+- the exact recall classifier: every failed request/app/licensing/device
+  prerequisite, missing `deviceRecall`, present-but-empty maps, and populated
+  false values, including the documented clean/unavailable ambiguity;
 - verdict-to-value execution for every disposition, including
   suspensive/non-suspensive timing and refusal of early writes;
 - writes that preserve unspecified `bitThird`, clearing-date behavior,
@@ -393,8 +426,10 @@ This profile is successfully implemented when:
 5. no path outside validated verdict execution and declared reconciliation can
    write `bitFirst` or `bitSecond`, no profile path touches `bitThird`, and the
    log accounts for every call;
-6. cached reads, propagation lag, rate limits, unevaluated verdicts, and
-   unsupported Play environments cannot produce an erroneous `clear` result;
+6. cached reads, propagation lag, rate limits, a missing `deviceRecall`
+   object, failed prerequisite verdicts, and unsupported Play environments
+   cannot produce `clear`, while the irreducible present-empty ambiguity is
+   tested, monitored, and disclosed;
 7. the deployment satisfies and tests the developer-account-wide ownership
    rule instead of claiming false package isolation; and
 8. the shared object and validation fixtures let independent Android, iOS, and

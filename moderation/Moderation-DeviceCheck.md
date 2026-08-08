@@ -91,8 +91,8 @@ vendor executes, Apple stores.
 
 | Bit | Abstract mark | Set when | Cleared when |
 |---|---|---|---|
-| `bit0` | `case-open` | Backend validates an interim verdict opening a case against this device's enrollment | Dismissal verdict, superseding ban verdict, decision-deadline default, or reversal |
-| `bit1` | `banned` | Backend validates a ban verdict whose `executeAfter` has arrived; a non-suspensive ban may execute before `final` becomes true | `banExpires` passes, reversal verdict, or new-holder appeal verdict |
+| `bit0` | `case-open` | Backend validates an interim verdict opening a case against this device's enrollment | Dismissal verdict, superseding ban verdict, decision-deadline default, reversal, or designation revocation |
+| `bit1` | `banned` | Backend validates a ban verdict whose `executeAfter` has arrived; a non-suspensive ban may execute before `final` becomes true | `banExpires` passes, reversal verdict, new-holder appeal verdict, or designation revocation **where no forum survives** under Moderation.md §5.7 |
 
 Profile requirements:
 
