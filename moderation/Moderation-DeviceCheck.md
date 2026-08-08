@@ -384,6 +384,22 @@ abstract contract to the following client components:
 | App composition | Package is linked but PR #216 does not wire onboarding, foreground checks, root gating, or ban/case UI; those integrations belong to later stack layers |
 | Reports, live cases, appeals, and Apple writes | Domain types or requirements only; no production authority transport, case service, appellate service, reconciliation worker, or `update_two_bits` implementation |
 
+The Rust reference services in
+[onym-moderation PR #2](https://github.com/onymchat/onym-moderation/pull/2)
+do not duplicate every consent-time manifest check in that table. In
+particular, Authority startup validates the five per-class terms and the
+Apple service validates mandate, manifest-hash, class, and verdict bindings,
+but neither service rejects a permanent class because `appellate` is absent,
+malformed, or names the issuing authority. In the current realization that
+check belongs to the iOS reviewed-manifest validator before the user signs.
+The Authority publishes `appellate` as manifest metadata and records local
+appeals, but does not route them to the named external component.
+
+This is a validation-boundary description, not a relaxation of §5.2: an
+interface integrating the Rust services without the iOS consent path must add
+the same permanent-class appellate validation before accepting a mandate. No
+current reference component provides external-appellate transport.
+
 This table is descriptive and deliberately narrower than the profile's
 acceptance criteria. A package or stub passing local tests is not evidence
 that Apple state is durable, that a backend writes faithfully, or that a
