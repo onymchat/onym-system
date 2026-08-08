@@ -103,7 +103,10 @@ in §1 rather than claiming package-level isolation it does not have.
 |---|---|---|---|
 | `bitFirst` | `case-open` | Backend validates an interim `open-case` verdict against this device's enrollment | Dismissal, superseding ban verdict, decision-deadline default, reversal, or designation revocation |
 | `bitSecond` | `banned` | Backend validates a ban verdict whose `executeAfter` has arrived; a non-suspensive ban may execute before `final` becomes true | `banExpires`, reversal, new-holder appeal verdict, or designation revocation **where no forum survives** under Moderation.md §5.7 |
-| `bitThird` | — | Never under this profile version | Never touched; omission from writes preserves its account-wide value |
+| `bitThird` | — | — | — |
+
+This profile neither sets nor clears `bitThird`; every write omits it, which
+preserves its account-wide value.
 
 Profile requirements:
 
@@ -116,9 +119,9 @@ Profile requirements:
    `bitThird` is omitted rather than reset, because unspecified values remain
    unchanged and all apps in the developer account share it;
 4. `writeDates` are month-and-year consistency signals, never authorization,
-   execution, or expiry sources. Setting a value true updates its date and
-   clearing it resets the date; real timing lives in the verdict and backend
-   log; and
+   execution, or expiry sources. Setting a value true updates its corresponding
+   `yyyymm*` field; setting it false removes that field. Real timing lives in
+   the verdict and backend log; and
 5. the backend accounts for Google's documented write-to-read propagation
    delay of up to 30 seconds and never treats an immediately stale read as
    permission to undo or bypass a just-executed verdict.
@@ -172,25 +175,29 @@ different signature domains and bind every transmitted security-relevant field.
 At launch, on foreground, on explicit retry, and at least once per the
 declared interval while the app runs:
 
-1. the app prepares or refreshes a standard token provider, constructs a
+1. the app obtains an execution slot from its throttled gate scheduler, reuses
+   a prepared standard token provider when valid, constructs a
    `GateCheckRequest` containing the user key, active `mandateRef`, timestamp,
-   and fresh backend challenge, and binds the stable request serialization through
-   `requestHash`;
+   and fresh backend challenge, and binds the stable request serialization
+   through `requestHash`;
 2. the backend decodes and validates the token and request as in enrollment,
    reads `deviceRecall.values`, resolves the enrollment where possible, and
    reconciles platform state with its verdict records before responding;
-3. `bitSecond` set → it returns `banned` with governing display state. The
-   app refuses operation and displays the verdict reference, authority contact,
-   expiry, ordinary appeal, and new-holder path; a silent brick is
-   nonconforming;
+3. `bitSecond` set → it returns `banned` even if the enrollment cannot yet be
+   resolved. A resolved enrollment supplies the verdict reference, authority
+   contact, expiry, ordinary appeal, and new-holder path. An unresolved one
+   still refuses operation and displays the designated authority plus its
+   new-holder/re-identification procedure; successful re-identification then
+   supplies the governing verdict or clears the value. A silent
+   `checkRequired` brick is nonconforming;
 4. `bitSecond` clear and `bitFirst` set → it returns `caseOpen` with notices.
    The app operates normally and displays the procedural case state;
 5. a present `deviceRecall` object whose values are false or absent → it
    returns `clear` only after the prerequisite verdict tuple below and
    reconciliation succeed; and
 6. a missing `deviceRecall` object, failed prerequisite, invalid request,
-   unresolved marked holder, exhausted offline grace, or other untrustworthy
-   answer → `checkRequired`, which blocks operation.
+   exhausted offline grace, or other untrustworthy unmarked answer →
+   `checkRequired`, which blocks operation.
 
 The concrete evaluation rule is deliberately stricter than testing whether
 `values` is empty. Before interpreting any recall value, the backend requires:
@@ -209,13 +216,16 @@ the profile's clean never-written state; absent bit fields are false. Google
 does not expose a separate "device recall evaluated" boolean and also
 documents an unavailable recall value as an object with empty `values` and
 `writeDates`. A technically unavailable result that nevertheless satisfies
-all four outer verdict conditions is therefore indistinguishable from a clean
-device. The profile cannot honestly claim to fail closed across that final
-ambiguity; §8 records the limitation and required monitoring.
+all five classifier conditions — including the present but empty object — is
+therefore indistinguishable from a clean device. The profile cannot honestly
+claim to fail closed across that final ambiguity; §8 records the limitation
+and required monitoring.
 
-No active mandate is not `clear`; it routes to the consent gate. Losing local
-mandate storage leads to re-consent followed by an immediate fresh mark check,
-never into an unmoderated app.
+On an otherwise clean device, absence of an active mandate is a consent-gate
+condition, not `clear`. A set mark takes precedence and follows the `caseOpen`
+or `banned` path above even when mandate storage is missing. Losing local
+mandate storage therefore leads to a fresh mark check before re-consent, never
+into an unmoderated app.
 
 The backend associates the enrollment with the mandate's `deviceBinding` at
 first validated token. Integrity tokens are request artifacts, not stable
@@ -241,6 +251,19 @@ the result and success time, rejects clock rollback, prevents an older
 concurrent result from replacing a newer one, and explicitly checks on
 foreground rather than relying only on a background timer. Backend identity
 refusal remains in force independently of the device gate.
+
+Launch, foreground, retry, and interval triggers feed one scheduler; they do
+not each force a provider preparation or token request. The scheduler
+coalesces concurrent triggers and holds one provider. It prepares on cold
+start, after `INTEGRITY_TOKEN_PROVIDER_INVALID`, and after a recall write when
+the next eligible read must observe refreshed values, while enforcing Google's
+limit of at most five preparations per app instance per minute. Token requests
+are likewise coalesced, exponentially backed off on `TOO_MANY_REQUESTS`, and
+metered against a declared budget below the deployment's daily quota, with
+usage alerts enabled. A throttled trigger serves the last reconciled result
+only within offline grace and schedules the next eligible attempt; without
+history or after grace it returns `checkRequired`. Foreground or retry thrash
+must never create unbounded Play calls or discard a still-valid known state.
 
 For standard requests, device recall is refreshed during provider preparation.
 After a write, the app must prepare again before relying on a subsequent token
@@ -299,6 +322,7 @@ enforcement after more than three years of platform inactivity.
 | Recall prerequisites fail | `deviceRecall` missing, app not `PLAY_RECOGNIZED`, account not `LICENSED`, or device missing `MEETS_DEVICE_INTEGRITY` | `checkRequired`; never treat as clean |
 | Recall object present but empty | All prerequisite verdicts pass and both maps are empty | Treat as never-written clean state, subject to Google's documented evaluation ambiguity in §8 |
 | No supported Play environment | Play Store/services absent or outdated, unsupported device, emulator | `checkRequired`; never unmoderated operation |
+| Token/provider throttled | `TOO_MANY_REQUESTS`, daily token quota, or provider-prepare limit | Coalesce and back off; serve the last reconciled result within grace, otherwise `checkRequired`; schedule the next eligible attempt |
 | Propagation/cache lag | A post-write token still carries old values | Preserve just-executed backend state, re-prepare provider, and retry after the propagation window |
 | `new_holder_claim` | Holder asserts transfer at ban UX or marked state cannot resolve | Route to the manifest's procedure and execute the resulting reversal or confirmation normally |
 
@@ -395,7 +419,8 @@ Fixtures must cover:
   false values, including the documented clean/unavailable ambiguity;
 - verdict-to-value execution for every disposition, including
   suspensive/non-suspensive timing and refusal of early writes;
-- writes that preserve unspecified `bitThird`, clearing-date behavior,
+- writes that preserve unspecified `bitThird`, removal of the corresponding
+  `yyyymm*` field on clear,
   separate rate limiting, propagation delay, and mandatory provider refresh;
 - queued writes and their execution only in a valid target-device session;
 - lazy reconciliation for expiry, reversal, deadline default, and revocation;
@@ -405,8 +430,9 @@ Fixtures must cover:
 - the three-year retention boundary, reset/reinstall behavior, and device
   transfer; and
 - interval/grace enforcement, clock rollback, stale concurrent completions,
-  foreground checks, missing Play services, unlicensed accounts, unsupported
-  devices, and emulators.
+  coalesced foreground/retry thrash, the five-per-minute provider-prepare cap,
+  daily token quota exhaustion, missing Play services, unlicensed accounts,
+  unsupported devices, and emulators.
 
 ## 11. Acceptance criteria
 
