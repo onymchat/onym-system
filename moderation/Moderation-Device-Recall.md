@@ -162,7 +162,18 @@ Enrollment then proceeds:
 5. the client builds and signs the mandate from its retained reviewed artifact
    and that binding; and
 6. the backend returns only its detached countersignature. It cannot replace
-   mandate fields or ask the client to persist a rebuilt mandate.
+   mandate fields or ask the client to persist a rebuilt mandate; and
+7. the exact finalized two-signature mandate is registered with the named
+   authority as Moderation.md §6.2 requires. Registration is idempotent by
+   `mandateRef`; failure leaves consent incomplete.
+
+Steps 1–4 bind `enroll-device`, steps 5–6 bind `countersign-mandate`, and step
+7 binds `register-mandate`; the next section binds `gate-check`. Signed
+interim and terminal verdicts enter the backend through `deliver-verdict`, and
+the gate derives the notice or ban state returned to the app. Enrollment,
+countersigning, and gating belong to the independently versioned
+interface-enforcement profile; registration and delivery are cross-owner
+authority-profile facets.
 
 The cross-language canonical serialization, signature domains, precise
 integrity-verdict policy, and freshness window must be frozen in published

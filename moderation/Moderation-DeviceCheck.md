@@ -154,7 +154,19 @@ The device enrollment then proceeds:
    artifact and that binding; and
 5. the backend returns only its detached countersignature. The client
    appends that signature to its own mandate, so the countersigning
-   round-trip cannot replace authority, classes, hash, user, or binding.
+   round-trip cannot replace authority, classes, hash, user, or binding; and
+6. the exact finalized two-signature mandate is registered with the named
+   authority as Moderation.md §6.2 requires. Registration is idempotent by
+   `mandateRef`; failure leaves consent incomplete and cannot be hidden by
+   persisting only the interface-local copy.
+
+These steps bind the abstract operation names as follows: steps 1–3 are
+`enroll-device`, steps 4–5 are `countersign-mandate`, and step 6 is
+`register-mandate`. The gate flow below is `gate-check`. Signed interim and
+terminal verdicts enter this backend through `deliver-verdict`, after which
+the gate returns `CaseNotice` or ban state to the app. The first three
+operations belong to the interface-enforcement profile; registration and
+delivery are the two cross-owner facets of the authority profile.
 
 The current iOS session-signing form is provisional until the backend wire
 contract is fixed. Each field is prefixed with a big-endian 32-bit byte
@@ -369,7 +381,11 @@ must perform the same checks before every Apple write.
 
 The `OnymModeration` package introduced by
 [onym-ios PR #216](https://github.com/onymchat/onym-ios/pull/216) maps the
-abstract contract to the following client components:
+abstract contract to the following client components. The authority-client
+claims below are directly checkable in
+[`ModerationAuthorityClient.swift`](https://github.com/onymchat/onym-ios/blob/87d5b62e8ebaeeb5aa623e4eaed41c038c8c695a/Packages/OnymModeration/Sources/OnymModeration/ModerationAuthorityClient.swift),
+and the gate result in
+[`EnforcementBackendClient.swift`](https://github.com/onymchat/onym-ios/blob/87d5b62e8ebaeeb5aa623e4eaed41c038c8c695a/Packages/OnymModeration/Sources/OnymModeration/EnforcementBackendClient.swift):
 
 | Contract/profile responsibility | Current iOS status |
 |---|---|
@@ -384,6 +400,8 @@ abstract contract to the following client components:
 | Verdict handling | Domain objects and mechanical validator for mandate/manifest bindings, marks, appeal timing, execution timing, and consented ban duration |
 | Authority client boundary | `ModerationAuthorityClient` exposes `fileReport`, `respond` (including additional evidence), `appeal` (ordinary or new-holder), and `queryStatus`; typed request/result objects and an honest throwing stub exist, but no endpoint resolution or network transport does |
 | Authority outbound delivery | `GateCheckResult.caseOpen` carries `CaseNotice` values and `.banned` carries ban/verdict display state from the interface backend; the authority has no client-side mark-write method |
+| Mandate registration | Missing: the client appends and persists the interface countersignature but exposes no path that registers the finalized mandate with the named authority |
+| Authority reference service | [onym-moderation PR #2](https://github.com/onymchat/onym-moderation/pull/2) exposes mandate registration, the four client operations, verdict delivery, and a DeviceCheck backend, but remains an unmerged reference under review rather than a production service |
 | App composition | Package is linked but PR #216 does not wire onboarding, foreground checks, root gating, or ban/case UI; those integrations belong to later stack layers |
 | Authority service and Apple writes | No production authority transport, case service, appellate service, reconciliation worker, or `update_two_bits` implementation |
 

@@ -6,7 +6,7 @@ date: 08.08.2026
 
 # Onym Moderation Authority Contract Boundary
 
-**Proposal draft 0.3 — August 2026**
+**Proposal draft 0.4 — August 2026**
 
 > A moderation authority decides published violation classes over users who
 > consented to its mandate before any case existed. Its verdicts are
@@ -104,8 +104,9 @@ The boundary has five interfaces:
    device-mark states and an identity refusal inside consenting
    interfaces, and nothing else.
 
-§6 groups these five logical interfaces into three transport facets by
-caller, direction, and owner; it does not collapse their responsibilities.
+§6 maps these five logical interfaces onto the authority's three wire facets
+and references the separately owned interface-enforcement profile; it does not
+collapse their responsibilities.
 
 ## 2. What the moderation seat does
 
@@ -115,8 +116,8 @@ A conforming moderation authority can:
    procedure and ban terms, evidence rules, decision timelines,
    confidentiality policy, fee offers, and appeal path;
 2. accept designation by interfaces whose users may consent to its published
-   manifest at onboarding; this is an interface–authority governance
-   relationship, not a per-user acceptance call or authority countersignature;
+   manifest at onboarding, and register the resulting user-signed,
+   interface-countersigned mandates without adding an authority signature;
 3. receive signed `Report` objects from consented users, weighted by the
    reporter's authority-local track record;
 4. open a case, serve notice to the accused through the interface, and
@@ -198,31 +199,27 @@ onboarding (before any case)
      │  user signs ModerationMandate
      │  naming the interface's declared authority
      v
-┌─────────────┐  signed Report        ┌─────────────────────────────┐
-│ Reporter    │──────────────────────>│ Moderation Authority        │
-│ (discloses  │  disclosed content    │ manifest · procedure ·      │
-│  own copy + │  + authenticity proof │ judgment · reputation       │
-│  authenticity│                      └───────┬──────────────▲──────┘
-│  proof)     │                               │ CaseNotice   │ Response,
-└─────────────┘                               v              │ evidence
-                                      ┌──────────────────────┴──────┐
-                                      │ Accused                     │
-                                      │ notice · response window ·  │
-                                      │ appeal                      │
-                                      └─────────────────────────────┘
-                                              │ signed Verdict
-                                              v
-┌─────────────────────────────────────────────────────────────────┐
-│ Interface (enforcement rail)                                    │
-│ validates verdict shape + mandate · executes mechanically       │
-└──────────────┬──────────────────────────────┬───────────────────┘
-               │ device-mark write            │ identity refusal
-               v                              v
-   ┌───────────────────────┐      ┌───────────────────────────┐
-   │ Device-mark platform  │      │ This interface refuses    │
-   │ mark 1: open case     │      │ the named identity keys   │
-   │ mark 2: banned        │      │ (its own surface only)    │
-   └───────────────────────┘      └───────────────────────────┘
+┌─────────────┐ signed Report  ┌─────────────────────────────┐
+│ Reporter    │───────────────>│ Moderation Authority        │
+│ own copy +  │                │ manifest · procedure ·      │<──────┐
+│ proof       │                │ judgment · reputation       │       │ signed response,
+└─────────────┘                └──────────┬──────────▲───────┘       │ appeal, status
+                                        │ signed    │ finalized      │
+                                        │ verdict   │ mandate        │
+                                        v           │                │
+┌─────────────────────────────────────────────────┐  │    ┌──────────┴─────────┐
+│ Interface (enforcement and delivery rail)       │──┘    │ Accused / device   │
+│ countersigns · validates verdict · gates app    │──────>│ notice · ban state │
+└───────────────────────┬─────────────────────────┘ gate   │ response · recourse│
+                        │ device-mark write               └────────────────────┘
+                        v
+              ┌──────────────────────────────┐
+              │ Device-mark platform         │
+              │ case-open · banned           │
+              └──────────────────────────────┘
+
+   The interface also refuses the verdict's named identity keys on its own
+   surfaces while the ban is in force.
 
    No verdict reaches a user who never signed the mandate. No mark
    moves without a signed verdict. Absent authority -> dismissal and
@@ -231,7 +228,7 @@ onboarding (before any case)
 
 ## 5. Boundary objects
 
-### 5.1 Moderation Profile
+### 5.1 Moderation Profile — authority surface
 
 ```json
 {
@@ -245,17 +242,16 @@ onboarding (before any case)
       "appeal",
       "query-status"
     ],
-    "authorityOutbound": [
-      "serve-notice",
-      "issue-verdict"
+    "interfaceToAuthority": [
+      "register-mandate"
     ],
-    "interfaceEnforcement": [
-      "enroll-device",
-      "countersign-mandate",
-      "gate-check"
+    "authorityToInterface": [
+      "deliver-verdict"
     ]
   },
+  "interfaceEnforcementProfileId": "onym:moderation-enforcement-profile:device-mark-v1",
   "mandateSchema": "onym-moderation-mandate-v1",
+  "mandateReceiptSchema": "onym-moderation-mandate-receipt-v1",
   "reportSchema": "onym-moderation-report-v1",
   "reportReceiptSchema": "onym-moderation-report-receipt-v1",
   "caseNoticeSchema": "onym-moderation-case-notice-v1",
@@ -263,21 +259,23 @@ onboarding (before any case)
   "appealSchema": "onym-moderation-appeal-v1",
   "caseStatusSchema": "onym-moderation-case-status-v1",
   "verdictSchema": "onym-moderation-verdict-v1",
-  "markStates": ["case-open", "banned"],
+  "verdictSubmissionSchema": "onym-moderation-verdict-submission-v1",
+  "verdictReceiptSchema": "onym-moderation-verdict-receipt-v1",
   "errorSchema": "onym-moderation-errors-v1",
   "specification": "<content-addressed-specification>",
   "signature": "<profile-publisher-signature>"
 }
 ```
 
-The facets are ownership boundaries, not alternate names for one service.
+This is the profile an authority implements and its manifest references.
 `authorityClient` contains requests a user initiates toward the authority.
-`authorityOutbound` contains signed authority objects delivered through the
-interface. `interfaceEnforcement` belongs to the interface vendor and is the
-only surface allowed to enroll a device, countersign a mandate, read or write
-device marks, or decide the app's gate state. An authority implementation may
-share transport with an interface implementation, but conformance never lets
-that erase which key and role authorize an operation.
+`interfaceToAuthority` registers the exact finalized mandate after the
+interface countersigns it. `authorityToInterface` delivers signed interim and
+terminal verdicts to the enforcement rail. Device enrollment, mandate
+countersigning, gate checks, mark writes, and app gating are not operations in
+this authority profile: they belong to the separately versioned
+`interfaceEnforcementProfileId` implemented by the interface vendor. Sharing a
+deployment or transport never erases which key and role authorize an operation.
 
 ### 5.2 Authority Manifest
 
@@ -491,7 +489,117 @@ Normative constraints:
    lowest intake weight, identical authenticity verification, never an
    anonymous accusation.
 
-### 5.5 Case Notice and Response
+#### 5.4.1 Authority client DTOs
+
+The remaining authority-client schemas are complete boundary objects, not
+implementation-local return types:
+
+```json
+{
+  "reportId": "<same random report ID>",
+  "receivedAt": "2026-08-06T00:00:01Z"
+}
+```
+
+`ReportReceipt` acknowledges durable receipt for intake. It does not reveal
+intake weight or case ID and does not assert that a case opened or that the
+report has merit.
+
+```json
+{
+  "statement": "<accused statement>",
+  "evidence": [
+    {
+      "disclosedContent": "<counter-evidence>",
+      "authenticityProof": "<signature-or-envelope-commitment>",
+      "context": "<optional context>"
+    }
+  ],
+  "signature": "<accused-signature>"
+}
+```
+
+`CaseResponse` is submitted with a case ID. Its signature input is the
+profile-defined response domain, operation name, case ID, and every unsigned
+field above; signing only the JSON body while leaving the routed case ID
+outside the signature is nonconforming.
+
+```json
+{
+  "kind": "appeal | new-holder-claim",
+  "statement": "<grounds for review>",
+  "signature": "<claimant-signature-or-profile-defined-device-holder-proof>"
+}
+```
+
+`AppealSubmission` is likewise submitted with and cryptographically bound to
+one case ID. An ordinary appeal is signed by the accused identity. A new-holder
+claim cannot rely on that former identity, but it still requires the
+enforcement profile's fresh device-holder attestation and a challenge-bound
+claim; possession of a case ID alone is not authentication.
+
+```json
+{
+  "caseId": "<case ID>",
+  "stage": "open | decided",
+  "responseDeadline": "2026-08-13T00:00:00Z",
+  "decisionDeadline": "2026-08-20T00:00:00Z"
+}
+```
+
+`CaseStatus` is returned only after a party credential authenticates the
+accused, a reporter entitled to the permitted outcome, or a declared
+appellate/new-holder path. Deadlines may be absent when not applicable. Any
+additional case detail remains bounded by the consented confidentiality policy.
+
+#### 5.4.2 Interface–authority envelopes
+
+After the interface returns its detached countersignature, it registers the
+client's exact finalized `ModerationMandate` with the named authority. The
+authority verifies both signatures and every manifest, authority, interface,
+class, and device binding before returning:
+
+```json
+{
+  "mandateRef": "<hash-of-unsigned-canonical-mandate>",
+  "accepted": true
+}
+```
+
+`MandateReceipt` means the authority durably recorded that exact mandate; it is
+not another signature and grants no terms beyond the mandate. Registration is
+authenticated as interface-to-authority traffic, idempotent by `mandateRef`,
+and fails closed when the interface verification key is unavailable.
+
+The authority delivers each interim or terminal verdict to the interface in a
+`VerdictSubmission`:
+
+```json
+{
+  "verdict": {"<exact signed Verdict object>": "<...>"},
+  "consentedManifest": "<base64 of exact manifest bytes pinned by mandate>"
+}
+```
+
+The manifest bytes are selected by `verdict.mandateRef`, not by whichever
+manifest the authority currently publishes. The interface hashes them against
+the stored mandate before trusting either the class terms or operator key. A
+successful interface response is:
+
+```json
+{
+  "verdictRef": "<hash-of-unsigned-canonical-verdict>",
+  "status": "queued | stored"
+}
+```
+
+`queued` means execution awaits an eligible target-device session; `stored`
+means a suspensive verdict is retained until its consented execution condition.
+Neither status permits the authority to write a mark itself. Delivery is
+idempotent by `verdictRef`; permanent refusal is distinguished from retryable
+unavailability so identical invalid bytes are not retried forever.
+
+### 5.5 Case Notice
 
 ```json
 {
@@ -504,20 +612,25 @@ Normative constraints:
   "evidenceSummary": "<hash: the disclosed items the case rests on>",
   "responseDeadline": "2026-08-13T00:00:00Z",
   "decisionDeadline": "2026-08-20T00:00:00Z",
-  "signature": "<authority-signature>"
+  "signature": "<authority-signature-on-governing-open-case-verdict>"
 }
 ```
 
-The notice is served through the interface, which must present it to the
-accused with the evidence, the class definition consented to, and the
-response path. The response mirrors the report's shape: signed
-statements and counter-evidence (for example, proof of context that
-changes the disclosed item's meaning). A missing response does not
-concede the case; it proceeds to decision on the record — no-show is a
-weakness, not a confession. On case opening, the authority issues an
-interim `open-case` verdict (§5.6) setting the **case-open mark**; it is procedural state,
-not a sanction, and the interface must not degrade service on it beyond
-displaying the case's existence to the device holder.
+`CaseNotice` is the interface's display projection of a validated interim
+`open-case` verdict and its mandate-pinned manifest, not a second independently
+signed authority object. `signature` carries the governing verdict signature;
+the interface retains that verdict and derives the notice's authority, case,
+mandate, accused, class, intake summary, and deadlines from the validated pair.
+It must not copy a verdict signature onto unrelated or independently supplied
+notice fields.
+
+The interface serves the projection with the evidence, consented class
+definition, and response path. A response contains signed statements and
+counter-evidence (for example, context that changes a disclosed item's
+meaning). A missing response does not concede the case; decision proceeds on
+the record. The governing interim verdict sets the **case-open mark**; it is
+procedural state, not a sanction, and the interface must not degrade service
+beyond displaying the case's existence to the device holder.
 
 ### 5.6 Verdict
 
@@ -652,76 +765,75 @@ to its declared expiry or permanent term with that appellate acting as
 successor-of-record for appeals and new-holder claims; a ban whose only
 forum was the dead issuer clears with the revocation.
 
-## 6. Common moderation surfaces
+## 6. Authority contract surfaces
 
-The moderation boundary is not one authority RPC interface. It has three
-facets whose direction and ownership remain distinct in every transport.
+The authority profile has three wire facets. The interface-enforcement profile
+is a fourth, separately owned dependency referenced by ID rather than inlined
+into the authority's versioned operations.
 
 ### 6.1 User → authority client
 
 | Operation | Input | Result |
 |---|---|---|
-| `file-report` | Signed `Report` with authenticity proofs | `ReportReceipt` (`reportId`, `receivedAt`) acknowledging receipt for intake; not a case opening or merits decision |
-| `respond` | Case ID + signed `CaseResponse` (statement and zero or more `EvidenceItem`s) | Acknowledgement that the response/evidence entered the record, or a typed refusal |
-| `appeal` | Case ID + signed `AppealSubmission` (`appeal` or `new-holder-claim`) | Acknowledgement that review opened, or a typed refusal such as `window_closed` |
-| `query-status` | Case ID + party credential | `CaseStatus`: case ID, lifecycle stage, and applicable response/decision deadlines, bounded by confidentiality |
+| `file-report` | Signed `Report` with authenticity proofs | `ReportReceipt` acknowledging durable receipt for intake; not a case opening or merits decision |
+| `respond` | Case ID + signed `CaseResponse` | Acknowledgement that the complete response and evidence entered the record, or a typed refusal |
+| `appeal` | Case ID + signed `AppealSubmission` | Acknowledgement that review opened, or a typed refusal such as `window_closed` |
+| `query-status` | Case ID + party credential | `CaseStatus`, bounded by the consented confidentiality policy |
 
-This is the authority contract surface visible to a reporter, accused party,
-or device holder. The client selects the implementation for the authority named
-by the active mandate; callers cannot redirect a signed case object to an
-unrelated authority and acquire jurisdiction there.
+The client selects the implementation for the authority named by the active
+mandate. `respond` carries later evidence as additional `EvidenceItem`s; there
+is no separate client-side `submit-evidence` operation. Mutating signatures
+bind a domain separator, operation, routed authority and case or report ID, and
+every submitted field. The authority retains the full signed object it says
+entered the record. Status requires an authenticated party credential.
 
-`respond` carries later evidence as additional `EvidenceItem`s in the same
-signed shape. There is no separate client-side `submit-evidence` operation:
-splitting identical signed submissions into two methods would add transport
-surface without adding authority. An authority may represent the two actions
-separately inside its case system, but both cross this boundary as `respond`.
-
-`ReportReceipt` proves only that the authority received the report for intake.
-It does not assert that authenticity passed, that a case opened, or that the
-report will be upheld. Mutating calls are signed by the initiating identity;
-`query-status` authenticates the requesting party and reveals no more than the
-manifest's confidentiality policy allows.
-
-A `CaseResponse` or `AppealSubmission` signature binds a domain separator, the
-operation name, case ID, and every submitted field. Signing only the body while
-passing `caseId` beside it would permit replay into another case and is
-nonconforming. The same whole-object rule applies to a `Report` and its
-`reportId`.
-
-### 6.2 Authority → interface delivery
-
-| Operation | Authority object | Interface result |
-|---|---|---|
-| `serve-notice` | Signed `CaseNotice` after case opening | Notice is made available to the accused; a valid interim verdict sets `case-open`; normal operation continues |
-| `issue-verdict` | Signed terminal `Verdict` after record closure, or signed interim `open-case` verdict at case opening | Interface validates it mechanically, stores it until `executeAfter` where required, and returns the resulting case/ban display state through its gate |
-
-These are authority actions, not methods a user calls. The authority delivers
-signed objects to the interface vendor's enforcement backend; it never writes
-platform marks and never tells an app to trust an unvalidated display state.
-The app receives notices and verdict state through the interface gate. The
-reporter receives only the permitted outcome, through authenticated status or
-notification, not the accused's confidential response.
-
-### 6.3 User → interface enforcement
+### 6.2 Interface → authority registration
 
 | Operation | Input | Result |
 |---|---|---|
-| `enroll-device` | Attested device request signed by the user identity | Opaque vendor-local `deviceBinding` after existing mark state is resolved |
-| `countersign-mandate` | Exact user-signed `ModerationMandate` | Interface signature only; never a rebuilt mandate |
-| `gate-check` | Attested, identity-signed request with active mandate reference when present | `clear`, `case-open` with notices, `banned` with recourse state, or `check-required` |
+| `register-mandate` | Exact user-signed and interface-countersigned `ModerationMandate` | `MandateReceipt`, idempotent by `mandateRef` |
 
-The authority does **not** accept or countersign each user's mandate. Its
-published manifest is the offer; the user's signature accepts it, and the
-interface countersigns the exact mandate because the interface owns the
-enforcement rail. Authority designation is a separate interface-governance
-decision recorded in the interface's directory, not a per-user authority RPC.
+Registration is how a finalized mandate becomes authority jurisdiction. The
+authority does not add a signature or rebuild the object: it authenticates the
+calling interface, verifies both existing signatures, confirms that the named
+manifest artifact and classes are valid for that mandate, and stores the exact
+artifact needed to adjudicate future cases under those immutable terms.
+Designation of an authority in the interface directory remains the separate
+governance act that permits this registration relationship.
 
-All three facets follow the manifest's windows. A blown decision deadline is a
-dismissal, not an extension nobody consented to. Transport bindings must
-publish endpoint discovery, authentication, canonical signed bytes, replay and
-idempotency rules, typed errors, and fixtures before claiming cross-vendor wire
-conformance; an in-process protocol or `Codable` model alone is only a seam.
+### 6.3 Authority → interface delivery
+
+| Operation | Input | Result |
+|---|---|---|
+| `deliver-verdict` | `VerdictSubmission` containing a signed interim or terminal `Verdict` and the exact consented manifest bytes | `VerdictReceipt`; validated state is queued, stored, or executed according to the enforcement profile |
+
+`issue-verdict` remains the authority's logical case action; `deliver-verdict`
+is its cross-owner wire effect. An interim `open-case` verdict makes the case
+available to the interface. At the next gate, the interface derives and serves
+the `CaseNotice` from that validated verdict and its mandate-pinned manifest,
+sets `case-open`, and leaves normal operation available. A terminal verdict
+clears or schedules marks according to §5.6. The authority never writes a
+platform mark and never sends unvalidated display state directly to the app.
+
+### 6.4 Referenced interface-enforcement profile
+
+The authority profile references, but does not version or implement, the
+interface vendor's `enroll-device`, `countersign-mandate`, and `gate-check`
+operations. Their Apple and Android bindings are defined in
+[Moderation-DeviceCheck.md](Moderation-DeviceCheck.md) §5 and
+[Moderation-Device-Recall.md](Moderation-Device-Recall.md) §5. Those profiles
+also bind `register-mandate` after countersigning and receive
+`deliver-verdict`; changing an interface-only operation versions the
+enforcement profile, not this authority profile.
+
+All facets follow the manifest's windows. A blown decision deadline is a
+dismissal, never a sweep interval in which a late ban remains possible. Each
+mutation is atomic and idempotent by its content ID: retryable delivery failure
+cannot report failure after committing an unrepeatable partial transition.
+Transport bindings publish endpoint discovery, authentication, canonical
+signed bytes, replay domains, typed errors, retry classification, and fixtures
+before claiming cross-vendor wire conformance; an in-process protocol or
+`Codable` model alone is only a seam.
 
 ## 7. Incentives
 
@@ -955,10 +1067,12 @@ silent authority forever, and no path in which silence bans anyone.
 
 ## 12. Versioning and conformance
 
-- `ModerationProfile` changes when a surface operation or mandate, report,
-  receipt, notice, response, appeal, status, verdict, or mark meaning changes;
-  violation classes are additive per authority manifest, and class definitions
-  are immutable once consented.
+- `ModerationProfile` changes when an authority surface operation or
+  mandate, report, receipt, notice, response, appeal, status, verdict, or
+  inter-service envelope meaning changes. The referenced interface-enforcement
+  profile versions its own enrollment, countersigning, gate, and mark meanings
+  independently. Violation classes are additive per authority manifest, and
+  class definitions are immutable once consented.
 - Mandates are immutable; a manifest change binds only mandates signed
   after it. Verdicts are immutable; corrections travel as reversal
   verdicts through the declared appeal path, never edits.
@@ -977,10 +1091,11 @@ silent authority forever, and no path in which silence bans anyone.
   validation (unreachability window arithmetic, logged attempt records,
   forum-rule mark disposition); decision-deadline
   default execution; expiry clearing; reversal clearing; and
-  new-holder appeal progression. Surface fixtures also cover the three
-  ownership facets in §6: receipt-is-not-intake semantics, evidence folded
-  into a signed response, ordinary versus new-holder appeal, authenticated
-  status confidentiality, signed notice/verdict delivery through the gate,
+  new-holder appeal progression. Surface fixtures also cover §6:
+  receipt-is-not-a-case-opening semantics, complete evidence retention in a
+  signed response, ordinary versus attested new-holder appeal, authenticated
+  status confidentiality, idempotent mandate registration, mandate-pinned
+  manifest selection for verdict delivery, notice derivation through the gate,
   signature-only interface countersigning, replay/idempotency behavior, and
   refusal of every cross-role operation (including authority mark writes and
   authority mandate countersigning).
@@ -988,7 +1103,7 @@ silent authority forever, and no path in which silence bans anyone.
   different authors must interoperate using only published profiles and
   fixtures.
 
-## 13. Concrete implementation profiles
+## 13. Concrete implementation profiles and reference
 
 Two device-mark platform profiles accompany this boundary:
 
@@ -1005,6 +1120,28 @@ Two device-mark platform profiles accompany this boundary:
 Both platforms scope marks to the interface vendor's credentials, which
 matches this contract's rule that verdicts bind the consenting surface
 only: vendor A's marks are physically invisible to vendor B.
+
+The pending [onym-moderation authority reference
+implementation](https://github.com/onymchat/onym-moderation/pull/2) maps its
+HTTP routes to this profile as follows:
+
+| Reference route | Contract operation |
+|---|---|
+| `GET /manifest.json` | Fetch exact authority-manifest bytes; detached authenticity remains the directory binding |
+| `POST /v1/mandates` | `register-mandate` |
+| `POST /v1/reports` | `file-report` |
+| `POST /v1/cases/:caseId/respond` | `respond` |
+| `POST /v1/cases/:caseId/appeal` | `appeal` |
+| `GET /v1/cases/:caseId/status` | `query-status` |
+| authority POST to interface `/v1/verdicts` | `deliver-verdict` |
+| `POST /v1/cases/:caseId/decide` | Authority-operator command, not a cross-owner profile operation |
+
+That repository is a reference, not a source of silent normative changes.
+Until its DTOs, authentication, signature domains, immutable per-mandate
+manifest storage, deadline transactions, and idempotency match §§5–6 and the
+published fixtures, it demonstrates route decomposition rather than wire
+conformance. The current iOS client remains a typed seam with no authority
+transport, as the DeviceCheck profile records.
 
 ## 14. Acceptance criteria
 
@@ -1032,10 +1169,10 @@ The moderation seat is successfully specified when:
    reporter bounties;
 6. a banned device holder can see why, until when, and how to appeal —
    including as the device's new owner;
-7. reporter, accused, and new-holder clients can use the four
-   authority-client operations while notices and verdicts arrive only through
-   validated interface delivery, and no authority call can countersign a user
-   mandate or write a device mark;
+7. reporter, accused, and new-holder clients can use the four authority-client
+   operations; the interface can register the exact countersigned mandate;
+   notices and verdict state arrive only through validated interface delivery;
+   and no authority call can countersign a user mandate or write a device mark;
 8. a second authority and a second interface can adopt the profiles
    without coordination with the first; and
 9. the protocol remains fully usable by clients that never signed any
