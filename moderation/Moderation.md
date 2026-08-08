@@ -913,7 +913,8 @@ Two device-mark platform profiles accompany this boundary:
   code from the still-missing production enforcement backend; and
 - **[Moderation-Device-Recall.md](Moderation-Device-Recall.md)** —
   Google Play Integrity device recall: per-device recall values scoped
-  to the app, written server-side, read inside integrity verdicts.
+  to the interface vendor's Google Play developer account, written
+  server-side and read inside integrity verdicts.
 
 Both platforms scope marks to the interface vendor's credentials, which
 matches this contract's rule that verdicts bind the consenting surface

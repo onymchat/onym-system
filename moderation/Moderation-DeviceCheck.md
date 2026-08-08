@@ -50,6 +50,12 @@ backend remain requirements, not claims about deployed code.
 | Device attestation of "this app on this device" | `DCDevice.generateToken()` on the device, validated by Apple when the backend calls the API |
 | Mark persistence | Bits persist across app reinstallation as documented platform behavior; persistence across device erase and restore paths is Apple's fraud-state design intent and must be verified and disclosed per deployment (§8) |
 
+The account scope is broader than one app. To preserve the abstract contract's
+exclusive interface-vendor write boundary, a conforming deployment must either
+dedicate its Apple developer account to interfaces that share this exact bit
+contract or prove that no sibling app or backend in the account can write the
+bits. An App ID does not supply a separate moderation-bit namespace.
+
 ## 2. Ownership mapping
 
 | Component | Owner | Holds |
@@ -60,10 +66,11 @@ backend remain requirements, not claims about deployed code.
 | Moderation authority | Independent operator | Verdict signing keys; no Apple credentials, no write path |
 
 The Apple developer account credentials are the physical reason the
-abstract contract routes all mark writes through the interface: nobody
-else *can* write. The profile turns that constraint into the
-separation-of-powers the contract requires — the authority signs, the
-vendor executes, Apple stores.
+abstract contract routes all mark writes through the interface vendor:
+parties outside that account cannot write. The profile turns that constraint
+into the separation-of-powers the contract requires — the authority signs,
+the vendor executes, Apple stores — while the account-isolation rule above
+prevents a sibling app from becoming an undeclared write path.
 
 ## 3. Physical topology
 
@@ -91,17 +98,17 @@ vendor executes, Apple stores.
 
 | Bit | Abstract mark | Set when | Cleared when |
 |---|---|---|---|
-| `bit0` | `case-open` | Backend validates an interim verdict opening a case against this device's enrollment | Dismissal verdict, superseding ban verdict, decision-deadline default, or reversal |
-| `bit1` | `banned` | Backend validates a ban verdict whose `executeAfter` has arrived; a non-suspensive ban may execute before `final` becomes true | `banExpires` passes, reversal verdict, or new-holder appeal verdict |
+| `bit0` | `case-open` | Backend validates an interim verdict opening a case against this device's enrollment | Dismissal verdict, superseding ban verdict, decision-deadline default, reversal, or designation revocation |
+| `bit1` | `banned` | Backend validates a ban verdict whose `executeAfter` has arrived; a non-suspensive ban may execute before `final` becomes true | `banExpires` passes, reversal verdict, new-holder appeal verdict, or designation revocation **where no forum survives** under Moderation.md §5.7 |
 
 Profile requirements:
 
-1. bits change **only** inside the verdict-execution and
-   deadline/expiry code paths of the enforcement backend; no
-   administrative tool, support desk, or store-pressure path may touch
-   `update_two_bits` (Moderation.md §8, interface obligation 6);
+1. bits change **only** inside verdict execution and declared
+   deadline/expiry/revocation reconciliation; no
+   administrative tool, support desk, sibling-app backend, or store-pressure
+   path may touch `update_two_bits` (Moderation.md §8, interface obligation 6);
 2. every `update_two_bits` call is logged against the verdict hash (or
-   the expiry/deadline rule) that authorized it, and the log is
+   the expiry/deadline/revocation rule) that authorized it, and the log is
    auditable by the audit seat — this is the profile's substitute for a
    platform-level proof that the vendor wrote faithfully; and
 3. `last_update_time` (returned by Apple at `YYYY-MM` granularity) is
@@ -336,7 +343,7 @@ must perform the same checks before every Apple write.
    project. Conformance testing must exercise these paths and the
    deployment must disclose the result — the same caveat the Android
    sibling carries for factory reset
-   ([Moderation-Device-Recall.md](Moderation-Device-Recall.md) §8.1).
+   ([Moderation-Device-Recall.md](Moderation-Device-Recall.md) §8.4).
    Until verified, no manifest may present reset survival as
    unconditional; the abstract contract's evasion-cost rationale
    (Moderation.md §3.3) is stated with the same qualification.
@@ -392,7 +399,8 @@ deadline default, reversal); queued writes on token absence and their
 execution at the next mandated-identity session; identity-mediated
 re-linking after reinstall; routing of a bit-set device with an
 unresolvable session identity to re-identification; grace-window and
-gate-check-required degradation; and new-holder fast-track progression.
+gate-check-required degradation; developer-account sibling-app write
+isolation; and new-holder fast-track progression.
 
 ## 11. Acceptance criteria
 
@@ -410,8 +418,9 @@ This profile is successfully implemented when:
 3. expiry, reversal, and deadline defaults clear marks with no action
    by the authority or the user beyond the passage of time and one
    token presentation;
-4. no code path outside verdict execution and reconciliation can reach
-   `update_two_bits`, and the write log accounts for every call; and
+4. no code path outside verdict execution and reconciliation — including a
+   sibling app or its backend — can reach `update_two_bits`, and the write log
+   accounts for every call; and
 5. a second interface vendor can implement this profile against its own
    Apple account without any coordination with the first, and neither
    can read or write the other's bits.
