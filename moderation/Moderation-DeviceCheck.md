@@ -63,10 +63,10 @@ The table instantiates this signed enforcement-profile object:
   "profileId": "onym:moderation-enforcement-profile:apple-devicecheck-v1",
   "platform": "apple-devicecheck",
   "bindings": {
-    "enroll-device": {"requestSchema": "onym-moderation-apple-devicecheck-enrollment-request-v1", "resultSchema": "onym-moderation-device-enrollment-v1"},
-    "countersign-mandate": {"requestSchema": "onym-moderation-mandate-v1", "resultSchema": "onym-moderation-interface-signature-v1"},
+    "enroll-device": {"requestSchema": "onym-moderation-apple-devicecheck-enrollment-request-v1", "resultSchema": "onym-moderation-apple-devicecheck-device-enrollment-v1"},
+    "countersign-mandate": {"requestSchema": "onym-moderation-mandate-v1", "resultSchema": "onym-moderation-apple-devicecheck-interface-signature-v1"},
     "register-mandate": {"requestSchema": "onym-moderation-mandate-v1", "resultSchema": "onym-moderation-mandate-receipt-v1"},
-    "gate-check": {"requestSchema": "onym-moderation-apple-devicecheck-gate-request-v1", "resultSchema": "onym-moderation-gate-result-v1"},
+    "gate-check": {"requestSchema": "onym-moderation-apple-devicecheck-gate-request-v1", "resultSchema": "onym-moderation-apple-devicecheck-gate-result-v1"},
     "deliver-verdict": {"requestSchema": "onym-moderation-verdict-submission-v1", "resultSchema": "onym-moderation-verdict-receipt-v1"}
   },
   "caseNoticeSchema": "onym-moderation-apple-devicecheck-case-notice-v1",
@@ -250,9 +250,9 @@ Because tokens are unlinkable, the profile is explicit about what needs
 linkage and what does not:
 
 - **Reading is stateless.** The bits are the sole state the refusal
-  decision consults: any fresh token can be queried, and a set `bit1`
-  refuses service regardless of whether the backend can resolve the
-  enrollment. This is what survives reinstall.
+  decision consults: any fresh token can be queried. A set `bit1` refuses
+  service regardless of whether the backend can resolve the enrollment. This
+  is what survives reinstall.
 - **Writing and reconciliation are session-mediated.** Every gate check
   runs inside a session authenticated by an identity key (mandate
   signing, launch, notice delivery). The (identity signature, device
@@ -265,10 +265,10 @@ linkage and what does not:
   bits are set but whose session identity resolves to no active verdict
   (fresh identity after a wipe, or a new device holder) is shown the
   re-identification path: the ban UX displays the governing verdict
-  when the session resolves one, and otherwise the authority's
-  new-holder/re-identification procedure, whose outcome is a reversal
-  verdict (clearing the bits) or a confirmation that names the holder's
-  session identity and restores linkage.
+  when the session resolves one. Otherwise it displays the authority's
+  new-holder/re-identification procedure, whose outcome is a reversal verdict
+  (clearing the bits) or a confirmation that names the holder's session
+  identity and restores linkage.
 
 Profile requirement — offline and gate-evasion window: the gate check
 runs at launch and at least once per declared interval (default `P1D`)
@@ -355,7 +355,7 @@ backend performs the same checks before every Apple write.
 | Clean state | 200 "bit state not found" on query | Treat as both marks clear |
 | Token invalid | `validate_device_token` failure / 401 on query | Re-request token from app; repeated failure → gate-check-required state |
 | Rate limited | 429 | Backoff; gate checks serve last reconciled state within grace window |
-| `new_holder_claim` | Holder asserts device transfer | No iOS transport is wired; the reference Authority always acknowledges, optionally records against a ban, and a moderator may later issue a reversal |
+| `new_holder_claim` | Holder asserts device transfer | Route to the manifest-declared new-holder procedure; validate and execute its resulting reversal or confirmation through the normal verdict path |
 
 ## 8. Known gaps
 

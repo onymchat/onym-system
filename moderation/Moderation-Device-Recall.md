@@ -66,10 +66,10 @@ The table instantiates this signed enforcement-profile object:
   "profileId": "onym:moderation-enforcement-profile:google-device-recall-v1",
   "platform": "google-device-recall",
   "bindings": {
-    "enroll-device": {"requestSchema": "onym-moderation-google-device-recall-enrollment-request-v1", "resultSchema": "onym-moderation-device-enrollment-v1"},
-    "countersign-mandate": {"requestSchema": "onym-moderation-mandate-v1", "resultSchema": "onym-moderation-interface-signature-v1"},
+    "enroll-device": {"requestSchema": "onym-moderation-google-device-recall-enrollment-request-v1", "resultSchema": "onym-moderation-google-device-recall-device-enrollment-v1"},
+    "countersign-mandate": {"requestSchema": "onym-moderation-mandate-v1", "resultSchema": "onym-moderation-google-device-recall-interface-signature-v1"},
     "register-mandate": {"requestSchema": "onym-moderation-mandate-v1", "resultSchema": "onym-moderation-mandate-receipt-v1"},
-    "gate-check": {"requestSchema": "onym-moderation-google-device-recall-gate-request-v1", "resultSchema": "onym-moderation-gate-result-v1"},
+    "gate-check": {"requestSchema": "onym-moderation-google-device-recall-gate-request-v1", "resultSchema": "onym-moderation-google-device-recall-gate-result-v1"},
     "deliver-verdict": {"requestSchema": "onym-moderation-verdict-submission-v1", "resultSchema": "onym-moderation-verdict-receipt-v1"}
   },
   "caseNoticeSchema": "onym-moderation-google-device-recall-case-notice-v1",

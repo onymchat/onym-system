@@ -278,6 +278,12 @@ shape rather than silently interpreting it as `surfaces`. Reusing version 1 is
 safe only because there were no deployed consumers or persisted profile
 objects. Any further incompatible change bumps the version normally.
 
+The Authority-side `Verdict.marks` vocabulary is fixed by §5.7 to exactly
+`case-open` and `banned`; it is part of `verdictSchema`, not a profile-declared
+extension point. The rejected `markStates` key mixed that abstract vocabulary
+with platform storage. Each enforcement profile instead maps the same two
+names to its own physical values through `markBindings`.
+
 ### 5.2 Authority Manifest
 
 ```json
@@ -349,10 +355,11 @@ Normative constraints:
 
 1. every class declares five terms — response window, decision deadline,
    ban term, appeal window, and appeal effect (`suspensive`: the ban does
-   not execute until `appealDeadline`; filing or pending review does not move
-   that timestamp; `non-suspensive`: the ban executes at once and appeal can
-   only reverse it). In v1, `suspensive` means a fixed pre-execution appeal
-   interval, not tolling until review completes: if review is still pending at
+   not execute until the ban verdict's `appealDeadline`, defined in §5.6 as
+   `decidedAt + appealWindow`; filing or pending review does not move that
+   timestamp; `non-suspensive`: the ban executes at once and appeal can only
+   reverse it). In v1, `suspensive` means a fixed pre-execution appeal interval,
+   not tolling until review completes: if review is still pending at
    `appealDeadline`, execution proceeds and a later successful appeal reverses
    it. A class missing any of the five terms is invalid at mandate validation;
 2. `banTerm` is `permanent` or a declared duration. A permanent term is valid
@@ -883,26 +890,34 @@ Normative constraints:
    above shows the suspensive case: decided 2026-08-18, appeal window
    to 2026-09-17, ban served to 2026-12-16. Filing an appeal records a
    human-review request but does not rewrite these immutable timestamps;
-   a later reversal clears the sanction. The
-   interface clears the banned mark at expiry on the verdict's own
-   authority, no further object needed;
+   a later reversal clears the sanction. A review-affirmation verdict under
+   constraint 5 repeats the original `banExpires` value, including its absence
+   for a permanent class, and never derives a new expiry from its later
+   `decidedAt`. The interface clears the banned mark at expiry on the verdict's
+   own authority, no further object needed;
 4. `executeAfter` makes execution timing machine-checkable: required on
    every ban verdict, it must equal `decidedAt` in a `non-suspensive`
    class and `appealDeadline` in a `suspensive` one — the example above
    shows the suspensive case, where the marks field states the target
    state and `executeAfter` says when writing it becomes conforming. A
    missing or inconsistent `executeAfter` is `verdict_invalid`; no
-   interface writes the banned mark before it;
+   interface writes the banned mark before it. A review affirmation repeats
+   the original `appealDeadline` and `executeAfter` verbatim; the timing formula
+   is checked against the original ban, not the affirmation's later
+   `decidedAt`;
 5. `final` describes the issuing authority's ordinary-review state at the
    moment this immutable verdict is signed; it never controls execution timing,
    which comes only from `executeAfter`. An `open-case` verdict is never final.
    A dismissal is final. A ban issued while ordinary appeal remains available
    or pending has `final: false`; a later verdict affirming a completed review
-   may carry `final: true`, while a reversal is a new final `dismiss` verdict.
-   External-appellate and new-holder remedies may remain available even after
-   the issuer's verdict is final. The merged reference emits initial bans with
-   `final: false` and does not issue a later finalization object merely because
-   the ordinary appeal window elapsed;
+   may carry `final: true` only when it repeats the original ban's
+   `appealDeadline`, `executeAfter`, and `banExpires` verbatim. Its later
+   `decidedAt` records the review decision but starts or extends no sanction.
+   A reversal is a new final `dismiss` verdict. External-appellate and
+   new-holder remedies may remain available even after the issuer's verdict is
+   final. The merged reference emits initial bans with `final: false` and does
+   not issue a later finalization object merely because the ordinary appeal
+   window elapsed;
 6. dismissals clear the case-open mark and are reported to the reporter
    (adjusting their track record) without disclosing the accused's
    response beyond the outcome; and
@@ -929,13 +944,15 @@ vendor's platform credentials:
 
 The interface executes verdicts mechanically:
 
-- it validates verdict shape — including the authority signature, mandate reference to
-  a mandate its user actually signed, class within the mandate, marks
-  consistent with disposition, expiry present where required, and
+- it validates verdict shape — including the authority signature and mandate
+  reference to a mandate its user actually signed, class within the mandate,
+  marks consistent with disposition, expiry present where required, and
   `executeAfter` present, consistent with the class's `appealEffect`
   (§5.6 constraint 4), and already reached — a valid ban before its
   `executeAfter` is stored, not executed, and writing its mark early is
-  nonconforming — never the verdict's wisdom;
+  nonconforming. A final affirmation must also preserve the original ban's
+  timing fields (§5.6 constraint 5). The Interface validates these mechanics,
+  never the verdict's wisdom;
 - a device whose `banned` mark is set is refused service by this interface: the
   application declines to operate and displays the verdict reference,
   authority contact, expiry, ordinary appeal path, and new-holder path. A
@@ -1076,7 +1093,7 @@ The Interface publishes and signs a platform-specific object with this shape:
   "platform": "<device-mark platform>",
   "bindings": {
     "enroll-device": {"requestSchema": "<schema ID>", "resultSchema": "<schema ID>"},
-    "countersign-mandate": {"requestSchema": "onym-moderation-mandate-v1", "resultSchema": "onym-moderation-interface-signature-v1"},
+    "countersign-mandate": {"requestSchema": "onym-moderation-mandate-v1", "resultSchema": "<platform-scoped schema ID>"},
     "register-mandate": {"requestSchema": "onym-moderation-mandate-v1", "resultSchema": "onym-moderation-mandate-receipt-v1"},
     "gate-check": {"requestSchema": "<schema ID>", "resultSchema": "<schema ID>"},
     "deliver-verdict": {"requestSchema": "onym-moderation-verdict-submission-v1", "resultSchema": "onym-moderation-verdict-receipt-v1"}
@@ -1097,6 +1114,11 @@ meaning §12 versions. Its schema ID is platform-scoped; profiles may initially
 share the field layout in §5.5 but never share a version namespace.
 `markBindings` assigns the two abstract states to platform storage without
 granting the Authority a write path.
+
+Every Interface-owned enrollment, countersignature-result, gate-result, and
+notice schema ID is platform-scoped. The mandate/mandate-receipt and
+verdict-submission/verdict-receipt schemas remain shared because the Authority
+profile owns those two cross-owner joins and registers their versions.
 
 The Apple and Android instances are defined in
 [Moderation-DeviceCheck.md](Moderation-DeviceCheck.md) §1 and
@@ -1325,13 +1347,13 @@ mandate_signed (onboarding, before any case)
             -> case_opened or joined by (accused, class)
                  -> open-case verdict delivered -> case-open mark set -> notice served at gate
                  -> new distinct joined evidence -> revised notice; response window restarts
-                    (decision deadline remains fixed; at most eight notices)
-                 -> responded (up to 32, including late) | no_response
+                    (decision deadline remains fixed)
+                 -> responded (including late) | no_response
                  -> decided within deadline
                       -> dismissed -> marks cleared -> closed
                       -> banned -> banned mark set -> [appeal?]
-                           -> ordinary appeal recorded (up to 32) -> moderator review
-                           -> new-holder claim optionally recorded (up to 8)
+                           -> ordinary appeal recorded -> moderator review
+                           -> new-holder claim recorded -> review
                            -> reversed -> dismissal verdict -> marks cleared -> closed
                            -> otherwise runs to banExpires, or forever if permanent
                  -> decision_overdue -> dismissed -> marks cleared -> closed
@@ -1438,8 +1460,8 @@ contract lifecycle.
   expiry, marks inconsistent with disposition, missing or inconsistent
   `executeAfter`, open-case verdicts carrying sanction effects or
   lacking intake reasoning or the signed fixed `decisionDeadline`);
-  suspensive versus non-suspensive appeal
-  execution including early-write refusal; revocation-trigger validation
+  suspensive versus non-suspensive appeal execution including early-write
+  refusal and affirmation timestamp preservation; revocation-trigger validation
   (exhaustive trigger selection, compromise-time clearing, unreachability
   window arithmetic, logged attempts, publication-before-write, and
   living-forum mark disposition); decision-deadline
@@ -1483,6 +1505,12 @@ main](https://github.com/onymchat/onym-moderation/tree/d08e55cc2dac8a3db90f70d34
 Apple-enforcement wire shapes. It is not a substitute for the abstract MUSTs;
 the status below makes its nonconformance explicit. Its HTTP routes map as
 follows:
+
+Those merged builds predate the first usable v1 definition in §12. Their
+legacy objects are implementation evidence, not wire-compatible
+`consent-bound-v1` merely because they carry the same version string;
+validators must reject them whenever required `surfaces`, mandate pins, signed
+fixed deadlines, or other current fields are absent.
 
 | Reference route | Contract operation |
 |---|---|
@@ -1542,7 +1570,8 @@ The moderation seat is successfully specified when:
    permanent term), execution timestamp, or appeal path executes at any
    conforming interface, and no interim `open-case` verdict lacking a
    mandate, its intake reasoning, or its signed fixed `decisionDeadline` sets
-   the case-open mark;
+   the case-open mark; no review affirmation extends the original execution or
+   expiry horizon;
 4. open cases dismiss and clear on fixed decision deadlines even if the
    Authority never returns; a dead or compromised designation follows §5.7's
    bounded, audit-attestable forum rule;
@@ -1552,15 +1581,15 @@ The moderation seat is successfully specified when:
 6. a banned device holder receives the governing verdict, authority contact,
    duration, ordinary appeal path, and new-holder path at the gate;
 7. reporters can file reports and query cases to which they are attached;
-   accused users can respond, appeal, and query status; new holders can invoke
-   the declared remedy without the former holder's key; the Authority accepts
-   exact countersigned mandate registration, including its authenticated
-   enforcement-profile pin;
-   notices and verdict state arrive only through validated interface delivery;
-   and no authority call can countersign a user mandate or write a device mark;
-8. a second authority and a second interface can adopt the profiles
+8. accused users can respond, appeal, and query status, while new holders can
+   invoke the declared remedy without the former holder's key;
+9. the Authority accepts exact countersigned mandate registration, including
+   its authenticated enforcement-profile pin;
+10. notices and verdict state arrive only through validated Interface delivery,
+    and no Authority call can countersign a user mandate or write a device mark;
+11. a second Authority and a second Interface can adopt the profiles
    without coordination with the first; and
-9. the protocol remains fully usable by clients that never signed any
+12. the protocol remains fully usable by clients that never signed any
    mandate, and every document in this seat says so plainly.
 
 ## 15. Justification in one sentence
