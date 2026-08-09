@@ -46,7 +46,7 @@ a requirement, not a claim about deployed behavior; §9 records that boundary.
 | Abstract concept | Device recall mapping |
 |---|---|
 | Enforcement profile | `onym:moderation-enforcement-profile:google-device-recall-v1`, version 1 |
-| Gate notice schema | `onym-moderation-case-notice-v1` |
+| Gate notice schema | `onym-moderation-google-device-recall-case-notice-v1` |
 | Device-mark platform | Google Play Integrity API, device recall (beta) |
 | Mark scope (per interface vendor) | Three values are per device **per Google Play developer account**. Every app in that account can access the same values; they are not isolated by package name or linked Cloud project |
 | `case-open` mark | `bitFirst` |
@@ -72,7 +72,7 @@ The table instantiates this signed enforcement-profile object:
     "gate-check": {"requestSchema": "onym-moderation-google-device-recall-gate-request-v1", "resultSchema": "onym-moderation-gate-result-v1"},
     "deliver-verdict": {"requestSchema": "onym-moderation-verdict-submission-v1", "resultSchema": "onym-moderation-verdict-receipt-v1"}
   },
-  "caseNoticeSchema": "onym-moderation-case-notice-v1",
+  "caseNoticeSchema": "onym-moderation-google-device-recall-case-notice-v1",
   "markBindings": {"case-open": "bitFirst", "banned": "bitSecond"},
   "specification": "<content-address-of-this-profile-specification>"
 }

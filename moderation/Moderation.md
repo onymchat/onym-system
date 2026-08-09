@@ -244,7 +244,9 @@ Authority never returns.
   "reportSchema": "onym-moderation-report-v1",
   "reportReceiptSchema": "onym-moderation-report-receipt-v1",
   "caseResponseSchema": "onym-moderation-case-response-v1",
+  "caseResponseReceiptSchema": "onym-moderation-case-response-receipt-v1",
   "appealSchema": "onym-moderation-appeal-v1",
+  "appealReceiptSchema": "onym-moderation-appeal-receipt-v1",
   "caseStatusSchema": "onym-moderation-case-status-v1",
   "verdictSchema": "onym-moderation-verdict-v1",
   "verdictSubmissionSchema": "onym-moderation-verdict-submission-v1",
@@ -555,9 +557,14 @@ Authority inherits merely by implementing these DTOs.
 `ReportReceipt` is the reference authority's actual filing result: every valid
 report opens or joins a case immediately, so the receipt names that case and
 its current deadlines and exposes the authority-local `intakeWeight`. It does
-not assert merit. An exact-byte retry returns the same case and deadlines with
-`"duplicate": true` and omits `intakeWeight`; reusing `(reporter, reportId)`
-for different raw bytes is refused as an attempted rewrite.
+not assert merit. `receivedAt` is only the receipt audit timestamp; it does not
+anchor either window. `responseDeadline` reports the value derived from the
+governing open-case verdict's signed `decidedAt`, and `decisionDeadline`
+reports that verdict's signed fixed timestamp. The equal seconds in the example
+are a possible atomic commit, not a derivation rule. An exact-byte retry returns
+the same case and deadlines with `"duplicate": true` and omits
+`intakeWeight`; reusing `(reporter, reportId)` for different raw bytes is
+refused as an attempted rewrite.
 
 There is at most one open case per `(accused, classId)`. A later valid report
 joins it. Byte-identical evidence is attached without another notice; distinct
@@ -598,6 +605,17 @@ counter-evidence item's proof must verify against the accused key.
 ```json
 {
   "caseId": "case-<random-id>",
+  "recorded": true,
+  "late": false
+}
+```
+
+`CaseResponseReceipt` is the versioned result of `respond`; `late` reports how
+the Authority classified the stored response and does not erase it.
+
+```json
+{
+  "caseId": "case-<random-id>",
   "kind": "appeal | new-holder-claim",
   "statement": "<grounds for review>",
   "signature": "<accused signature for appeal; ignored for new-holder-claim>"
@@ -608,6 +626,18 @@ counter-evidence item's proof must verify against the accused key.
 canonical bytes for an ordinary appeal, whose signature must verify against the
 accused identity. Ordinary appeals are accepted only against a ban, within its
 appeal window; the merged reference bounds them to 32 filings per case.
+
+```json
+{
+  "caseId": "case-<random-id>",
+  "filed": true,
+  "kind": "appeal | new-holder-claim",
+  "note": "<non-sensitive filing status>"
+}
+```
+
+`AppealReceipt` is the versioned result of `appeal`. Its indistinguishable
+new-holder response must not reveal whether the named case or ban exists.
 
 A `new-holder-claim` is intentionally unauthenticated in the reference
 authority: that service does not possess a device-holder proof. It returns the
@@ -738,7 +768,7 @@ deliberately collapse missing objects and failed credentials to `not_found`.
   "accused": "onym:key:<accused-identity>",
   "mandateRef": "<hash-of-accused's-mandate>",
   "classId": "unsolicited-pornography",
-  "evidenceSummary": "<hash: the disclosed items the case rests on>",
+  "evidenceSummary": "<content-address: verified intake basis in verdict.reasoning>",
   "responseDeadline": "2026-08-13T00:00:00Z",
   "decisionDeadline": "2026-08-20T00:00:00Z",
   "signature": "<authority-signature-on-governing-open-case-verdict>"
@@ -771,6 +801,11 @@ original notice to survive unordered or permanently failed delivery. A joined
 report with new evidence issues a revised open-case verdict whose `decidedAt`
 restarts only the response window; its signed `decisionDeadline` never moves.
 
+`evidenceSummary` is the notice name for that exact signed intake-basis value,
+not a second hash or a summary invented by the Interface. Because a notice is
+projected only from `open-case`, its source is §5.6 constraint 7 intake
+reasoning; terminal findings are never projected into this field.
+
 **Merged-reference status.** The current Authority verdict omits the fixed
 `decisionDeadline`, and the Apple gate derives both displayed deadlines from
 the latest governing verdict. After a revised notice it can therefore promise
@@ -798,14 +833,34 @@ beyond displaying the case's existence to the device holder.
   "accusedKeys": ["onym:key:<accused-identity>"],
   "deviceBinding": "<platform-scoped-device-reference>",
   "classId": "unsolicited-pornography",
-  "disposition": "open-case | dismiss | ban",
+  "disposition": "ban",
   "marks": {"case-open": false, "banned": true},
   "banExpires": "2026-12-16T00:00:00Z",
   "executeAfter": "2026-09-17T00:00:00Z",
   "reasoning": "<content-address: findings against the consented class definition>",
   "appealDeadline": "2026-09-17T00:00:00Z",
-  "decisionDeadline": "<fixed timestamp; required on open-case, omitted on terminal>",
   "decidedAt": "2026-08-18T00:00:00Z",
+  "signature": "<authority-signature>",
+  "final": false
+}
+```
+
+That is a terminal ban. The same schema has this distinct interim shape:
+
+```json
+{
+  "verdictVersion": 1,
+  "caseId": "<same-id>",
+  "authority": "onym:component:<authority-id>",
+  "mandateRef": "<hash-of-accused's-mandate>",
+  "accusedKeys": ["onym:key:<accused-identity>"],
+  "deviceBinding": "<platform-scoped-device-reference>",
+  "classId": "unsolicited-pornography",
+  "disposition": "open-case",
+  "marks": {"case-open": true, "banned": false},
+  "reasoning": "<content-address: verified intake basis>",
+  "decisionDeadline": "2026-08-20T00:00:00Z",
+  "decidedAt": "2026-08-06T00:00:00Z",
   "signature": "<authority-signature>",
   "final": false
 }
@@ -936,11 +991,11 @@ orders same-case causality by the signed, parsed `decidedAt` rather than arrival
 time, gives a terminal verdict precedence at an equal timestamp, and ignores a
 late-arriving object already superseded by a newer case decision. A dismissal
 clears only its own case; other open cases and bans continue to contribute to
-the two aggregate bits. Each Apple write log entry stores that provenance in
-`authorized_by`: normally the governing `verdictRef`, or `expiry` for expiry
-reconciliation. The audit response exposes it as `authorizedBy` alongside the
-requested aggregate state, write outcome, and the previous/current hashes in
-the tamper-evident chain.
+the two aggregate bits. Every enforcement profile records the provenance of
+each platform write: the governing verdict reference or declared clearing
+rule, requested aggregate state, write outcome, and tamper-evident chain
+position. Field names and clearing-rule sentinels belong to the platform
+profile rather than this abstract rail.
 
 ## 6. Authority contract surfaces
 
@@ -953,8 +1008,8 @@ mandate rather than inlined into the Authority operations.
 | Operation | Input | Result |
 |---|---|---|
 | `file-report` | Signed `Report` with authenticity proofs | `ReportReceipt` naming the opened/joined case, current deadlines, and intake weight; not a merits decision |
-| `respond` | Routed case ID + signed `CaseResponse` containing the same case ID | `{caseId, recorded, late}` or a typed refusal |
-| `appeal` | Routed case ID + `AppealSubmission` containing the same case ID | `{caseId, filed, kind, note}`; ordinary appeals are authenticated, new-holder claims deliberately are not |
+| `respond` | Routed case ID + signed `CaseResponse` containing the same case ID | `CaseResponseReceipt` or a typed refusal |
+| `appeal` | Routed case ID + `AppealSubmission` containing the same case ID | `AppealReceipt`; ordinary appeals are authenticated, new-holder claims deliberately are not |
 | `query-status` | Case ID + fresh party-signature headers, or moderator bearer token | The concrete `CaseStatus` in §5.4.1 |
 
 The client selects the implementation for the authority named by the active
@@ -1026,7 +1081,7 @@ The Interface publishes and signs a platform-specific object with this shape:
     "gate-check": {"requestSchema": "<schema ID>", "resultSchema": "<schema ID>"},
     "deliver-verdict": {"requestSchema": "onym-moderation-verdict-submission-v1", "resultSchema": "onym-moderation-verdict-receipt-v1"}
   },
-  "caseNoticeSchema": "onym-moderation-case-notice-v1",
+  "caseNoticeSchema": "<platform-scoped CaseNotice schema ID>",
   "markBindings": {"case-open": "<platform value>", "banned": "<platform value>"},
   "specification": "<content-addressed-platform-specification>"
 }
@@ -1038,7 +1093,8 @@ authenticates the exact response bytes. The mandate signs the profile ID and
 version after the client authenticates that object; a given pair is immutable.
 The `bindings` map registers every operation and request/result schema at the
 integration boundary. `caseNoticeSchema` attaches the gate projection whose
-meaning §12 versions.
+meaning §12 versions. Its schema ID is platform-scoped; profiles may initially
+share the field layout in §5.5 but never share a version namespace.
 `markBindings` assigns the two abstract states to platform storage without
 granting the Authority a write path.
 
@@ -1366,7 +1422,8 @@ contract lifecycle.
   after it. Verdicts are immutable; corrections travel as reversal
   verdicts through the declared appeal path, never edits.
 - Cross-platform fixtures cover: Authority-profile validation (required
-  `surfaces` and rejection of the old `operations`/`markStates` shape);
+  `surfaces`, request/receipt schema IDs for every operation, and rejection of
+  the old `operations`/`markStates` shape);
   enforcement-profile validation (authenticated immutable ID/version, complete
   operation/schema registry, `CaseNotice` registration, and mark bindings);
   mandate validation (manifest hash or enforcement-profile pin mismatch,

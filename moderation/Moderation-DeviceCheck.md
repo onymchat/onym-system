@@ -44,7 +44,7 @@ production deployment or credentials.
 | Abstract concept | DeviceCheck mapping |
 |---|---|
 | Enforcement profile | `onym:moderation-enforcement-profile:apple-devicecheck-v1`, version 1 |
-| Gate notice schema | `onym-moderation-case-notice-v1` |
+| Gate notice schema | `onym-moderation-apple-devicecheck-case-notice-v1` |
 | Device-mark platform | Apple DeviceCheck service |
 | Mark scope (per interface vendor) | Bits are per device **per Apple developer account** — vendor A's bits are invisible to vendor B, matching Moderation.md §13 |
 | `case-open` mark | `bit0` |
@@ -69,7 +69,7 @@ The table instantiates this signed enforcement-profile object:
     "gate-check": {"requestSchema": "onym-moderation-apple-devicecheck-gate-request-v1", "resultSchema": "onym-moderation-gate-result-v1"},
     "deliver-verdict": {"requestSchema": "onym-moderation-verdict-submission-v1", "resultSchema": "onym-moderation-verdict-receipt-v1"}
   },
-  "caseNoticeSchema": "onym-moderation-case-notice-v1",
+  "caseNoticeSchema": "onym-moderation-apple-devicecheck-case-notice-v1",
   "markBindings": {"case-open": "bit0", "banned": "bit1"},
   "specification": "<content-address-of-this-profile-specification>"
 }
@@ -318,6 +318,13 @@ On receiving a verdict from the designated authority, the backend:
 **Merged-reference gap.** Authority-signature failure is enforced only when
 the deployment enables the reference service's signature-enforcement switch;
 it defaults off. This deployment setting does not weaken requirement 1.
+
+The concrete Rust/Apple write log stores the abstract provenance field as
+`authorized_by`: normally the governing `verdictRef`, or `expiry` for expiry
+reconciliation. Its audit response exposes `authorizedBy` with the requested
+aggregate state, write outcome, and previous/current hashes in the
+tamper-evident chain. These names and the `expiry` sentinel are specific to
+this profile.
 
 Clearing on expiry, a delivered dismissal/reversal, or another declared default
 requires a live device token, which the banned app cannot always supply (the
