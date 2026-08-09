@@ -55,6 +55,31 @@ production deployment or credentials.
 | Device attestation of "this app on this device" | `DCDevice.generateToken()` on the device, validated by Apple when the backend calls the API |
 | Mark persistence | Bits persist across app reinstallation as documented platform behavior; persistence across device erase and restore paths is Apple's fraud-state design intent and must be verified and disclosed per deployment (§8) |
 
+The table instantiates this signed enforcement-profile object:
+
+```json
+{
+  "profileVersion": 1,
+  "profileId": "onym:moderation-enforcement-profile:apple-devicecheck-v1",
+  "platform": "apple-devicecheck",
+  "bindings": {
+    "enroll-device": {"requestSchema": "onym-moderation-apple-devicecheck-enrollment-request-v1", "resultSchema": "onym-moderation-device-enrollment-v1"},
+    "countersign-mandate": {"requestSchema": "onym-moderation-mandate-v1", "resultSchema": "onym-moderation-interface-signature-v1"},
+    "register-mandate": {"requestSchema": "onym-moderation-mandate-v1", "resultSchema": "onym-moderation-mandate-receipt-v1"},
+    "gate-check": {"requestSchema": "onym-moderation-apple-devicecheck-gate-request-v1", "resultSchema": "onym-moderation-gate-result-v1"},
+    "deliver-verdict": {"requestSchema": "onym-moderation-verdict-submission-v1", "resultSchema": "onym-moderation-verdict-receipt-v1"}
+  },
+  "caseNoticeSchema": "onym-moderation-case-notice-v1",
+  "markBindings": {"case-open": "bit0", "banned": "bit1"},
+  "specification": "<content-address-of-this-profile-specification>"
+}
+```
+
+Sections 4–6 define the registered schema and mark meanings. The Interface
+directory authenticates this object as Moderation.md §6.4 requires, and the
+signed mandate pins its ID/version pair. Reissuing that pair with different
+bindings is nonconforming.
+
 The account scope is broader than one app. To preserve the abstract contract's
 exclusive interface-vendor write boundary, a conforming deployment must either
 dedicate its Apple developer account to interfaces that share this exact bit
@@ -156,7 +181,7 @@ The device enrollment then proceeds:
    calls `query_two_bits` as required, and returns an opaque vendor-local
    `deviceBinding`;
 4. the client builds and signs the mandate from its retained reviewed
-   artifact and that binding;
+   artifact and that binding, including this enforcement-profile ID/version;
 5. the backend returns only its detached countersignature. The client
    appends that signature to its own mandate, so the countersigning
    round-trip cannot replace authority, classes, hash, user, or binding; and
@@ -331,11 +356,10 @@ backend performs the same checks before every Apple write.
    device resale and hand-me-downs by design. The abstract contract's
    new-holder claim is the mitigation, but the reference endpoint cannot
    authenticate ownership and its eight storage slots are exhaustible. It also
-   depends on the new holder encountering the ban UX and acting; a friendlier
-   detection
-   heuristic (e.g., fresh mandate signature from an unrelated identity
-   on a banned device fast-tracks the new-holder path) is a profile
-   requirement not yet implemented anywhere.
+   depends on the new holder encountering the ban UX and acting. A friendlier
+   detection heuristic (for example, a fresh mandate signature from an
+   unrelated identity on a banned device fast-tracks the new-holder path) is a
+   profile requirement not yet implemented anywhere.
 2. **Two bits, month-granular timestamp.** The platform cannot store
    verdict references, expiries, or class information; all real state
    lives in the vendor backend, and the bits are a cache of its

@@ -167,11 +167,11 @@ reincarnation. Platform device marks survive app reinstallation and are
 designed by the platform vendors to survive device resets — a
 persistence claim each implementation profile must verify and disclose
 rather than assume — making the cheapest reliable evasion path cost a
-physical device. That is also why the sanction is grave: a device mark punishes hardware
-that may later carry a different, innocent person. The contract answers
-with the tightest bounds in this repository — declared durations, mandatory
-appeal and new-holder review, and a dismissal default that does not depend on a
-silent Authority returning.
+physical device. That is also why the sanction is grave: a device mark
+punishes hardware that may later carry a different, innocent person. The
+contract answers with the tightest bounds in this repository — declared
+durations, mandatory appeal and new-holder review, and a dismissal default that
+does not depend on a silent Authority returning.
 
 ### 3.4 Evidence must not become surveillance
 
@@ -239,8 +239,6 @@ Authority never returns.
       "deliver-verdict"
     ]
   },
-  "interfaceEnforcementProfileId": "onym:moderation-enforcement-profile:<platform-binding>-v1",
-  "interfaceEnforcementProfileVersion": 1,
   "mandateSchema": "onym-moderation-mandate-v1",
   "mandateReceiptSchema": "onym-moderation-mandate-receipt-v1",
   "reportSchema": "onym-moderation-report-v1",
@@ -263,16 +261,14 @@ This is the profile an authority implements and its manifest references.
 interface countersigns it. `authorityToInterface` delivers signed interim and
 terminal verdicts to the enforcement rail. Device enrollment, mandate
 countersigning, gate checks, mark writes, and app gating are not operations in
-this authority profile: they belong to the separately versioned and explicitly
-pinned `interfaceEnforcementProfileId` plus
-`interfaceEnforcementProfileVersion` implemented by the interface vendor.
-Sharing a deployment or transport never erases which key and role authorize
-an operation.
-The enforcement-profile ID is platform-scoped: an Apple DeviceCheck binding
-and a Google device-recall binding never share an ID merely because they map
-to the same abstract marks. `CaseNotice` belongs to the referenced enforcement
-profile because it is a gate projection produced by the interface, not an
-object crossing an authority wire. The earlier monolithic
+this authority profile: they belong to the separately versioned enforcement
+profile implemented by the interface vendor and selected by each signed
+mandate. One Authority profile can therefore serve Apple and Android
+Interfaces without pretending their platform bindings are the same. Sharing a
+deployment or transport never erases which key and role authorize an
+operation. `CaseNotice` belongs to the mandate-pinned enforcement profile
+because it is a gate projection produced by the interface, not an object
+crossing an authority wire. The earlier monolithic
 `operations`/`markStates` shape was an undeployed, unpersisted draft. This
 replacement is wire-incompatible with that draft even
 though it retains `consent-bound-v1`/version 1; validators must reject the old
@@ -351,10 +347,12 @@ Normative constraints:
 
 1. every class declares five terms — response window, decision deadline,
    ban term, appeal window, and appeal effect (`suspensive`: the ban does
-   not execute until `appealDeadline`; filing an appeal does not move that
-   timestamp; `non-suspensive`: the ban executes at once and appeal can only
-   reverse it); a class missing any of them is invalid at mandate
-   validation;
+   not execute until `appealDeadline`; filing or pending review does not move
+   that timestamp; `non-suspensive`: the ban executes at once and appeal can
+   only reverse it). In v1, `suspensive` means a fixed pre-execution appeal
+   interval, not tolling until review completes: if review is still pending at
+   `appealDeadline`, execution proceeds and a later successful appeal reverses
+   it. A class missing any of the five terms is invalid at mandate validation;
 2. `banTerm` is `permanent` or a declared duration. A permanent term is valid
    only where the class definition justifies it and `appellate` names a
    well-formed, non-empty `onym:component:` reference to an authority other than
@@ -407,6 +405,8 @@ Signed by the user at onboarding, countersigned by the interface:
   "mandateVersion": 1,
   "user": "onym:key:<user-identity>",
   "interface": "onym:component:<interface-id>",
+  "interfaceEnforcementProfileId": "onym:moderation-enforcement-profile:<platform-binding>-v1",
+  "interfaceEnforcementProfileVersion": 1,
   "authority": "onym:component:<authority-id>",
   "manifestHash": "<hash-of-authority-manifest-consented-to>",
   "classes": ["csam", "credible-violence", "unsolicited-pornography"],
@@ -432,9 +432,13 @@ Normative constraints:
    its types look structurally identical;
 3. the mandate binds the user only for the classes and manifest hash it
    names; manifest changes bind new mandates, never existing ones;
-4. `deviceBinding` is a platform-scoped reference (the profile defines
-   it); it lets a verdict name the device without creating a global
-   device identifier;
+4. `interfaceEnforcementProfileId` and
+   `interfaceEnforcementProfileVersion` select the exact authenticated
+   platform-binding profile published for the named Interface. The pair is
+   immutable, and the Interface verifies it against its directory entry before
+   countersigning. `deviceBinding` has the platform-scoped meaning that profile
+   defines; it lets a verdict name the device without creating a global device
+   identifier;
 5. a mandate binds one identity–device pair: a user running the
    interface on several devices signs one mandate per device, and a
    case names the mandate(s) whose devices the evidence concerns —
@@ -463,12 +467,13 @@ Normative constraints:
    verdict binds under the queued-write rules. Going dark mid-case is not a way
    to void the process.
 
-**Merged-reference status.** The Authority exposes no mandate withdrawal or
-deregistration operation. A registered mandate can therefore support new cases
-while its pinned manifest remains live. Uninstalling or ceasing gate sessions
-neither removes that jurisdiction nor clears marks and can prevent queued writes
-from reaching the hardware. The missing withdrawal operation is a conformance
-gap against constraint 8.
+**Merged-reference status.** The current iOS and Rust mandate DTOs omit the
+enforcement-profile ID/version pair, so neither side validates that pin. The
+Authority also exposes no mandate withdrawal or deregistration operation. A
+registered mandate can therefore support new cases while its pinned manifest
+remains live. Uninstalling or ceasing gate sessions neither removes that
+jurisdiction nor clears marks and can prevent queued writes from reaching the
+hardware. These are conformance gaps against constraints 4 and 8.
 
 ### 5.4 Report
 
@@ -742,7 +747,7 @@ deliberately collapse missing objects and failed credentials to `not_found`.
 
 `CaseNotice` is the interface's display projection of validated interim
 `open-case` verdicts and the mandate-pinned manifest, not a second independently
-signed authority object. Its fields have three authentication classes:
+signed authority object. Its fields have four provenance classes:
 
 - `caseId`, `authority`, `accused`, `mandateRef`, `classId`, and
   `evidenceSummary` are projections of the governing signed verdict's `caseId`,
@@ -940,8 +945,8 @@ the tamper-evident chain.
 ## 6. Authority contract surfaces
 
 The authority profile has three wire facets. The interface-enforcement profile
-is a fourth, separately owned dependency referenced by ID rather than inlined
-into the authority's versioned operations.
+is a fourth, separately owned dependency selected by ID/version in each signed
+mandate rather than inlined into the Authority operations.
 
 ### 6.1 User → authority client
 
@@ -1005,16 +1010,46 @@ the unauthenticated-development override. Transport authentication is separate
 from verdict-signature validation, whose enforcement switch currently defaults
 off.
 
-### 6.4 Referenced interface-enforcement profile
+### 6.4 Mandate-pinned interface-enforcement profile
 
-The authority profile references, but does not version or implement, the
-interface vendor's `enroll-device`, `countersign-mandate`, and `gate-check`
-operations. Their Apple and Android bindings are defined in
-[Moderation-DeviceCheck.md](Moderation-DeviceCheck.md) §5 and
-[Moderation-Device-Recall.md](Moderation-Device-Recall.md) §5. Those profiles
-also bind `register-mandate` after countersigning and receive
-`deliver-verdict`; changing an interface-only operation versions the
-enforcement profile, not this authority profile.
+The Interface publishes and signs a platform-specific object with this shape:
+
+```json
+{
+  "profileVersion": 1,
+  "profileId": "onym:moderation-enforcement-profile:<platform-binding>-v1",
+  "platform": "<device-mark platform>",
+  "bindings": {
+    "enroll-device": {"requestSchema": "<schema ID>", "resultSchema": "<schema ID>"},
+    "countersign-mandate": {"requestSchema": "onym-moderation-mandate-v1", "resultSchema": "onym-moderation-interface-signature-v1"},
+    "register-mandate": {"requestSchema": "onym-moderation-mandate-v1", "resultSchema": "onym-moderation-mandate-receipt-v1"},
+    "gate-check": {"requestSchema": "<schema ID>", "resultSchema": "<schema ID>"},
+    "deliver-verdict": {"requestSchema": "onym-moderation-verdict-submission-v1", "resultSchema": "onym-moderation-verdict-receipt-v1"}
+  },
+  "caseNoticeSchema": "onym-moderation-case-notice-v1",
+  "markBindings": {"case-open": "<platform value>", "banned": "<platform value>"},
+  "specification": "<content-addressed-platform-specification>"
+}
+```
+
+The directory entry for the Interface binds its profile URL and publisher key.
+As with the Authority manifest, a detached signature at `<profile-url>.sig`
+authenticates the exact response bytes. The mandate signs the profile ID and
+version after the client authenticates that object; a given pair is immutable.
+The `bindings` map registers every operation and request/result schema at the
+integration boundary. `caseNoticeSchema` attaches the gate projection whose
+meaning §12 versions.
+`markBindings` assigns the two abstract states to platform storage without
+granting the Authority a write path.
+
+The Apple and Android instances are defined in
+[Moderation-DeviceCheck.md](Moderation-DeviceCheck.md) §1 and
+[Moderation-Device-Recall.md](Moderation-Device-Recall.md) §1. Their enrollment,
+countersigning, and gate operations belong to the Interface. Registration and
+delivery remain the cross-owner facets already declared in the Authority
+profile; listing them here pins the schemas at those joins and does not transfer
+ownership. Changing an interface-only binding, schema, `CaseNotice`, or mark
+meaning versions the enforcement profile, not the Authority profile.
 
 All facets follow the manifest's windows. A blown decision deadline is a
 dismissal, never a sweep interval in which a late ban remains possible. Case
@@ -1314,23 +1349,27 @@ contract lifecycle.
 
 - `ModerationProfile` changes when an authority surface operation or
   mandate, report, receipt, response, appeal, status, verdict, or
-  inter-service envelope meaning changes. The referenced interface-enforcement
-  profile versions its own enrollment, countersigning, gate, `CaseNotice`, and
-  mark meanings independently. Violation classes are additive per authority manifest, and
-  class definitions are immutable once consented.
+  inter-service envelope meaning changes. The mandate-pinned
+  interface-enforcement profile versions its own enrollment, countersigning,
+  gate, `CaseNotice`, and mark meanings independently. Violation classes are
+  additive per authority manifest, and class definitions are immutable once
+  consented.
 - Version 1 has no deployed consumer or persisted profile object. Its first
-  usable definition therefore includes the `surfaces` shape and the signed
-  open-case `decisionDeadline`; earlier repository sketches are not supported
-  wire versions. Validators require `surfaces`, reject the old
-  `operations`/`markStates` keys, and require the fixed deadline on every
-  open-case verdict. Once a consumer deploys or persists this profile, every
-  further incompatible change bumps the affected profile/schema normally.
+  usable definition therefore includes the `surfaces` shape, the mandate
+  enforcement-profile pin, and the signed open-case `decisionDeadline`;
+  earlier repository sketches are not supported wire versions. Validators
+  require `surfaces`, reject the old `operations`/`markStates` keys, require the
+  mandate pin, and require the fixed deadline on every open-case verdict. Once
+  a consumer deploys or persists this profile, every further incompatible
+  change bumps the affected profile/schema normally.
 - Mandates are immutable; a manifest change binds only mandates signed
   after it. Verdicts are immutable; corrections travel as reversal
   verdicts through the declared appeal path, never edits.
-- Cross-platform fixtures cover: profile validation (required `surfaces`,
-  enforcement-profile ID/version pin, and rejection of the old
-  `operations`/`markStates` shape); mandate validation (manifest hash mismatch,
+- Cross-platform fixtures cover: Authority-profile validation (required
+  `surfaces` and rejection of the old `operations`/`markStates` shape);
+  enforcement-profile validation (authenticated immutable ID/version, complete
+  operation/schema registry, `CaseNotice` registration, and mark bindings);
+  mandate validation (manifest hash or enforcement-profile pin mismatch,
   missing class terms, directory/manifest component and operator mismatch,
   invalid detached manifest signature, user/interface signature failure,
   future `acceptedAt`, raw-bytes/decoded-fields mismatch, and a hosted manifest
@@ -1406,10 +1445,10 @@ follows:
 The implementation stores immutable mandate-pinned manifest snapshots, opens or
 joins a case for every valid report, requires every issued notice to reach the
 interface before a ban, keeps a joined case's terminal deadline fixed, and
-commits opening, renoticing, decisions, and claim review transactionally. PR #4
-adds off/advisory/autonomous local-model triage modes, consent-bound model
-profiles, a shared-token moderator panel, human appeal/new-holder review, and
-the extended `CaseStatus` assessment and claim fields in §5.4.1.
+commits opening, renoticing, decisions, and claim review transactionally.
+PR #4 adds off/advisory/autonomous local-model triage modes, consent-bound
+model profiles, a shared-token moderator panel, human appeal/new-holder review,
+and the extended `CaseStatus` assessment and claim fields in §5.4.1.
 
 The implementation gaps are equally part of its status: new-holder claims are
 unauthenticated and eight-slot exhaustible; external appellate routing,
@@ -1420,7 +1459,8 @@ forwarding are absent; current Authority verdicts omit the signed fixed
 `decisionDeadline`, and revised Apple notices derive a misleadingly late
 displayed terminal deadline; the Authority is configured for one interface
 key, delivery URL, and token; all human deciders share deployment tokens with
-no individual moderator identity; the Apple
+no individual moderator identity; current iOS and Rust mandate DTOs omit the
+enforcement-profile pin; the Apple
 service's authority-signature enforcement defaults off; numeric
 manifest/mandate/report/verdict version fields are decoded but not rejected
 when they differ from 1; Authority startup does not validate the moderation
@@ -1457,7 +1497,8 @@ The moderation seat is successfully specified when:
 7. reporters can file reports and query cases to which they are attached;
    accused users can respond, appeal, and query status; new holders can invoke
    the declared remedy without the former holder's key; the Authority accepts
-   exact countersigned mandate registration;
+   exact countersigned mandate registration, including its authenticated
+   enforcement-profile pin;
    notices and verdict state arrive only through validated interface delivery;
    and no authority call can countersign a user mandate or write a device mark;
 8. a second authority and a second interface can adopt the profiles
