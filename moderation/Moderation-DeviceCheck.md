@@ -164,7 +164,10 @@ The device enrollment then proceeds:
    authority as Moderation.md §6.2 requires. Registration is idempotent by
    `mandateRef`; failure leaves authority enrollment incomplete. The signed
    consent artifact remains immutable, but the gate must fail closed and the
-   interface must retry rather than pretending the authority has jurisdiction.
+   interface retries only transient failure. If the Authority's published
+   manifest changed, the app must present the new authenticated artifact for
+   review and obtain fresh consent/signatures rather than retrying forever or
+   substituting terms.
 
 These steps bind the abstract operation names as follows: steps 1–3 are
 `enroll-device`, steps 4–5 are `countersign-mandate`, and step 6 is

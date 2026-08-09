@@ -239,6 +239,7 @@ becomes a signed default dismissal when the Authority sweep runs.
     ]
   },
   "interfaceEnforcementProfileId": "onym:moderation-enforcement-profile:device-mark-v1",
+  "interfaceEnforcementProfileVersion": 1,
   "mandateSchema": "onym-moderation-mandate-v1",
   "mandateReceiptSchema": "onym-moderation-mandate-receipt-v1",
   "reportSchema": "onym-moderation-report-v1",
@@ -261,9 +262,10 @@ This is the profile an authority implements and its manifest references.
 interface countersigns it. `authorityToInterface` delivers signed interim and
 terminal verdicts to the enforcement rail. Device enrollment, mandate
 countersigning, gate checks, mark writes, and app gating are not operations in
-this authority profile: they belong to the separately versioned
-`interfaceEnforcementProfileId` implemented by the interface vendor. Sharing a
-deployment or transport never erases which key and role authorize an operation.
+this authority profile: they belong to the separately versioned and explicitly
+pinned `interfaceEnforcementProfileId` plus
+`interfaceEnforcementProfileVersion` implemented by the interface vendor.
+Sharing a deployment or transport never erases which key and role authorize an operation.
 `CaseNotice` belongs to the referenced enforcement profile because it is a
 gate projection produced by the interface, not an object crossing an authority
 wire. The earlier monolithic `operations`/`markStates` shape was an unpublished,
@@ -352,7 +354,8 @@ Normative constraints:
    only where the class definition justifies it and `appellate` names a
    well-formed, non-empty `onym:component:` reference to an authority other than
    the issuer. The permanent ban remains appealable there for as long as it is
-   in force, not merely during the ordinary appeal window;
+   in force, not merely during the ordinary appeal window. `appellate: self` is
+   valid only when the manifest declares no permanent class;
 3. `newHolderAppeal` is mandatory: every authority publishes how a person who
    acquires a marked device can obtain review without the former holder's key;
 4. an authority that permits model-assisted or autonomous decisions declares
@@ -387,7 +390,8 @@ when the field is present, cases are bound to it. It does enforce the concrete
 `validUntil` intake boundary: the published and
 mandate-pinned manifests must be live for registration and new case intake,
 while already-open cases continue. The missing checks and routes are
-conformance gaps; they do not relax constraints 2, 3, 4, 6, or 7.
+conformance gaps; they do not relax constraints 2, 3, 4, 6, or the
+succession/revocation requirement in constraint 7.
 
 ### 5.3 Moderation Mandate
 
@@ -440,7 +444,12 @@ Normative constraints:
    finalized mandate is registered. A signed but unregistered mandate remains
    the user's consent artifact, but the authority has no row from which it can
    verify jurisdiction and therefore refuses reports about that user. The
-   interface must retry registration and keep enrollment fail-closed; and
+   interface keeps enrollment fail-closed and retries transient registration
+   failures with the same bytes. If the Authority has published different
+   manifest bytes, that mandate can no longer register in merged v1: the
+   interface must return through authenticated manifest review, obtain fresh
+   consent, and create a new signed/countersigned mandate rather than retry
+   forever or silently substitute terms; and
 8. withdrawal is leaving the interface. It ends exposure to new cases but does
    not clear marks already set by valid verdicts, dissolve an already-open
    case, or toll its windows. Notice is constructively served when made
@@ -540,6 +549,14 @@ evidence issues a revised open-case verdict, restarts only the response window,
 and is refused once the case has emitted eight notices. The decision deadline
 fixed at initial opening never moves, and a report arriving after it is refused
 rather than reviving the case.
+
+The fixed decision deadline wins over every later procedural event. If a
+distinct join restarts the response window so that it reaches or crosses the
+decision deadline, the Authority may not truncate that response window, extend
+the terminal deadline, or ban on an incomplete record: the case dismisses at
+the fixed deadline. The same rule applies when any applicable open-case notice
+is still undelivered or has become permanently undeliverable. Notice-before-ban
+and no-late-ban therefore resolve the conflict toward dismissal.
 
 ```json
 {
@@ -695,7 +712,7 @@ Every Rust service failure uses the shared error envelope:
 The stable codes and retry meanings are listed in §10. Case-party endpoints
 deliberately collapse missing objects and failed credentials to `not_found`.
 
-### 5.5 Case Notice
+### 5.5 Case Notice and Response
 
 ```json
 {
@@ -712,12 +729,23 @@ deliberately collapse missing objects and failed credentials to `not_found`.
 }
 ```
 
-`CaseNotice` is the interface's display projection of a validated interim
-`open-case` verdict and its mandate-pinned manifest, not a second independently
-signed authority object. `signature` carries the governing verdict signature;
-the interface retains that verdict and derives the notice's authority, case,
-mandate, accused, and class from the verdict. It maps `verdict.reasoning` to
-`evidenceSummary`. It computes
+`CaseNotice` is the interface's display projection of validated interim
+`open-case` verdicts and the mandate-pinned manifest, not a second independently
+signed authority object. Its fields have three authentication classes:
+
+- `caseId`, `authority`, `accused`, `mandateRef`, `classId`, and
+  `evidenceSummary` are projections of the governing signed verdict's `caseId`,
+  `authority`, `accusedKeys`, `mandateRef`, `classId`, and `reasoning`;
+- `responseDeadline` and `decisionDeadline` are derived from signed
+  `decidedAt` values plus class windows in the exact manifest authenticated and
+  pinned by the mandate; and
+- `noticeVersion` is a constant of the pinned interface-enforcement profile,
+  not a field signed by the Authority.
+
+`signature` is the governing verdict's signature; it is **not** a detached
+signature over the serialized `CaseNotice`. The Interface must validate the
+source verdict or verdicts, mandate, and manifest, then recompute every notice
+field. It maps `verdict.reasoning` to `evidenceSummary` and computes
 `responseDeadline = governingVerdict.decidedAt + class.responseWindow`. It
 computes `decisionDeadline` from the case's
 **original** open-case verdict:
@@ -730,8 +758,9 @@ window; it never moves the terminal horizon.
 The merged Apple gate currently derives both displayed deadlines from the
 latest governing verdict, so after a revised notice it can promise a
 `decisionDeadline` later than the Authority's actual fixed deadline. That is a
-display/conformance gap, not the derivation rule. The interface must not copy a
-verdict signature onto unrelated or independently supplied notice fields.
+display/conformance gap, not the derivation rule. A consumer must never accept
+an independently supplied notice merely because its `signature` bytes validate
+as some verdict's signature.
 
 The interface serves the projection with the evidence, consented class
 definition, and response path. A response contains signed statements and
@@ -932,6 +961,15 @@ that every class is declared, and stores the exact mandate plus manifest
 snapshot needed to adjudicate future cases under those immutable terms.
 Designation of an authority in the interface directory remains the separate
 governance act that permits this registration relationship.
+
+A transient failure is retried with the identical finalized mandate. A
+manifest-hash mismatch is not transient: because merged v1 accepts only the
+currently published artifact, the interface abandons that enrollment attempt,
+presents the new authenticated manifest for review, and obtains fresh consent
+and signatures. It must not wedge indefinitely, register unseen terms, or
+rewrite the old mandate. A future profile may instead permit registration
+against a still-live archived manifest, but only with an authenticated lookup
+and explicit retention semantics.
 
 ### 6.3 Authority → interface delivery
 
@@ -1184,9 +1222,15 @@ mandate_signed (onboarding, before any case)
                  -> decision_overdue -> dismissed -> marks cleared -> closed
 ```
 
-No late ban can commit after the fixed decision deadline. Termination still
-depends on the Authority eventually running its deadline sweep and delivering
-the resulting dismissal; permanent disappearance can strand an open-case mark.
+No late ban can commit after the fixed decision deadline. **Every conforming
+path terminates:** deadline passage is dismissal, and the Interface-side
+default clears `case-open` even if the Authority never returns.
+
+**Merged-reference status.** The current Authority must eventually run its
+deadline sweep and deliver the dismissal because the Apple Interface has no
+independent default. Permanent disappearance can therefore strand
+`case-open`; that is the conformance gap described in §3.5 and §5.7, not the
+contract lifecycle.
 
 ## 11. Security and privacy invariants
 
@@ -1259,12 +1303,13 @@ the resulting dismissal; permanent disappearance can strand an open-case mark.
 - Mandates are immutable; a manifest change binds only mandates signed
   after it. Verdicts are immutable; corrections travel as reversal
   verdicts through the declared appeal path, never edits.
-- Cross-platform fixtures cover: mandate validation (manifest hash mismatch,
+- Cross-platform fixtures cover: profile validation (required `surfaces`,
+  enforcement-profile ID/version pin, and rejection of the old
+  `operations`/`markStates` shape); mandate validation (manifest hash mismatch,
   missing class terms, directory/manifest component and operator mismatch,
   invalid detached manifest signature, user/interface signature failure,
-  future `acceptedAt`, raw-bytes/decoded-fields mismatch, rejection of the old
-  `operations`/`markStates` profile shape, and a hosted manifest changing
-  between review and agreement);
+  future `acceptedAt`, raw-bytes/decoded-fields mismatch, and a hosted manifest
+  changing between review and agreement);
   report authenticity verification
   (valid proof, forged proof, proofless complaint); notice and window
   arithmetic including timezone-hostile boundaries; verdict shape

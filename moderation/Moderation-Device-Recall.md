@@ -171,7 +171,9 @@ Enrollment then proceeds:
    authority as Moderation.md §6.2 requires. Registration is idempotent by
    `mandateRef`; failure leaves authority enrollment incomplete. The signed
    consent artifact remains immutable, but the gate fails closed and retries
-   until the Authority has usable jurisdiction.
+   only transient failure. If the Authority's published manifest changed, the
+   app presents the new authenticated artifact for review and obtains fresh
+   consent/signatures rather than retrying forever or substituting terms.
 
 Steps 1–4 bind `enroll-device`, steps 5–6 bind `countersign-mandate`, and step
 7 binds `register-mandate`; the next section binds `gate-check`. Signed
