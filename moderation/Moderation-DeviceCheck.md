@@ -16,7 +16,7 @@ This document is a concrete implementation of
 [Moderation.md](Moderation.md) §5.7 (device marks and enforcement
 binding). The abstract contract remains authoritative for mandates, reports,
 cases, verdicts, obligations, and invariants. The merged
-[`onym-moderation` main](https://github.com/onymchat/onym-moderation/tree/9a5f50a80d58e7093f407a0a141c6358691ce74c)
+[`onym-moderation` main](https://github.com/onymchat/onym-moderation/tree/d08e55cc2dac8a3db90f70d3445552366b4ec9ef)
 defines the concrete v1 Rust wire and implemented lifecycle. This document
 defines the Apple platform mapping and records where that implementation falls
 short of the abstract rail.
@@ -43,7 +43,7 @@ production deployment or credentials.
 
 | Abstract concept | DeviceCheck mapping |
 |---|---|
-| Enforcement profile | `onym:moderation-enforcement-profile:device-mark-v1`, version 1 |
+| Enforcement profile | `onym:moderation-enforcement-profile:apple-devicecheck-v1`, version 1 |
 | Gate notice schema | `onym-moderation-case-notice-v1` |
 | Device-mark platform | Apple DeviceCheck service |
 | Mark scope (per interface vendor) | Bits are per device **per Apple developer account** — vendor A's bits are invisible to vendor B, matching Moderation.md §13 |
@@ -424,9 +424,9 @@ and the gate result in
 | Authority client boundary | `ModerationAuthorityClient` exposes `fileReport`, `respond` (including additional evidence), `appeal` (ordinary or new-holder), and `queryStatus`; typed request/result objects and an honest throwing stub exist, but no endpoint resolution or network transport does |
 | Authority outbound delivery | `GateCheckResult.caseOpen` carries `CaseNotice` values and `.banned` carries ban/verdict display state from the interface backend; the authority has no client-side mark-write method |
 | Mandate registration | Missing: the client appends and persists the interface countersignature but exposes no path that registers the finalized mandate with the named authority |
-| Authority reference service | [Merged `onym-moderation` main](https://github.com/onymchat/onym-moderation/tree/9a5f50a80d58e7093f407a0a141c6358691ce74c) defines the concrete v1 request/response shapes and exposes mandate registration, the four client operations, local-model triage, moderator review, verdict delivery, and a DeviceCheck backend; it remains undeployed |
+| Authority reference service | [Merged `onym-moderation` main](https://github.com/onymchat/onym-moderation/tree/d08e55cc2dac8a3db90f70d3445552366b4ec9ef) defines the concrete v1 request/response shapes and exposes mandate registration, the four client operations, local-model triage, moderator review, verdict delivery, and a DeviceCheck backend; it remains undeployed |
 | App composition | Package is linked but PR #216 does not wire onboarding, foreground checks, root gating, or ban/case UI; those integrations belong to later stack layers |
-| Authority service and Apple writes | Merged PRs #2 and #4 implement the Authority, triage/review, reconciliation, write log, and `update_two_bits` path; no production deployment exists, verdict-signature enforcement defaults off, external appellate routing is absent, and the iOS app does not call mandate registration |
+| Authority service and Apple writes | Merged work through PR #10 implements the Authority, triage/review, reconciliation, write log, and `update_two_bits` path; no production deployment exists, verdict-signature enforcement defaults off, external appellate routing is absent, and the iOS app does not call mandate registration |
 
 The iOS reviewed-manifest path is stricter than the v1 Rust reference: it
 requires a new-holder procedure and parses an external appellate for permanent

@@ -125,8 +125,9 @@ A conforming moderation authority can:
    hold the response window its manifest declares;
 5. issue a signed, reasoned `Verdict` — case opening (interim), dismissal,
    or ban — within the decision deadline;
-6. conduct the declared ordinary, external-appellate, and new-holder review
-   paths, including signed reversal verdicts; and
+6. conduct the declared ordinary and new-holder review paths, route an
+   external appeal to the separately named appellate authority, and issue
+   signed reversal verdicts for the reviews it decides; and
 7. answer authenticated status queries within its confidentiality rules and
    publish the anonymized statistics its manifest promises.
 
@@ -210,9 +211,9 @@ The interface also refuses the verdict's named identity keys on its own
 surfaces while the ban is in force.
 
 No authority case opens until the finalized mandate is registered. Marks move
-from stored verdicts; deployments must enable authority-signature enforcement,
-although the reference Apple service defaults it off. An overdue open case
-becomes a signed default dismissal when the Authority sweep runs.
+from stored, authority-authenticated verdicts. Deadline passage requires
+dismissal and clears `case-open` through the Interface-side default even if the
+Authority never returns.
 ```
 
 ## 5. Boundary objects
@@ -238,7 +239,7 @@ becomes a signed default dismissal when the Authority sweep runs.
       "deliver-verdict"
     ]
   },
-  "interfaceEnforcementProfileId": "onym:moderation-enforcement-profile:device-mark-v1",
+  "interfaceEnforcementProfileId": "onym:moderation-enforcement-profile:<platform-binding>-v1",
   "interfaceEnforcementProfileVersion": 1,
   "mandateSchema": "onym-moderation-mandate-v1",
   "mandateReceiptSchema": "onym-moderation-mandate-receipt-v1",
@@ -265,11 +266,15 @@ countersigning, gate checks, mark writes, and app gating are not operations in
 this authority profile: they belong to the separately versioned and explicitly
 pinned `interfaceEnforcementProfileId` plus
 `interfaceEnforcementProfileVersion` implemented by the interface vendor.
-Sharing a deployment or transport never erases which key and role authorize an operation.
-`CaseNotice` belongs to the referenced enforcement profile because it is a
-gate projection produced by the interface, not an object crossing an authority
-wire. The earlier monolithic `operations`/`markStates` shape was an unpublished,
-undeployed draft. This replacement is wire-incompatible with that draft even
+Sharing a deployment or transport never erases which key and role authorize
+an operation.
+The enforcement-profile ID is platform-scoped: an Apple DeviceCheck binding
+and a Google device-recall binding never share an ID merely because they map
+to the same abstract marks. `CaseNotice` belongs to the referenced enforcement
+profile because it is a gate projection produced by the interface, not an
+object crossing an authority wire. The earlier monolithic
+`operations`/`markStates` shape was an undeployed, unpersisted draft. This
+replacement is wire-incompatible with that draft even
 though it retains `consent-bound-v1`/version 1; validators must reject the old
 shape rather than silently interpreting it as `surfaces`. Reusing version 1 is
 safe only because there were no deployed consumers or persisted profile
@@ -525,6 +530,12 @@ Normative constraints:
 The remaining authority-client schemas are complete boundary objects, not
 implementation-local return types:
 
+**Adoption boundary.** The JSON field shapes and authentication/error meanings
+in this subsection are the v1 contract. Byte-exact retry identity and the
+numeric limits of 32 responses, 32 appeals, eight notices, and eight
+new-holder claims are merged-reference resource policy, not limits another
+Authority inherits merely by implementing these DTOs.
+
 ```json
 {
   "reportId": "<same random report ID>",
@@ -546,9 +557,9 @@ for different raw bytes is refused as an attempted rewrite.
 There is at most one open case per `(accused, classId)`. A later valid report
 joins it. Byte-identical evidence is attached without another notice; distinct
 evidence issues a revised open-case verdict, restarts only the response window,
-and is refused once the case has emitted eight notices. The decision deadline
-fixed at initial opening never moves, and a report arriving after it is refused
-rather than reviving the case.
+and, in the merged reference, is refused once the case has emitted eight
+notices. The decision deadline fixed at initial opening never moves, and a
+report arriving after it is refused rather than reviving the case.
 
 The fixed decision deadline wins over every later procedural event. If a
 distinct join restarts the response window so that it reaches or crosses the
@@ -591,7 +602,7 @@ counter-evidence item's proof must verify against the accused key.
 `AppealSubmission.caseId` likewise equals the routed case ID and is inside the
 canonical bytes for an ordinary appeal, whose signature must verify against the
 accused identity. Ordinary appeals are accepted only against a ban, within its
-appeal window, and are bounded to 32 filings per case.
+appeal window; the merged reference bounds them to 32 filings per case.
 
 A `new-holder-claim` is intentionally unauthenticated in the reference
 authority: that service does not possess a device-holder proof. It returns the
@@ -736,9 +747,11 @@ signed authority object. Its fields have three authentication classes:
 - `caseId`, `authority`, `accused`, `mandateRef`, `classId`, and
   `evidenceSummary` are projections of the governing signed verdict's `caseId`,
   `authority`, `accusedKeys`, `mandateRef`, `classId`, and `reasoning`;
-- `responseDeadline` and `decisionDeadline` are derived from signed
-  `decidedAt` values plus class windows in the exact manifest authenticated and
-  pinned by the mandate; and
+- `responseDeadline` is derived from the governing verdict's signed
+  `decidedAt` plus the class response window in the exact manifest
+  authenticated and pinned by the mandate;
+- `decisionDeadline` is copied from the governing verdict's signed, fixed
+  `decisionDeadline`; and
 - `noticeVersion` is a constant of the pinned interface-enforcement profile,
   not a field signed by the Authority.
 
@@ -747,20 +760,19 @@ signature over the serialized `CaseNotice`. The Interface must validate the
 source verdict or verdicts, mandate, and manifest, then recompute every notice
 field. It maps `verdict.reasoning` to `evidenceSummary` and computes
 `responseDeadline = governingVerdict.decidedAt + class.responseWindow`. It
-computes `decisionDeadline` from the case's
-**original** open-case verdict:
-`originalOpeningVerdict.decidedAt + class.decisionDeadline`. Both use the
-mandate-pinned class, and the Interface retains the delivered verdict sequence
-needed to identify the original opening. A joined report with new evidence
-issues a revised open-case verdict whose `decidedAt` restarts only the response
-window; it never moves the terminal horizon.
+copies `decisionDeadline` from the authenticated verdict. Every open-case
+revision carries the same fixed timestamp, so the Interface does not need the
+original notice to survive unordered or permanently failed delivery. A joined
+report with new evidence issues a revised open-case verdict whose `decidedAt`
+restarts only the response window; its signed `decisionDeadline` never moves.
 
-The merged Apple gate currently derives both displayed deadlines from the
-latest governing verdict, so after a revised notice it can promise a
-`decisionDeadline` later than the Authority's actual fixed deadline. That is a
-display/conformance gap, not the derivation rule. A consumer must never accept
-an independently supplied notice merely because its `signature` bytes validate
-as some verdict's signature.
+**Merged-reference status.** The current Authority verdict omits the fixed
+`decisionDeadline`, and the Apple gate derives both displayed deadlines from
+the latest governing verdict. After a revised notice it can therefore promise
+a terminal deadline later than the Authority's actual one. Both halves are a
+conformance gap against the authenticated derivation above. A consumer must
+never accept an independently supplied notice merely because its `signature`
+bytes validate as some verdict's signature.
 
 The interface serves the projection with the evidence, consented class
 definition, and response path. A response contains signed statements and
@@ -787,6 +799,7 @@ beyond displaying the case's existence to the device holder.
   "executeAfter": "2026-09-17T00:00:00Z",
   "reasoning": "<content-address: findings against the consented class definition>",
   "appealDeadline": "2026-09-17T00:00:00Z",
+  "decisionDeadline": "<fixed timestamp; required on open-case, omitted on terminal>",
   "decidedAt": "2026-08-18T00:00:00Z",
   "signature": "<authority-signature>",
   "final": false
@@ -836,7 +849,9 @@ Normative constraints:
 7. an `open-case` verdict is the interim object issued at case opening:
    its only permitted effect is `marks: {"case-open": true}`; its
    `reasoning` is required and states the intake basis — the verified
-   reports the case rests on; it carries no `banExpires`, no
+   reports the case rests on. It carries a signed `decisionDeadline` equal to
+   the case's immutable initial deadline, and every revised open-case verdict
+   repeats that exact timestamp. It carries no `banExpires`, no
    `executeAfter`, and no `appealDeadline` (the response window is the
    accused's remedy), it is never `final`, and it is superseded by the
    case's terminal verdict, including the Authority sweep's
@@ -1006,10 +1021,16 @@ dismissal, never a sweep interval in which a late ban remains possible. Case
 opening, joined notice issuance, and terminal decisions commit atomically.
 Mandates and verdicts are content-addressed; report retry identity is stricter
 and requires byte-identical raw JSON for the same `(reporter, reportId)`.
-Delivery is detached, at least once, and intentionally not single-flight:
-prompt drains and the deadline sweep may attempt the same backlog concurrently,
-relying on interface idempotency. Retryable delivery failure cannot undo the
-already committed case transition.
+Delivery is detached and at least once: an Interface must tolerate an
+identical verdict being attempted more than once. Whether an Authority
+serializes its local queue drains is not a wire-contract property. Retryable
+delivery failure cannot undo the already committed case transition.
+
+**Merged-reference status.** The current prompt drain is single-flight and
+re-arms when new work arrives, but the independent deadline sweep may overlap
+it. Interface idempotency absorbs an exact duplicate; this implementation
+detail is not required concurrency behavior for another Authority.
+
 Transport bindings publish endpoint discovery, authentication, canonical
 signed bytes, replay domains, typed errors, retry classification, and fixtures
 before claiming cross-vendor wire conformance; an in-process protocol or
@@ -1048,12 +1069,15 @@ business model this contract rejects.
 
 Reporting is free, low-friction, and consequential: decided reports update
 the reporter's authority-local track record and the resulting weight is
-returned on later filings, although it does not currently change intake.
-There is deliberately **no reporter
+returned on later filings. There is deliberately **no reporter
 bounty** — paid reporting industrializes false accusation. Track records
 are pseudonymous, local to one authority, non-transferable, and not a
 purchasable asset; the reputation policy is published so reporters know
 what their standing means.
+
+**Merged-reference status.** The Authority calculates and returns reporter
+weight but does not currently use it to gate intake, as §5.4 constraint 3
+records.
 
 ### 7.3 Why the user respects the mandate
 
@@ -1181,7 +1205,7 @@ against suspected reporters.
 | `authenticity_unverified` | Evidence intake | Item is complaint, not evidence; cannot alone support a verdict |
 | `reporter_unconsented` | Report intake | Report refused; reporting requires a mandate |
 | `no_jurisdiction` | Report intake | Accused has no currently registered mandate naming this authority, or the consented manifest expired; refused locally, with consented forwarding permitted by §5.4 constraint 5 |
-| `window_closed` | Time | Late response enters the record; late appeal or post-deadline joined report is refused with HTTP 410 |
+| `window_closed` | Time | Reference v1 records a late response; a late appeal or post-deadline joined report is refused with HTTP 410 |
 | `case_state` | Requested transition does not fit the stored case | HTTP 409; do not retry unchanged |
 | `not_found` | Missing case or failed case-party proof | HTTP 404 with the same shape to avoid an existence/party oracle |
 | `no_response` | Accused | Decide on record per manifest |
@@ -1190,7 +1214,7 @@ against suspected reporters.
 | `verdict_not_yet_valid` | Signed `decidedAt` is beyond allowed clock skew | HTTP 425; retry the same bytes later |
 | `mark_write_failed` | Platform | Retry; verdict remains valid; identity refusal applies meanwhile |
 | `appeal_filed` | Within window | Filing is recorded for human review; it does not change the immutable `executeAfter`, and only a later reversal clears the ban |
-| `new_holder_claim` | Unauthenticated claim against a case ID | Always acknowledges; stores only against a ban, bounded to eight claims |
+| `new_holder_claim` | Unauthenticated claim against a case ID | Reference v1 always acknowledges, stores only against a ban, and bounds storage to eight claims |
 | `authority_key_compromise` | Authority report or Interface determination | Clear marks set after the named compromise time; unresolved compromise escalates to the exhaustive revocation procedure in §5.7 |
 | `authority_defunct` | Manifest lapse without succession, or completed bounded-unreachability procedure | Refuse new mandates/cases; open cases dismiss; bans follow the living-forum rule and clear where no appellate survives |
 | `internal_error` | Store or invariant failure | HTTP 500; retry only after operator inspection |
@@ -1294,12 +1318,13 @@ contract lifecycle.
   profile versions its own enrollment, countersigning, gate, `CaseNotice`, and
   mark meanings independently. Violation classes are additive per authority manifest, and
   class definitions are immutable once consented.
-- This draft uses one explicit pre-publication exception: the undeployed,
-  unpersisted `operations`/`markStates` sketch was replaced before any consumer
-  existed, so the first usable `surfaces` shape retains
-  `consent-bound-v1`/version 1. It is nevertheless wire-incompatible;
-  validators distinguish it by requiring `surfaces` and rejecting the old
-  keys. This exception cannot be reused after publication or deployment.
+- Version 1 has no deployed consumer or persisted profile object. Its first
+  usable definition therefore includes the `surfaces` shape and the signed
+  open-case `decisionDeadline`; earlier repository sketches are not supported
+  wire versions. Validators require `surfaces`, reject the old
+  `operations`/`markStates` keys, and require the fixed deadline on every
+  open-case verdict. Once a consumer deploys or persists this profile, every
+  further incompatible change bumps the affected profile/schema normally.
 - Mandates are immutable; a manifest change binds only mandates signed
   after it. Verdicts are immutable; corrections travel as reversal
   verdicts through the declared appeal path, never edits.
@@ -1316,7 +1341,8 @@ contract lifecycle.
   validation at interfaces (no mandate, class outside mandate, missing
   expiry, marks inconsistent with disposition, missing or inconsistent
   `executeAfter`, open-case verdicts carrying sanction effects or
-  lacking intake reasoning); suspensive versus non-suspensive appeal
+  lacking intake reasoning or the signed fixed `decisionDeadline`);
+  suspensive versus non-suspensive appeal
   execution including early-write refusal; revocation-trigger validation
   (exhaustive trigger selection, compromise-time clearing, unreachability
   window arithmetic, logged attempts, publication-before-write, and
@@ -1330,7 +1356,7 @@ contract lifecycle.
   manifest selection for verdict delivery, notice derivation through the gate,
   joined-evidence notice dedupe/caps and fixed terminal deadlines,
   signature-only interface countersigning, UTF-8 byte-order canonicalization,
-  replay/idempotency behavior, concurrent at-least-once delivery, and
+  replay/idempotency behavior, duplicate at-least-once delivery, and
   refusal of every cross-role operation (including authority mark writes and
   authority mandate countersigning).
 - An authority, an interface, and reporter/accused clients from three
@@ -1356,8 +1382,8 @@ matches this contract's rule that verdicts bind the consenting surface
 only: vendor A's marks are physically invisible to vendor B.
 
 The merged [`onym-moderation` reference on
-main](https://github.com/onymchat/onym-moderation/tree/9a5f50a80d58e7093f407a0a141c6358691ce74c)
-(PR #2 plus PR #4) is the concrete reference for the current v1 Authority and
+main](https://github.com/onymchat/onym-moderation/tree/d08e55cc2dac8a3db90f70d3445552366b4ec9ef)
+(through PR #10) is the concrete reference for the current v1 Authority and
 Apple-enforcement wire shapes. It is not a substitute for the abstract MUSTs;
 the status below makes its nonconformance explicit. Its HTTP routes map as
 follows:
@@ -1386,14 +1412,15 @@ profiles, a shared-token moderator panel, human appeal/new-holder review, and
 the extended `CaseStatus` assessment and claim fields in §5.4.1.
 
 The implementation gaps are equally part of its status: new-holder claims are
-unauthenticated and eight-slot exhaustible; prompt backlog drains are not
-single-flight; external appellate routing, affiliation validation,
-designation-revocation, retention/deletion, statutory-reporting, statistics,
-and compromise-notification mechanisms do not exist; mandate withdrawal,
-reputation-gated intake, and consented report forwarding are absent; revised
-Apple notices derive a misleadingly late displayed terminal deadline; the
-Authority is configured for one interface key, delivery URL, and token; all human deciders
-share deployment tokens with no individual moderator identity; the Apple
+unauthenticated and eight-slot exhaustible; external appellate routing,
+affiliation validation, designation-revocation, retention/deletion,
+statutory-reporting, statistics, and compromise-notification mechanisms do not
+exist; mandate withdrawal, reputation-gated intake, and consented report
+forwarding are absent; current Authority verdicts omit the signed fixed
+`decisionDeadline`, and revised Apple notices derive a misleadingly late
+displayed terminal deadline; the Authority is configured for one interface
+key, delivery URL, and token; all human deciders share deployment tokens with
+no individual moderator identity; the Apple
 service's authority-signature enforcement defaults off; numeric
 manifest/mandate/report/verdict version fields are decoded but not rejected
 when they differ from 1; Authority startup does not validate the moderation
@@ -1417,20 +1444,20 @@ The moderation seat is successfully specified when:
 3. no ban verdict lacking a mandate, reasoning, duration (or justified
    permanent term), execution timestamp, or appeal path executes at any
    conforming interface, and no interim `open-case` verdict lacking a
-   mandate or its intake reasoning sets the case-open mark;
+   mandate, its intake reasoning, or its signed fixed `decisionDeadline` sets
+   the case-open mark;
 4. open cases dismiss and clear on fixed decision deadlines even if the
    Authority never returns; a dead or compromised designation follows §5.7's
-   bounded, audit-attestable forum rule. The merged reference's lack of an
-   independent Interface fallback and successor mechanism remains a gap;
+   bounded, audit-attestable forum rule;
 5. no conforming object or endpoint scans undisclosed content, requests keys,
    pays for a ban/case opening, offers reporter bounties, or authorizes evidence
    reuse beyond declared adjudication, retention, and lawful-reporting bounds;
 6. a banned device holder receives the governing verdict, authority contact,
-   duration, ordinary appeal path, and new-holder path at the gate. The merged
-   Apple backend's absent `appealUrl` and `newHolderUrl` are a gap;
-7. reporter, accused, and new-holder clients can use the four authority-client
-   operations; the Authority accepts exact countersigned mandate registration
-   even though no current iOS path calls it;
+   duration, ordinary appeal path, and new-holder path at the gate;
+7. reporters can file reports and query cases to which they are attached;
+   accused users can respond, appeal, and query status; new holders can invoke
+   the declared remedy without the former holder's key; the Authority accepts
+   exact countersigned mandate registration;
    notices and verdict state arrive only through validated interface delivery;
    and no authority call can countersign a user mandate or write a device mark;
 8. a second authority and a second interface can adopt the profiles

@@ -34,18 +34,18 @@ The document distinguishes:
   contract and a declared mitigation applies.
 
 The concrete Authority-side v1 wire and implemented lifecycle follow merged
-[`onym-moderation` main](https://github.com/onymchat/onym-moderation/tree/9a5f50a80d58e7093f407a0a141c6358691ce74c)
-(PRs #2 and #4). No current Onym Android code implements this profile. The existing Android
-application has no moderation domain, authenticated manifest review,
-Play Integrity token client, enforcement backend transport, gate, or device
-recall integration. Every implementation statement below is therefore a
-requirement, not a claim about deployed behavior; §9 records that boundary.
+[`onym-moderation` main](https://github.com/onymchat/onym-moderation/tree/d08e55cc2dac8a3db90f70d3445552366b4ec9ef)
+(through PR #10). No current Onym Android code implements this profile. The
+existing Android application has no moderation domain, authenticated manifest
+review, Play Integrity token client, enforcement backend transport, gate, or
+device recall integration. Every implementation statement below is therefore
+a requirement, not a claim about deployed behavior; §9 records that boundary.
 
 ## 1. Conformance declaration
 
 | Abstract concept | Device recall mapping |
 |---|---|
-| Enforcement profile | `onym:moderation-enforcement-profile:device-mark-v1`, version 1 |
+| Enforcement profile | `onym:moderation-enforcement-profile:google-device-recall-v1`, version 1 |
 | Gate notice schema | `onym-moderation-case-notice-v1` |
 | Device-mark platform | Google Play Integrity API, device recall (beta) |
 | Mark scope (per interface vendor) | Three values are per device **per Google Play developer account**. Every app in that account can access the same values; they are not isolated by package name or linked Cloud project |
