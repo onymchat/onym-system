@@ -164,7 +164,7 @@ Enrollment then proceeds:
 4. after resolving the gate outcome, the backend returns an opaque vendor-local
    `deviceBinding` only when enrollment may proceed;
 5. the client builds and signs the mandate from its retained reviewed artifact
-   and that binding; and
+   and that binding;
 6. the backend returns only its detached countersignature. It cannot replace
    mandate fields or ask the client to persist a rebuilt mandate; and
 7. the interface registers the exact finalized two-signature mandate with the named

@@ -6,7 +6,7 @@ date: 08.08.2026
 
 # Onym Moderation Authority Contract Boundary
 
-**Proposal draft 0.4 — August 2026**
+**Proposal draft 0.3 — August 2026**
 
 > A moderation authority decides published violation classes over users who
 > consented to its mandate before any case existed. Its verdicts are
@@ -441,12 +441,20 @@ Normative constraints:
    the user's consent artifact, but the authority has no row from which it can
    verify jurisdiction and therefore refuses reports about that user. The
    interface must retry registration and keep enrollment fail-closed; and
-8. the reference exposes no mandate withdrawal or deregistration operation.
-   Once registered, the mandate remains in the Authority store and can support
-   new cases while its pinned manifest is live. Uninstalling or ceasing gate
-   sessions neither revokes jurisdiction nor clears marks; it can prevent a
-   queued device write from reaching that hardware, while identity refusal and
-   case processing continue.
+8. withdrawal is leaving the interface. It ends exposure to new cases but does
+   not clear marks already set by valid verdicts, dissolve an already-open
+   case, or toll its windows. Notice is constructively served when made
+   available on the interface's declared notice path for the enrollment; an
+   absent accused proceeds on the record as `no_response`, and any resulting
+   verdict binds under the queued-write rules. Going dark mid-case is not a way
+   to void the process.
+
+**Merged-reference status.** The Authority exposes no mandate withdrawal or
+deregistration operation. A registered mandate can therefore support new cases
+while its pinned manifest remains live. Uninstalling or ceasing gate sessions
+neither removes that jurisdiction nor clears marks and can prevent queued writes
+from reaching the hardware. The missing withdrawal operation is a conformance
+gap against constraint 8.
 
 ### 5.4 Report
 
@@ -478,12 +486,12 @@ Normative constraints:
 2. the reporter discloses only items they legitimately received; an
    authority that requests broader disclosure ("send us the whole
    conversation") is nonconforming;
-3. reports are free to file — no bond, no fee — and carry weight per
-   the authority's published reputation policy: a reporter's
-   authority-local track record of upheld versus dismissed reports
-   produces the `intakeWeight` returned in the receipt. The reference
-   authority records that weight but every otherwise valid report opens or
-   joins a case; weight does not currently gate intake;
+3. reports are free to file — no bond, no fee — and carry weight per the
+   authority's published reputation policy: a reporter's authority-local track
+   record of upheld versus dismissed reports scales intake priority and, where
+   the manifest says so, may gate case opening for lesser classes. The merged
+   reference returns `intakeWeight` but every otherwise valid report opens or
+   joins a case; it does not implement the optional gate;
 4. reporter identity is visible to the authority, never to the accused
    unless the reporter consents; retaliation against inferred reporters
    is itself a violation class authorities should declare; and
@@ -493,11 +501,15 @@ Normative constraints:
    names it. Abuse arriving from a user of a different interface or
    authority is outside the reporter's authority's reach — the honest
    disposition is refusal (`no_jurisdiction`), with the reporter's
-   local remedies (blocking, filtering) remaining interface features
-   outside this seat. The reference authority has no forwarding operation. A
-   reporter may cite any still-stored mandate registered for their key, while
-   accused jurisdiction uses that user's latest active mandate; replaying an
-   older mandate does not restore broader classes.
+   local remedies (blocking, filtering) remaining interface features outside
+   this seat. With the reporter's consent, an authority may countersign and
+   forward the disclosed evidence to the accused's own authority, which treats
+   it as a report with no local track record: lowest intake weight, identical
+   authenticity verification, never an anonymous accusation. The merged
+   reference has no forwarding operation. It permits a reporter to cite any
+   still-stored mandate registered for their key, while accused jurisdiction
+   uses that user's latest active mandate; replaying an older mandate does not
+   restore broader classes.
 
 #### 5.4.1 Authority client DTOs
 
@@ -705,16 +717,21 @@ deliberately collapse missing objects and failed credentials to `not_found`.
 signed authority object. `signature` carries the governing verdict signature;
 the interface retains that verdict and derives the notice's authority, case,
 mandate, accused, and class from the verdict. It maps `verdict.reasoning` to
-`evidenceSummary`, and computes `responseDeadline = verdict.decidedAt +
-class.responseWindow` and `decisionDeadline = verdict.decidedAt +
-class.decisionDeadline` using the mandate-pinned class. A joined report with
-new evidence issues a new open-case verdict whose `decidedAt` restarts the
-response window; the authority's stored terminal decision deadline remains the
-one fixed when the case first opened. Consequently, after a revised notice the
-reference gate's displayed `decisionDeadline` can be later than the Authority's
-actual fixed deadline; this is a current reference limitation. The interface
-must not copy a verdict signature onto unrelated or independently supplied
-notice fields.
+`evidenceSummary`. It computes
+`responseDeadline = governingVerdict.decidedAt + class.responseWindow`. It
+computes `decisionDeadline` from the case's
+**original** open-case verdict:
+`originalOpeningVerdict.decidedAt + class.decisionDeadline`. Both use the
+mandate-pinned class, and the Interface retains the delivered verdict sequence
+needed to identify the original opening. A joined report with new evidence
+issues a revised open-case verdict whose `decidedAt` restarts only the response
+window; it never moves the terminal horizon.
+
+The merged Apple gate currently derives both displayed deadlines from the
+latest governing verdict, so after a revised notice it can promise a
+`decisionDeadline` later than the Authority's actual fixed deadline. That is a
+display/conformance gap, not the derivation rule. The interface must not copy a
+verdict signature onto unrelated or independently supplied notice fields.
 
 The interface serves the projection with the evidence, consented class
 definition, and response path. A response contains signed statements and
@@ -774,9 +791,16 @@ Normative constraints:
    state and `executeAfter` says when writing it becomes conforming. A
    missing or inconsistent `executeAfter` is `verdict_invalid`; no
    interface writes the banned mark before it;
-5. the reference authority emits bans with `final: false` and does not issue a
-   later finalization object merely because the appeal window elapsed. A
-   reversal on appeal is a new final `dismiss` verdict that clears marks;
+5. `final` describes the issuing authority's ordinary-review state at the
+   moment this immutable verdict is signed; it never controls execution timing,
+   which comes only from `executeAfter`. An `open-case` verdict is never final.
+   A dismissal is final. A ban issued while ordinary appeal remains available
+   or pending has `final: false`; a later verdict affirming a completed review
+   may carry `final: true`, while a reversal is a new final `dismiss` verdict.
+   External-appellate and new-holder remedies may remain available even after
+   the issuer's verdict is final. The merged reference emits initial bans with
+   `final: false` and does not issue a later finalization object merely because
+   the ordinary appeal window elapsed;
 6. dismissals clear the case-open mark and are reported to the reporter
    (adjusting their track record) without disclosing the accused's
    response beyond the outcome; and
@@ -825,14 +849,29 @@ The authority's key can sign verdicts; it can never write marks. The
 interface can write marks; it can never originate them.
 
 A compromised or absent authority cannot retain marks merely because it is the
-only party able to clear them. An interface must revoke a designation on either
-of two bounded, auditable triggers: the authority reports its own compromise
-with a compromise time, or signed status attempts remain unanswered for the
-declared unreachability window (default: twice the manifest's longest decision
-deadline). Attempts, determination, and resulting writes are logged and made
-audit-attestable. Open cases then dismiss and clear. Existing bans continue
-only while a living forum can hear a claim against them: a declared external
-appellate acts as successor-of-record; a ban with no surviving forum clears.
+only party able to clear them. An interface **must** revoke a designation on
+exactly two triggers, and on no other:
+
+1. the authority reports its own compromise and names the compromise time.
+   Marks set after that time clear immediately even if the designation itself
+   survives; or
+2. signed status queries remain unanswered for the declared bounded
+   unreachability window (default: twice the manifest's longest
+   `decisionDeadline`). Every attempt is recorded in the Interface write log,
+   and the determination is published before any mark changes.
+
+Revocation is public, disclosed, write-logged, and audit-attestable. Premature
+or pretextual revocation — including store pressure, commercial interest, or an
+interface vendor voiding its own affiliated Authority's inconvenient verdicts
+— is provable nonconformance, not a quiet switch.
+
+Its effect follows one rule:
+
+> **A mark stands only while a living forum can hear a claim against it.**
+
+Open cases dismiss and clear. Existing bans continue only while their appeal
+recourse survives: a declared external appellate acts as successor-of-record
+for appeals and new-holder claims; a ban with no surviving forum clears.
 
 **Merged-reference status.** The Apple service defaults authority-signature
 enforcement off and currently returns no `appealUrl` or `newHolderUrl`. Neither
@@ -949,7 +988,8 @@ Two conforming revenue sources exist:
 - **interface fees**: interfaces (whose distribution depends on this
   seat existing and whose users demand a habitable network) pay their
   designated authorities by flat subscription or per **report
-  adjudicated**; and
+  adjudicated** — a declined intake counts the same as a decided case, so
+  intake refusal, dismissal, and escalation do not change compensation; and
 - **foundation grants**: moderation of the gravest classes is a public
   good; the sponsor seat ([../sponsor/Sponsor.md](../sponsor/Sponsor.md))
   may fund conforming authorities so that no interface skips designating
@@ -1102,7 +1142,7 @@ against suspected reporters.
 | `class_outside_mandate` | Verdict validation | Refused; only consented classes bind |
 | `authenticity_unverified` | Evidence intake | Item is complaint, not evidence; cannot alone support a verdict |
 | `reporter_unconsented` | Report intake | Report refused; reporting requires a mandate |
-| `no_jurisdiction` | Report intake | Accused has no currently registered mandate naming this authority, or the consented manifest expired; refused |
+| `no_jurisdiction` | Report intake | Accused has no currently registered mandate naming this authority, or the consented manifest expired; refused locally, with consented forwarding permitted by §5.4 constraint 5 |
 | `window_closed` | Time | Late response enters the record; late appeal or post-deadline joined report is refused with HTTP 410 |
 | `case_state` | Requested transition does not fit the stored case | HTTP 409; do not retry unchanged |
 | `not_found` | Missing case or failed case-party proof | HTTP 404 with the same shape to avoid an existence/party oracle |
@@ -1113,7 +1153,14 @@ against suspected reporters.
 | `mark_write_failed` | Platform | Retry; verdict remains valid; identity refusal applies meanwhile |
 | `appeal_filed` | Within window | Filing is recorded for human review; it does not change the immutable `executeAfter`, and only a later reversal clears the ban |
 | `new_holder_claim` | Unauthenticated claim against a case ID | Always acknowledges; stores only against a ban, bounded to eight claims |
+| `authority_key_compromise` | Authority report or Interface determination | Clear marks set after the named compromise time; unresolved compromise escalates to the exhaustive revocation procedure in §5.7 |
+| `authority_defunct` | Manifest lapse without succession, or completed bounded-unreachability procedure | Refuse new mandates/cases; open cases dismiss; bans follow the living-forum rule and clear where no appellate survives |
 | `internal_error` | Store or invariant failure | HTTP 500; retry only after operator inspection |
+
+`authority_key_compromise` and `authority_defunct` are required contract
+signals for the §5.7 procedure. The merged services do not yet emit or consume
+them; that absence is part of the revocation conformance gap, not permission to
+substitute an untyped administrative action.
 
 Case lifecycle:
 
@@ -1121,19 +1168,20 @@ Case lifecycle:
 mandate_signed (onboarding, before any case)
   -> mandate_registered (authority jurisdiction becomes usable)
        -> report_filed (authenticity verified, reputation weight recorded)
-       -> case_opened or joined by (accused, class)
-            -> open-case verdict delivered -> case-open mark set -> notice served at gate
-            -> new distinct joined evidence -> revised notice; response window restarts
-               (decision deadline remains fixed; at most eight notices)
-            -> responded (up to 32, including late) | no_response
-            -> decided within deadline
-                 -> dismissed -> marks cleared -> closed
-                 -> banned -> banned mark set -> [appeal?]
-                      -> ordinary appeal recorded (up to 32) -> moderator review
-                      -> new-holder claim optionally recorded (up to 8)
-                      -> reversed -> dismissal verdict -> marks cleared -> closed
-                      -> otherwise runs to banExpires, or forever if permanent
-            -> decision_overdue -> dismissed -> marks cleared -> closed
+            -> intake_declined -> closed (where the manifest gates intake)
+            -> case_opened or joined by (accused, class)
+                 -> open-case verdict delivered -> case-open mark set -> notice served at gate
+                 -> new distinct joined evidence -> revised notice; response window restarts
+                    (decision deadline remains fixed; at most eight notices)
+                 -> responded (up to 32, including late) | no_response
+                 -> decided within deadline
+                      -> dismissed -> marks cleared -> closed
+                      -> banned -> banned mark set -> [appeal?]
+                           -> ordinary appeal recorded (up to 32) -> moderator review
+                           -> new-holder claim optionally recorded (up to 8)
+                           -> reversed -> dismissal verdict -> marks cleared -> closed
+                           -> otherwise runs to banExpires, or forever if permanent
+                 -> decision_overdue -> dismissed -> marks cleared -> closed
 ```
 
 No late ban can commit after the fixed decision deadline. Termination still
@@ -1202,6 +1250,12 @@ the resulting dismissal; permanent disappearance can strand an open-case mark.
   profile versions its own enrollment, countersigning, gate, `CaseNotice`, and
   mark meanings independently. Violation classes are additive per authority manifest, and
   class definitions are immutable once consented.
+- This draft uses one explicit pre-publication exception: the undeployed,
+  unpersisted `operations`/`markStates` sketch was replaced before any consumer
+  existed, so the first usable `surfaces` shape retains
+  `consent-bound-v1`/version 1. It is nevertheless wire-incompatible;
+  validators distinguish it by requiring `surfaces` and rejecting the old
+  keys. This exception cannot be reused after publication or deployment.
 - Mandates are immutable; a manifest change binds only mandates signed
   after it. Verdicts are immutable; corrections travel as reversal
   verdicts through the declared appeal path, never edits.
@@ -1218,7 +1272,10 @@ the resulting dismissal; permanent disappearance can strand an open-case mark.
   expiry, marks inconsistent with disposition, missing or inconsistent
   `executeAfter`, open-case verdicts carrying sanction effects or
   lacking intake reasoning); suspensive versus non-suspensive appeal
-  execution including early-write refusal; decision-deadline
+  execution including early-write refusal; revocation-trigger validation
+  (exhaustive trigger selection, compromise-time clearing, unreachability
+  window arithmetic, logged attempts, publication-before-write, and
+  living-forum mark disposition); decision-deadline
   default execution; expiry clearing; reversal clearing; and
   new-holder claim recording. Surface fixtures also cover §6:
   receipt-is-not-a-merits-decision semantics, exact-byte report retries,
@@ -1287,8 +1344,10 @@ The implementation gaps are equally part of its status: new-holder claims are
 unauthenticated and eight-slot exhaustible; prompt backlog drains are not
 single-flight; external appellate routing, affiliation validation,
 designation-revocation, retention/deletion, statutory-reporting, statistics,
-and compromise-notification mechanisms do not exist; the Authority is
-configured for one interface key, delivery URL, and token; all human deciders
+and compromise-notification mechanisms do not exist; mandate withdrawal,
+reputation-gated intake, and consented report forwarding are absent; revised
+Apple notices derive a misleadingly late displayed terminal deadline; the
+Authority is configured for one interface key, delivery URL, and token; all human deciders
 share deployment tokens with no individual moderator identity; the Apple
 service's authority-signature enforcement defaults off; numeric
 manifest/mandate/report/verdict version fields are decoded but not rejected

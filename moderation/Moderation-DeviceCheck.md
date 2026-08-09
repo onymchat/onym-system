@@ -156,7 +156,7 @@ The device enrollment then proceeds:
    calls `query_two_bits` as required, and returns an opaque vendor-local
    `deviceBinding`;
 4. the client builds and signs the mandate from its retained reviewed
-   artifact and that binding; and
+   artifact and that binding;
 5. the backend returns only its detached countersignature. The client
    appends that signature to its own mandate, so the countersigning
    round-trip cannot replace authority, classes, hash, user, or binding; and
@@ -272,8 +272,7 @@ On receiving a verdict from the designated authority, the backend:
    `decidedAt + appealWindow`; `executeAfter` consistent with the
    consented appeal effect; and `banExpires` equal to
    `executeAfter + banTerm` for duration classes or absent for permanent
-   classes. Signature failure is enforced only when
-   `MODERATION_ENFORCE_SIGNATURES=true`; the reference defaults it off;
+   classes;
 2. resolves `deviceBinding` to the enrollment; if the device has no
    live session, the write is queued and executes in the next session
    that presents a token together with an identity the enrollment's
@@ -288,20 +287,22 @@ On receiving a verdict from the designated authority, the backend:
    currently implements only expiry plus delivered verdicts; §8 records the
    missing independent defaults.
 
-Clearing on expiry, a delivered dismissal/reversal, or another declared default requires a live device token,
-which the banned app cannot always supply (the user may have deleted
-it). Profile requirement: the backend clears bits **lazily** — the next
-time any app install on that device presents a token, the backend
-reconciles verdict state before answering the gate check. Resolution is
-session-mediated (§5): when the session's identity resolves the
-enrollment, a conforming backend applies expiry, later dismissal/reversal, and
-deadline/revocation defaults
-directly; when it resolves nothing, the reference returns
-`checkRequired(reidentificationRequired)`. No implemented re-identification
-flow turns that state into a reversal or restored linkage. A device that never
-returns keeps stale bits in Apple's
-storage, but no conforming gate ever acts on them without
-reconciliation, so the stale state is inert.
+**Merged-reference gap.** Authority-signature failure is enforced only when
+the deployment enables the reference service's signature-enforcement switch;
+it defaults off. This deployment setting does not weaken requirement 1.
+
+Clearing on expiry, a delivered dismissal/reversal, or another declared default
+requires a live device token, which the banned app cannot always supply (the
+user may have deleted it). Profile requirement: the backend clears bits
+**lazily** — the next time any app install on that device presents a token, the
+backend reconciles verdict state before answering the gate check. Resolution is
+session-mediated (§5): when the session's identity resolves the enrollment, a
+conforming backend applies expiry, later dismissal/reversal, and
+deadline/revocation defaults directly; when it resolves nothing, the reference
+returns `checkRequired(reidentificationRequired)`. No implemented
+re-identification flow turns that state into a reversal or restored linkage. A
+device that never returns keeps stale bits in Apple's storage, but no conforming
+gate ever acts on them without reconciliation, so the stale state is inert.
 
 The iOS package provides this validation as a pure `VerdictValidator`
 returning either `execute` or `storeUntilExecuteAfter`. It compares
