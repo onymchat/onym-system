@@ -279,7 +279,17 @@ replacement is wire-incompatible with that draft even
 though it retains `consent-bound-v1`/version 1; validators must reject the old
 shape rather than silently interpreting it as `surfaces`. Reusing version 1 is
 safe only because there were no deployed consumers or persisted profile
-objects. Any further incompatible change bumps the version normally.
+objects.
+
+`upload-evidence` was added to `surfaces` under that same condition,
+which still holds: the reference is the only implementation and it ships
+the route. Recording why it did not bump the version, since the standing
+rule is that it should have. The surface is mandatory but its content is
+optional — an authority declaring no `acceptedMedia` (§5.2 constraint 9)
+conforms by refusing every upload — so no authority's *decisions* change
+under it, only its obligation to answer the route. That is the last
+change this condition is available for: with a deployed consumer, the
+same addition bumps the version.
 
 The Authority-side `Verdict.marks` vocabulary is fixed by §5.7 to exactly
 `case-open` and `banned`; it is part of `verdictSchema`, not a profile-declared
@@ -299,7 +309,7 @@ names to its own physical values through `markBindings`.
   "modelProfile": {
     "id": "gpt-oss-safeguard-20b",
     "digest": "<sha256-of-published-model-profile>",
-    "inputs": { "mediaTypes": [], "maxItemsPerRequest": 0 }
+    "inputs": { "mediaTypes": ["image/jpeg", "image/png"], "maxItemsPerRequest": 8 }
   },
   "violationClasses": [
     {
@@ -418,10 +428,24 @@ Normative constraints:
    reach the undecided outcome later. An authority whose model only advises, or
    which decides by hand, may accept it: a person can read what the model could
    not, so the case has a decider and nobody can strand it by choosing what to
-   disclose. The undecided outcome remains correct for anything already on
+   disclose.
+
+   No manifest field distinguishes those two, and none is added: whether
+   a deployment runs its model advisory or autonomous is operational
+   configuration an operator changes without republishing, and a term
+   that can move under a live mandate is not a term. What a reporter
+   reads instead is `acceptedMedia`, which is why constraint 9 forbids
+   declaring acceptance of a modality nothing will read: an authority
+   that must refuse at intake discharges this duty by not declaring the
+   modality at all, and one that declares it has committed to having a
+   decider for it. The duty is on the authority; the legible surface is
+   what it accepts, not how it decides.
+
+   The undecided outcome remains correct for anything already on
    file, but it cannot be the plan: a case that can never be decided is
    dismissed at its decision deadline, and `CaseResponse` counter-evidence is
-   held to these same rules (§6.1), so accepting unreadable evidence hands the
+   held to these same rules (§5.5), so accepting unreadable evidence
+   hands the
    accused the same acquittal the over-count rule below is written to deny
    them. Refusing at intake is the only form of this that is not choosable by a
    party to the case.
@@ -513,73 +537,99 @@ Normative constraints:
    decline legible before filing rather than discovered by being refused —
    for a modality and for a class respectively;
 10. an authority that deletes material on a schedule declares
-   `retention`.
+    `retention`.
 
-   It names five periods and a map, each a `P<n>D` **tail
-   measured from the moment the thing it governs is finished** rather
-   than a lifetime from arrival. The anchors are what make a duration
-   resolvable, so they are part of the term:
+    It names five periods and a map, each a `P<n>D` **tail
+    measured from the moment the thing it governs is finished** rather
+    than a lifetime from arrival. The anchors are what make a duration
+    resolvable, so they are part of the term:
 
-   - `unreferencedUpload` — bytes uploaded that no filing ever named,
-     from the upload. The one value that is not per case, because such an
-     upload belongs to no case and therefore to no mandate.
-   - `caseMedia` — a case's disclosed media, from the later of its appeal
-     and decision deadlines.
-   - `caseRecord` — its reports, responses, assessments and the document
-     a model read, from the same instant.
-   - `auditRecord` — its non-content events, from the same instant.
-   - `sanctionRecord` — the mandate and verdicts behind a sanction, from
-     the moment the last mark they justify expires or is cleared, and
-     never while one is in force. It must be at least as long as
-     `caseRecord` and `auditRecord`: an authority that discards the
-     mandate first loses the terms the other two are resolved from, and
-     the record it published a period for is then kept indefinitely.
-   - `preservation.<classId>.period` — from the moment the hold is
-     placed, not from the case, since the duty attaches to the material.
+    - `unreferencedUpload` — bytes uploaded that no filing ever named,
+      from the upload. The one value that is not per case, and therefore
+      the one value read from the **currently published** manifest rather
+      than from a pinned snapshot. An upload no filing named belongs to
+      no case, so there is no mandate whose terms could govern it; the
+      uploader holds a mandate, but a mandate is consent to be judged
+      under the published classes, not a contract over unclaimed bytes.
+      The consequence is real and worth naming: an authority can shorten
+      this period after a key consented, and nothing in the schedule
+      stops it. What bounds the harm is what the period can reach —
+      bytes no filing has named. The moment one does, the material is a
+      case's, every period governing it comes from that case's pinned
+      manifest, and a shortened value cannot reach anything an
+      adjudication rests on. An authority wanting this bound pinned too
+      would have to make it a term of something a mandate covers, which
+      v1 does not attempt.
+    - `caseMedia` — a case's disclosed media, from the later of its appeal
+      and decision deadlines.
+    - `caseRecord` — its reports, responses, assessments and the document
+      a model read, from the same instant.
+    - `auditRecord` — its non-content events, from the same instant.
+    - `sanctionRecord` — the mandate and verdicts behind a sanction, from
+      the moment the last mark they justify expires or is cleared, and
+      never while one is in force. It must be at least as long as
+      `caseRecord` and `auditRecord`: an authority that discards the
+      mandate first loses the terms the other two are resolved from, and
+      the record it published a period for is then kept indefinitely.
+    - `preservation.<classId>.period` — from the moment the hold is
+      placed, not from the case, since the duty attaches to the material.
 
-   A case that produced a sanction still in force takes its
-   `caseRecord` and `auditRecord` anchor from `sanctionRecord` instead of
-   from its own deadlines. Otherwise the two schedules contradict
-   constraint 2: a permanent ban is appealable for as long as it is in
-   force, and an appellate authority 400 days later would be reviewing a
-   mark whose reports, responses and events this authority had already
-   deleted on time. `caseMedia` is deliberately not extended with them —
-   the appeal is heard on the record of what was decided and why, and
-   keeping a photograph alive for the lifetime of a permanent mark is the
-   opposite of what the shortest period on the list is for.
+    A case that produced a sanction still in force takes its
+    `caseRecord` and `auditRecord` anchor from `sanctionRecord` instead of
+    from its own deadlines. Otherwise the two schedules contradict
+    constraint 2: a permanent ban is appealable for as long as it is in
+    force, and an appellate authority 400 days later would be reviewing a
+    mark whose reports, responses and events this authority had already
+    deleted on time. `caseMedia` is deliberately not extended with them —
+    the appeal is heard on the record of what was decided and why, and
+    keeping a photograph alive for the lifetime of a permanent mark is the
+    opposite of what the shortest period on the list is for.
 
-   The inline durations govern. `policy` is the human-readable document
-   those numbers are explained in, and a mandate pins the manifest, so a
-   document that disagreed with the bytes would be describing terms
-   nobody consented to. An authority publishing both must keep them
-   equal; where they diverge the manifest is what was agreed and the
-   document is what needs correcting.
+    The inline durations govern. `policy` is the human-readable document
+    those numbers are explained in, and a mandate pins the manifest, so a
+    document that disagreed with the bytes would be describing terms
+    nobody consented to. An authority publishing both must keep them
+    equal; where they diverge the manifest is what was agreed and the
+    document is what needs correcting.
 
-   A period read from
-   today's published document rather than from the one a case's accused
-   pinned is the silent substitution this constraint exists to forbid,
-   and it is worse there because the consequence is destruction rather
-   than a decision. A period that cannot be resolved for a case — a
-   missing mandate, an unparseable value — retains the material;
-   guessing at terms in order to delete is not a conforming failure
-   mode. An authority declaring no schedule deletes nothing on a timer,
-   which is a coherent position that must be published as such: a period
-   named but not enforced is the one thing worse than naming none,
-   because the people whose material it is would be relying on a
-   deletion that never happens. `preservation` names the classes an
-   authority preserves and refers. A class that declares `lawfulReporting`
-   accepts media evidence only where `preservation` also carries terms for
-   it: for those classes the absence of terms is a refusal rather than an
-   omission, because taking custody of material an authority cannot
-   retain, refer and destroy on a stated basis is a harm in itself.
-   Classes carrying no reporting duty are unaffected and accept media on
-   the ordinary rules. An absent `preservation` and an empty one mean the
-   same thing — no class is preserved — the way an absent and an empty
-   `interfaceAffiliations` both mean none. Declaring it has consequences beyond
-   this seat: an operator who is not a provider with the protections and
-   reporting relationship that role carries may commit an offence merely by
-   holding such material, and a conforming profile says so where an operator
-   will read it;
+    A period read from
+    today's published document rather than from the one a case's accused
+    pinned is the silent substitution this constraint exists to forbid,
+    and it is worse there because the consequence is destruction rather
+    than a decision. A period that cannot be resolved for a case — a
+    missing mandate, an unparseable value — retains the material;
+    guessing at terms in order to delete is not a conforming failure
+    mode. An authority declaring no schedule deletes nothing on a timer,
+    which is a coherent position that must be published as such: a period
+    named but not enforced is the one thing worse than naming none,
+    because the people whose material it is would be relying on a
+    deletion that never happens. `preservation` names the classes an
+    authority preserves and refers. A class that declares `lawfulReporting`
+    accepts media evidence only where `preservation` also carries terms for
+    it: for those classes the absence of terms is a refusal rather than an
+    omission, because taking custody of material an authority cannot
+    retain, refer and destroy on a stated basis is a harm in itself.
+    Classes carrying no reporting duty are unaffected and accept media on
+    the ordinary rules. An absent `preservation` and an empty one mean the
+    same thing — no class is preserved — the way an absent and an empty
+    `interfaceAffiliations` both mean none.
+
+    Declining media does not decline the class. Text reports under it are
+    filed, decided and appealed on the ordinary rules, and their record is
+    retained under `caseRecord` and `auditRecord` like any other case's —
+    there is no third schedule, because there is no material of a third
+    kind. §7 obligation 7 is unaffected either way: the duty is to perform
+    the reporting the class declares, on whatever the authority actually
+    holds, and a report describing material it never took custody of is
+    what it has to work from. An authority concluding it could not
+    discharge that duty on text alone would be declining the class rather
+    than the modality, and would say so by not publishing the class.
+
+    Declaring `preservation` has consequences beyond
+    this seat: an operator who is not a provider with the protections and
+    reporting relationship that role carries may commit an offence merely by
+    holding such material, and a conforming profile says so where an operator
+    will read it;
 
 
 **Merged-reference status.** `onym-moderation` main treats `appellate`,
@@ -697,7 +747,7 @@ hardware. These are conformance gaps against constraints 4 and 8.
 
 **`EvidenceItem`.** One disclosed item, and the only place evidence
 enters this contract — a `CaseResponse` carries counter-evidence in the
-same shape (§6.1), held to the same rules.
+same shape (§5.5), held to the same rules.
 
 `disclosedContent` is an opaque string. Its meaning belongs to the
 sender's commitment format — which the authority names in its published
@@ -748,6 +798,37 @@ reporter's upload is useless without a signature over that same digest,
 and such a signature *is* the evidence. Whatever authentication the
 route carries is resource control, and a profile should say so rather
 than present it as the integrity story.
+
+**`EvidenceUpload` and `EvidenceUploadReceipt`.** The request is not a
+JSON object: `evidenceUploadSchema` names a route shape, because the body
+is the raw bytes and the only field is the digest, which is in the path.
+The reference is `PUT /v1/evidence-blobs/:sha256` carrying
+`x-onym-key`, `x-onym-timestamp` and `x-onym-signature` over
+`evidence-blob:<sha256>:<timestamp>`, from a key holding a mandate,
+within a freshness window. Per the paragraph above, that credential is
+resource control and not the integrity story.
+
+`evidenceUploadReceiptSchema` is a JSON object, and it is what the
+uploader needs in order to write a commitment that will verify:
+
+```json
+{
+  "sha256": "<lowercase hex of the plaintext bytes>",
+  "mimeType": "image/jpeg",
+  "byteLength": 51234,
+  "width": 1200,
+  "height": 1600,
+  "derivativeSha256": "<sha256 of the normalized copy, if one was made>",
+  "derivativeVersion": 1
+}
+```
+
+`width` and `height` are the reason this receipt is specified rather
+than left as "describes what was stored": constraint 4 below requires
+the commitment to bind them, the authority compares the signed values
+against what it decoded, and a mismatch is an authenticity failure. An
+uploader that cannot read back what the authority measured is guessing
+at values it must sign.
 
 Three obligations come with that route, each one a place the merged
 reference got it wrong before getting it right.
@@ -1353,7 +1434,7 @@ mandate rather than inlined into the Authority operations.
 | `file-report` | Signed `Report` with authenticity proofs | `ReportReceipt` naming the opened/joined case, current deadlines, and intake weight; not a merits decision |
 | `respond` | Routed case ID + signed `CaseResponse` containing the same case ID | `CaseResponseReceipt` or a typed refusal |
 | `appeal` | Routed case ID + `AppealSubmission` containing the same case ID | `AppealReceipt`; ordinary appeals are authenticated, new-holder claims deliberately are not |
-| `upload-evidence` | Content address + the exact bytes, from a consented key | Receipt describing what was stored. Part of the v1 interface; whether a given authority accepts anything through it is its manifest's `acceptedMedia` (§5.2 constraint 9), not this list |
+| `upload-evidence` | Content address + the exact bytes, from a consented key | `EvidenceUploadReceipt` (§5.4): digest, media type, byte length and the dimensions the authority decoded, which the commitment must then bind. Part of the v1 interface; whether a given authority accepts anything through it is its manifest's `acceptedMedia` (§5.2 constraint 9), not this list |
 | `query-status` | Case ID + fresh party-signature headers, or moderator bearer token | The concrete `CaseStatus` in §5.4.1 |
 
 The client selects the implementation for the authority named by the active
@@ -1952,7 +2033,11 @@ and the extended `CaseStatus` assessment and claim fields in §5.4.1.
 PR #39 adds the retention schedule, preservation holds and referral.
 The commitment format is the iOS chat proof preimage at version 2, which
 adds a `media` array binding each attachment's plaintext digest, media
-type and byte length; version 1 preimages are unchanged byte for byte,
+type, byte length and pixel dimensions, which satisfies constraint 4 of
+§5.4: the authority refuses an image commitment that carries no
+dimensions and compares the signed pair against what it decoded, so the
+numbers a case document prints are the numbers the accused signed.
+Version 1 preimages are unchanged byte for byte,
 and a `media` array inside one is refused. Bytes travel on
 `PUT /v1/evidence-blobs/:sha256` under its own body limit, and the report
 names them by the digest the accused signed. The case document carries
@@ -1979,8 +2064,10 @@ Four conformance nuances. Its manifest carries neither `acceptedMedia`
 nor `modelProfile.inputs`: what it accepts, its 4 MiB object ceiling,
 its bounds of 8 items per filing and 24 per case, and its 16
 unreferenced uploads are all compiled-in constants, so a client cannot
-learn any of them without filing and being refused — the thing §5.4
-constraint 1 forbids. Its intake bounds also answer with `bad_request`
+learn any of them without filing and being refused. The direct breach
+is §5.2 constraint 9, which requires the field; §5.4 constraint 1 is
+what that field exists to satisfy. Its intake bounds also answer with
+`bad_request`
 rather than `media_too_many`, which is the same fact reaching the client
 in a shape it cannot act on. Its retention anchors do not lengthen
 `caseRecord` for a case whose sanction is still in force, so on a
