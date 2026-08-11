@@ -333,6 +333,17 @@ names to its own physical values through `markBindings`.
   "appellate": "onym:component:<external-appellate-authority-id>",
   "interfaceAffiliations": ["onym:component:<affiliated-interface-id>"],
   "confidentiality": "<hash-or-url: what is published, what stays private>",
+  "retention": {
+    "policy": "<hash-or-url: the published schedule>",
+    "unreferencedUpload": "P1D",
+    "caseMedia": "P30D",
+    "caseRecord": "P400D",
+    "auditRecord": "P400D",
+    "sanctionRecord": "P400D",
+    "preservation": {
+      "<classId>": { "period": "P400D", "referral": "<hash-or-url: the procedure>" }
+    }
+  },
   "statistics": "<hash-or-url: promised anonymized transparency reporting>",
   "offers": ["<fee-offer-ids>"],
   "validUntil": "2027-06-30T23:59:59Z"
@@ -380,15 +391,63 @@ Normative constraints:
 
    Modality is a consented term because it decides what a verdict means.
    A profile whose declared inputs do not cover a case's evidence must
-   return the undecided outcome (§3.5). It must not classify the part it
-   can read and sign a verdict that reads as though it had reviewed the
-   whole — a text-only model shown a reported image scoring its caption
-   alone is the specific failure this forbids, and it is worse than no
-   decision because nothing in the record reveals it. Silently dropping
-   an evidence item it cannot process is the same failure by omission;
+   not classify the part it can read and sign a verdict that reads as
+   though it had reviewed the whole — a text-only model shown a reported
+   image scoring its caption alone is the specific failure this forbids,
+   and it is worse than no decision because nothing in the record
+   reveals it. Silently dropping an evidence item it cannot process is
+   the same failure by omission.
+
+   Two different things follow, and conflating them is a trap the merged
+   reference fell into and had to be pulled back out of.
+
+   Where the model cannot inspect that **kind** of input at all, there
+   is nothing to decide on and the undecided outcome (§3.5) is correct.
+   A conforming authority should refuse such evidence at intake rather
+   than accept it and go quiet later, and must publish that it does —
+   see §5.4 constraint 1.
+
+   Where the model can inspect the kind but the case carries **more
+   items than the profile permits**, the case is decided on as many as
+   the profile takes, and the record names the rest as not shown. It
+   must *not* be left undecided. An undecided case is dismissed at its
+   decision deadline (§3.5), so "refuse to decide" is an outcome anyone
+   able to add evidence to a case can choose — including the accused,
+   who can sign their own disclosed content, and who can therefore
+   acquit themselves by attaching one more picture than the model
+   accepts. A guard meant to stop a model judging what it cannot see
+   becomes a way to guarantee acquittal. Deciding on a disclosed subset,
+   with what was withheld recorded, is the lesser harm and the only one
+   an accused cannot trigger at will;
+
+   Declared support and a declared maximum are one predicate, not two.
+   A profile claiming a modality while permitting zero items of it takes
+   none, and a caller reading only the capability flag will send a
+   request with no attachment and record the answer as a review of
+   evidence it never saw;
 5. class definitions are content-addressed: a user consents to exact
    wording, and the authority cannot edit the definition under existing
-   mandates;
+   mandates. The same applies to `retention` below: a period read from
+   today's published document rather than from the one a case's accused
+   pinned is the silent substitution this constraint exists to forbid,
+   and it is worse there because the consequence is destruction rather
+   than a decision. A period that cannot be resolved for a case — a
+   missing mandate, an unparseable value — retains the material;
+   guessing at terms in order to delete is not a conforming failure
+   mode. An authority declaring no schedule deletes nothing on a timer,
+   which is a coherent position that must be published as such: a period
+   named but not enforced is the one thing worse than naming none,
+   because the people whose material it is would be relying on a
+   deletion that never happens. `preservation` names the classes an
+   authority preserves and refers, and a class absent from it does not
+   accept media evidence at all — the absence of terms is a refusal
+   rather than an omission, because taking custody of material an
+   authority cannot retain, refer and destroy on a stated basis is a harm
+   in itself. Declaring it has consequences beyond this seat: an operator
+   who is not a provider with the protections and reporting relationship
+   that role carries may commit an offence merely by holding such
+   material, and a conforming profile says so where an operator will read
+   it;
 6. an authority operated by or affiliated with an interface vendor lists every
    such interface in `interfaceAffiliations`; omitting a material affiliation
    is nonconforming. An unaffiliated authority omits the field or publishes an
@@ -545,7 +604,13 @@ identity for free and no `content` union, `blobRef` field, or
    and sees, its media type, and its byte length. A digest over
    ciphertext alone does not identify what was received, and a URL,
    storage locator, or provider identifier is not an authenticity
-   commitment at all.
+   commitment at all; and
+4. bind every property the authority will later present as a fact about
+   the material. Pixel dimensions are the concrete case: a case document
+   and a reviewer's screen show them as attributes of the evidence, so a
+   commitment that omitted them would have those numbers attributed to a
+   signature that never covered them. Either the commitment binds them
+   or the authority must not display them as attested.
 
 **Media bytes do not travel in the report.** They exceed any sane JSON
 body bound, and base64 in a signed object would make the report's
@@ -557,11 +622,36 @@ hash, arriving twice is idempotent, and bytes hashing to anything else
 are not the reported material regardless of who uploaded them.
 
 An upload therefore needs no ownership scoping, sealing ceremony, or
-single-use token to be safe to accept — referencing another reporter's
-upload is useless without a signature over that same digest, and such a
-signature *is* the evidence. Whatever authentication the route carries
-is resource control, and a profile should say so rather than present it
-as the integrity story.
+single-use token to be safe to **accept** — referencing another
+reporter's upload is useless without a signature over that same digest,
+and such a signature *is* the evidence. Whatever authentication the
+route carries is resource control, and a profile should say so rather
+than present it as the integrity story.
+
+Three obligations come with that route, each one a place the merged
+reference got it wrong before getting it right.
+
+**An acknowledgement must mean the bytes will still be there.** If an
+authority expires unreferenced uploads, a re-upload that answers success
+has to restart that clock. Answering success while leaving the original
+expiry in place lets the authority delete, moments later, bytes it just
+confirmed it held, and the report naming them then fails against its own
+acknowledgement.
+
+**Deleting on refusal must be scoped to the uploader.** An authority
+that refuses a filing and discards the bytes it named must discard only
+uploads made by the filing key. The digests in a commitment are written
+by the *sender* of the material, who therefore knows the digest of bytes
+somebody else is about to report them for; unscoped, a refusal is a way
+to destroy another party's pending evidence before their report lands,
+repeatable until no report about that material can ever be filed.
+
+**Bounds belong before the work, and cover the case as well as the
+filing.** A commitment's length is chosen by whoever signed it, so the
+count is bounded while reading it rather than after resolving it. And
+because reports join an open case and responses accumulate on one, a
+per-filing bound alone leaves a case able to gather an unbounded total —
+every item of which is resolved each time the case document is built.
 
 Normative constraints:
 
@@ -1356,9 +1446,49 @@ Conforming moderation authorities must:
    report that was never filed are not case material and expire on their
    own bound. Nothing is deleted while a review that would examine it is
    pending — a deadline is not authority to decide a live appeal by
-   destroying its subject;
+   destroying its subject.
+
+   Two things outlive every period. The **mandate and verdicts behind a
+   live mark** are kept while it is in force, because a device's marks
+   carry no explanation and that record is the only thing that says what
+   they mean or lets one be lifted — a permanent sanction therefore means
+   a permanent record, which is not an exception to a schedule but the
+   reason to have one. And the **identity of a filed report** may outlive
+   its content: where an authority refuses a second filing under an id
+   already used, deleting the row frees the id and lets a filing be
+   rewritten, so the content goes and the claim on the identifier does
+   not;
 7. perform the lawful statutory reporting the manifest declares, and nothing
-   beyond it;
+   beyond it. Where such a duty attaches, three properties follow, and
+   each of them is a place a schedule and a duty pull in opposite
+   directions:
+
+   **A preservation hold outranks every declared period.** Its release
+   date is fixed when the hold is placed, from the terms in force then,
+   so a later and shorter period cannot cut a running duty short — the
+   same reasoning that makes a case be judged by the manifest it pinned.
+
+   **A period does not discharge a duty that was never performed.** The
+   release date bounds how long material must be kept *after* it has
+   been referred; it is not permission to discard evidence nobody passed
+   on. An authority that releases on the date alone loses the material,
+   loses the referral from whatever queue tracks it, and loses the
+   ability to record the reference afterwards — an unperformed obligation
+   disappearing behind a log line indistinguishable from a discharged
+   one. Holding indefinitely and saying so is the conforming failure;
+   holding quietly is not.
+
+   **Referral is not gated on the case.** Response and appeal windows
+   exist to give an accused a fair chance to answer. They are not a
+   reason to delay a referral, and an authority whose deadlines held one
+   up would have its case machinery working against the thing the
+   referral is for.
+
+   An authority need not perform the submission itself. Sealing a signed
+   package for an operator to submit, and recording what the receiving
+   body returned, is conforming and is the honest shape where the
+   authority holds no credentials for the channel — provided the export
+   is auditable, since it is the one path by which the material leaves;
 8. publish promised anonymized statistics consistently, not only the numbers
    that flatter the authority; and
 9. operate verdict-signing keys separately from operational keys and report
@@ -1417,7 +1547,13 @@ against suspected reporters.
 | `signature_invalid` | User, reporter, interface, authority, or moderator authentication | HTTP 401, except case-party paths use indistinguishable `not_found` |
 | `no_mandate` | Verdict validation | Interface refuses execution; authority notified |
 | `class_outside_mandate` | Verdict validation | Refused; only consented classes bind |
-| `authenticity_unverified` | Evidence intake | Item is complaint, not evidence; cannot alone support a verdict |
+| `authenticity_unverified` | Evidence intake | Item is complaint, not evidence; cannot alone support a verdict. Media whose bytes do not match what the commitment describes lands here rather than under a media code: the format is fine, the proof is not |
+| `media_missing` | Media evidence names bytes the authority does not hold | Retryable once uploaded; distinct from a conflict, which on a content-addressed route means agreement |
+| `media_unsupported` | Media type outside what the authority decodes, or bytes it cannot parse | Refused rather than stored unexamined |
+| `media_too_large` | Upload exceeds the declared per-object ceiling | Refused; about the object, not the caller |
+| `media_quota_exceeded` | Uploader already holds the permitted number of unreferenced uploads | Retryable after filing or abandoning them. Deliberately not a size code: a client reading only a size refusal shrinks the image and retries forever against a limit that is not about size |
+| `media_class_refused` | The class accepts no media at this or any conforming authority | Terminal for that class; text reports unaffected |
+| `media_unreviewable` | This authority's pinned profile cannot review the modality | Not the same as the class refusing it — the identical report at an authority pinned to a capable profile would be accepted, and a client can act on that difference |
 | `reporter_unconsented` | Report intake | Report refused; reporting requires a mandate |
 | `no_jurisdiction` | Report intake | Accused has no currently registered mandate naming this authority, or the consented manifest expired; refused locally, with consented forwarding permitted by §5.4 constraint 5 |
 | `window_closed` | Time | Reference v1 records a late response; a late appeal or post-deadline joined report is refused with HTTP 410 |
@@ -1568,9 +1704,15 @@ contract lifecycle.
   merged reference now carries one such vector, duplicated in both
   repositories so that changing either half breaks both;
   input-digest sensitivity to the media item, its ordering, and the
-  normalization version; modality refusal (a profile whose declared
-  inputs do not cover a case's evidence returns undecided and issues no
-  model request at all); notice and window
+  normalization version; modality handling (a profile that cannot review
+  the modality issues no model request at all, while a case over the
+  permitted count is decided on the subset with the remainder recorded —
+  and a test that only covers the first of those misses the acquittal
+  route entirely); retention (a period resolved from the case's pinned
+  manifest rather than the published one, a preservation hold blocking
+  each deletion path *individually*, a hold not released while its
+  referral is unrecorded, a live mark keeping its sanction record, and a
+  report identifier still claimed after its content expires); notice and window
   arithmetic including timezone-hostile boundaries; verdict shape
   validation at interfaces (no mandate, class outside mandate, missing
   expiry, marks inconsistent with disposition, missing or inconsistent
@@ -1633,7 +1775,8 @@ fixed deadlines, or other current fields are absent.
 | `GET /manifest.json` | Fetch exact authority-manifest bytes; detached authenticity remains the directory binding |
 | `POST /v1/mandates` | `register-mandate` |
 | `POST /v1/reports` | `file-report` |
-| `PUT /v1/evidence-blobs/:sha256` | Content-addressed evidence bytes for a report that names them by digest; its own body limit, and idempotent by construction |
+| `PUT /v1/evidence-blobs/:sha256` | Content-addressed evidence bytes for a report that names them by digest; its own body limit, and idempotent by construction — a repeat restarts the object's expiry rather than merely answering success |
+| `GET/POST /admin/cases/:caseId/referral` | Operator-only: seal the signed referral package for submission, and record what the receiving body returned. The export is audited, being the one path by which preserved material leaves |
 | `POST /v1/cases/:caseId/respond` | `respond` |
 | `POST /v1/cases/:caseId/appeal` | `appeal` |
 | `GET /v1/cases/:caseId/status` | `query-status` |
@@ -1652,7 +1795,8 @@ PR #4 adds off/advisory/autonomous local-model triage modes, consent-bound
 model profiles, a shared-token moderator panel, human appeal/new-holder review,
 and the extended `CaseStatus` assessment and claim fields in §5.4.1.
 
-`onym-moderation` PR #38 and `onym-ios` PRs #238/#239 add reported images.
+`onym-moderation` PR #38 and `onym-ios` PRs #238/#239 add reported images;
+PR #39 adds the retention schedule, preservation holds and referral.
 The commitment format is the iOS chat proof preimage at version 2, which
 adds a `media` array binding each attachment's plaintext digest, media
 type and byte length; version 1 preimages are unchanged byte for byte,
@@ -1663,13 +1807,41 @@ each image's original digest, derivative digest, transformation version
 and dimensions inline, so the existing document hash satisfies the input
 digest rule above without a second digest scheme. `ModelProfile` gained
 an enforced image capability and per-profile maximum drawn from the
-published profile documents, which already stated both.
+published profile documents, which already stated both; a profile
+declaring support with a zero maximum is treated as taking none, and a
+case over the maximum is decided on the subset with the remainder named
+on the assessment rather than left undecided.
 
-The implementation gaps are equally part of its status: attachments sent
+Its manifest declares a `retention` schedule and enforces it, resolving
+each per-case tail from the manifest that case's accused pinned. The
+unreferenced-upload period is the one deployment-wide value, because an
+upload no report named belongs to no case. Preservation holds outrank
+every period, are not released while a referral is unrecorded, and gate
+every deletion path through one predicate. `csam` accepts media only
+where the manifest declares preservation for it, and the reference
+manifest declares none — so the reference behaviour is still refusal,
+with the bytes deleted before the refusal returns.
+
+The implementation gaps are equally part of its status: **the repository
+has no continuous integration at all**, so every test result claimed for
+the media and retention work was produced locally by its author and
+verified by no second party — which for changes whose failure modes are
+retaining material against a published promise or destroying it against a
+duty is the gap most worth closing first. The multimodal request shape is
+asserted only against a stub, never against a real inference server, so
+in autonomous mode the input format of a pipeline that signs bans without
+human review is untested. Attachments sent
 before commitment version 2 existed cannot be authenticated at all and are
 permanently unreportable, which is a property of the commitment rather
 than a missing feature; video, album and voice attachments are signed at
-send time but no authority accepts them as evidence; the reference
+send time but no authority accepts them as evidence; a referred case is
+never decided and so is dismissed at its decision deadline, which the
+reference publishes but which leaves the seat with no sanction of its own
+for that class; the moderator panel authenticates with a shared
+deployment token, so nothing records *which* person exported a referral
+or reviewed an appeal; decode runs off the async runtime under a permit
+but total memory across concurrent uploads is bounded only by that
+permit count; the reference
 authority declines media for `csam` under §5.4 constraint 1, so its most
 serious class remains text-only; media retention is a sweep over uploads
 and decided cases rather than a published schedule, and the rest of the
@@ -1715,7 +1887,11 @@ The moderation seat is successfully specified when:
    bounded, audit-attestable forum rule;
 5. no conforming object or endpoint scans undisclosed content, requests keys,
    pays for a ban/case opening, offers reporter bounties, or authorizes evidence
-   reuse beyond declared adjudication, retention, and lawful-reporting bounds;
+   reuse beyond declared adjudication, retention, and lawful-reporting bounds.
+   Every period an authority applies is one it published and one the
+   affected case's accused consented to; no declared period deletes
+   material under an unperformed preservation duty; and no party able to
+   add evidence to a case can, by doing so, choose its outcome;
 6. a banned device holder receives the governing verdict, authority contact,
    duration, ordinary appeal path, and new-holder path at the gate;
 7. reporters can file reports and query cases to which they are attached;
