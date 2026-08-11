@@ -401,11 +401,15 @@ Normative constraints:
    Two different things follow, and conflating them is a trap the merged
    reference fell into and had to be pulled back out of.
 
-   Where the model cannot inspect that **kind** of input at all, there
-   is nothing to decide on and the undecided outcome (§3.5) is correct.
-   A conforming authority should refuse such evidence at intake rather
-   than accept it and go quiet later, and must publish that it does —
-   see §5.4 constraint 1.
+   Where the model cannot inspect that **kind** of input at all, an
+   authority **must refuse such evidence at intake** rather than accept it
+   and reach the undecided outcome later. The undecided outcome remains
+   correct for anything already on file, but it cannot be the plan: a case
+   that can never be decided is dismissed at its decision deadline, and
+   `CaseResponse` counter-evidence is held to these same rules (§6.1), so
+   accepting unreadable evidence hands the accused the same acquittal the
+   over-count rule below is written to deny them. Refusing at intake is
+   the only form of this that is not choosable by a party to the case.
 
    Where the model can inspect the kind but the case carries **more
    items than the profile permits**, the case is decided on as many as
@@ -439,11 +443,15 @@ Normative constraints:
    named but not enforced is the one thing worse than naming none,
    because the people whose material it is would be relying on a
    deletion that never happens. `preservation` names the classes an
-   authority preserves and refers, and a class absent from it does not
-   accept media evidence at all — the absence of terms is a refusal
-   rather than an omission, because taking custody of material an
-   authority cannot retain, refer and destroy on a stated basis is a harm
-   in itself. Declaring it has consequences beyond this seat: an operator
+   authority preserves and refers. A class that declares `lawfulReporting`
+   accepts media evidence only where `preservation` also carries terms for
+   it: for those classes the absence of terms is a refusal rather than an
+   omission, because taking custody of material an authority cannot
+   retain, refer and destroy on a stated basis is a harm in itself.
+   Classes carrying no reporting duty are unaffected and accept media on
+   the ordinary rules. An absent `preservation` and an empty one mean the
+   same thing — no class is preserved — the way an absent and an empty
+   `interfaceAffiliations` both mean none. Declaring it has consequences beyond this seat: an operator
    who is not a provider with the protections and reporting relationship
    that role carries may commit an offence merely by holding such
    material, and a conforming profile says so where an operator will read
@@ -581,7 +589,10 @@ enters this contract — a `CaseResponse` carries counter-evidence in the
 same shape (§6.1), held to the same rules.
 
 `disclosedContent` is an opaque string. Its meaning belongs to the
-sender's commitment format, not to this object: the authority verifies
+sender's commitment format — which the authority names in its published
+`evidenceRules`, because a version discriminator inside the string only
+helps a verifier that already knows which format's versions it is
+reading — and not to this object: the authority verifies
 `authenticityProof` over its exact bytes and does not reconstruct,
 normalize, re-serialize, or re-encode it. An authority that
 canonicalizes disclosed content before verifying has broken the
@@ -599,7 +610,6 @@ identity for free and no `content` union, `blobRef` field, or
    sender chooses which rules apply to their own signed bytes;
 2. bind the item to one concrete send, so a disclosed
    (content, signature) pair cannot be replayed onto another message;
-   and
 3. for media, bind the digest of the exact bytes a recipient decrypts
    and sees, its media type, and its byte length. A digest over
    ciphertext alone does not identify what was received, and a URL,
@@ -668,12 +678,13 @@ Normative constraints:
    unexamined.
 
    An authority may also decline media for a particular class while
-   still accepting text reports for it, and must publish which classes
-   those are. Taking custody of material an authority is not equipped
-   to retain, delete, or lawfully report is a harm in itself, and
-   refusing on those grounds says nothing about the report's merit. The
-   refusal is a declared term rather than a silent behaviour: a
-   reporter must be able to learn it before filing;
+   still accepting text reports for it, and it declines by publishing —
+   the `preservation` map in §5.2 is the surface, and a class needing
+   terms it does not carry is refused. Refusing on those grounds says
+   nothing about the report's merit, and it must be legible before
+   filing rather than discovered by being refused. §5.2 constraint 5
+   carries the rule; this constraint carries only its consequence for
+   evidence intake;
 2. the reporter discloses only items they legitimately received; an
    authority that requests broader disclosure ("send us the whole
    conversation") is nonconforming;
@@ -859,7 +870,9 @@ document; reporter-authored context is redacted from an accused's copy. The
 event list exposes timestamps and kinds but not private event details. Optional
 deadlines may be absent when not applicable.
 
-**Input digest.** The value recorded here and on the verdict (§5.6) is a
+**Input digest.** Where a model profile records one — and every profile
+that permits a model-assisted decision should, since it is what lets an
+appeal establish what was judged — the value is a
 digest over **everything the model was shown**, not over a textual
 rendering of the case. It covers the document text, the identity of
 every media item in evidence order, and — where the model is sent a
@@ -873,6 +886,13 @@ the document text and hash that, so one digest keeps one meaning.
 Hashing a rendering that omits the media is nonconforming: it claims to
 pin what was reviewed while pinning only its captions, and an appeal
 reconstructing the record from it reconstructs the wrong thing.
+
+This document does not yet give the digest a field of its own in §5.6:
+the merged reference carries it on the assessment above, and the
+reference policy's own wording ("input-evidence digest") is what the
+verdict's `reasoning` content-address resolves to. A profile that puts it
+on the verdict directly should say so; either way the rule is about what
+the value covers, not about which object holds it.
 
 Where original and derivative differ, the original is the authenticated
 evidence and the derivative is what was classified. Both identities are
@@ -1496,9 +1516,13 @@ Conforming moderation authorities must:
 
 **Merged-reference status.** The Authority enforces obligations 2–5 and the
 class windows/terms portion of obligation 1. It stores complete report,
-response, case-document, and assessment bytes in SQLite, but has no automatic
-retention/deletion scheduler or commercial-reuse control; does not execute
-`lawfulReporting`, publish promised statistics, validate affiliation or
+response, case-document, and assessment bytes in SQLite. It applies the
+retention schedule its manifest declares — resolving each per-case period
+from the manifest that case's accused pinned, and treating a preservation
+hold as outranking every period — but has no commercial-reuse control,
+and does not execute
+`lawfulReporting` itself beyond sealing a signed referral package for an
+operator to submit; it does not publish promised statistics, validate affiliation or
 external-appellate metadata, or notify interfaces of key compromise. Its
 signing seed is a dedicated secret. The Apple reference also defaults signature
 enforcement off and omits recourse URLs. Each missing behavior is a conformance
@@ -1552,7 +1576,7 @@ against suspected reporters.
 | `media_unsupported` | Media type outside what the authority decodes, or bytes it cannot parse | Refused rather than stored unexamined |
 | `media_too_large` | Upload exceeds the declared per-object ceiling | Refused; about the object, not the caller |
 | `media_quota_exceeded` | Uploader already holds the permitted number of unreferenced uploads | Retryable after filing or abandoning them. Deliberately not a size code: a client reading only a size refusal shrinks the image and retries forever against a limit that is not about size |
-| `media_class_refused` | The class accepts no media at this or any conforming authority | Terminal for that class; text reports unaffected |
+| `media_class_refused` | This authority declines media for the class, per its published `preservation` terms | Terminal here, not everywhere: declining is a per-authority declared term, so another authority may accept the same report. Text reports for the class are unaffected |
 | `media_unreviewable` | This authority's pinned profile cannot review the modality | Not the same as the class refusing it — the identical report at an authority pinned to a capable profile would be accepted, and a client can act on that difference |
 | `reporter_unconsented` | Report intake | Report refused; reporting requires a mandate |
 | `no_jurisdiction` | Report intake | Accused has no currently registered mandate naming this authority, or the consented manifest expired; refused locally, with consented forwarding permitted by §5.4 constraint 5 |
@@ -1776,7 +1800,6 @@ fixed deadlines, or other current fields are absent.
 | `POST /v1/mandates` | `register-mandate` |
 | `POST /v1/reports` | `file-report` |
 | `PUT /v1/evidence-blobs/:sha256` | Content-addressed evidence bytes for a report that names them by digest; its own body limit, and idempotent by construction — a repeat restarts the object's expiry rather than merely answering success |
-| `GET/POST /admin/cases/:caseId/referral` | Operator-only: seal the signed referral package for submission, and record what the receiving body returned. The export is audited, being the one path by which preserved material leaves |
 | `POST /v1/cases/:caseId/respond` | `respond` |
 | `POST /v1/cases/:caseId/appeal` | `appeal` |
 | `GET /v1/cases/:caseId/status` | `query-status` |
@@ -1784,7 +1807,7 @@ fixed deadlines, or other current fields are absent.
 | `GET /v1/write-log` on the interface | Audit-token-protected hash-chain view; each entry exposes storage `authorized_by` as wire `authorizedBy` |
 | `POST /v1/cases/:caseId/decide` | Authority-operator command, not a cross-owner profile operation |
 | `POST /v1/verdicts/:verdictRef/requeue` | Authority-operator repair command for a permanently refused delivery |
-| `GET/POST /admin...` | Shared-token moderator panel and appeal/new-holder review workflow; operator UI, not a cross-owner profile operation |
+| `GET/POST /admin...` | Shared-token moderator panel, appeal/new-holder review, and the referral workflow — sealing the signed package for an operator to submit and recording what the receiving body returned, with the export audited as the one path by which preserved material leaves. Operator UI, not a cross-owner profile operation |
 | `GET /health` on either service | Informative operator health, key, and delivery state; not a case operation |
 
 The implementation stores immutable mandate-pinned manifest snapshots, opens or
@@ -1822,6 +1845,13 @@ where the manifest declares preservation for it, and the reference
 manifest declares none — so the reference behaviour is still refusal,
 with the bytes deleted before the refusal returns.
 
+One conformance nuance: the reference decides *which* classes need
+preservation terms from a hardcoded list rather than from the manifest's
+`lawfulReporting` declarations, as §5.2 constraint 5 specifies. Its list
+and those declarations currently name the same single class, so the
+behaviour agrees; a manifest that declared `lawfulReporting` for another
+class would diverge, and the list is what would have to change.
+
 The implementation gaps are equally part of its status: **the repository
 has no continuous integration at all**, so every test result claimed for
 the media and retention work was produced locally by its author and
@@ -1842,14 +1872,14 @@ deployment token, so nothing records *which* person exported a referral
 or reviewed an appeal; decode runs off the async runtime under a permit
 but total memory across concurrent uploads is bounded only by that
 permit count; the reference
-authority declines media for `csam` under §5.4 constraint 1, so its most
-serious class remains text-only; media retention is a sweep over uploads
-and decided cases rather than a published schedule, and the rest of the
-case record still has neither; new-holder claims are
+authority declares no `preservation` terms and therefore declines media
+for `csam`, so its most serious class remains text-only; nothing verifies
+that a deletion propagated to an operator's backups, and the schedule
+speaks only for the service's own storage; new-holder claims are
 unauthenticated and eight-slot exhaustible; external appellate routing,
-affiliation validation, designation-revocation, general retention/deletion,
-statutory-reporting, statistics, and compromise-notification mechanisms do not
-exist; mandate withdrawal, reputation-gated intake, and consented report
+affiliation validation, designation-revocation,
+statutory-reporting execution, statistics, and compromise-notification
+mechanisms do not exist; mandate withdrawal, reputation-gated intake, and consented report
 forwarding are absent; current Authority verdicts omit the signed fixed
 `decisionDeadline`, and revised Apple notices derive a misleadingly late
 displayed terminal deadline; the Authority is configured for one interface
