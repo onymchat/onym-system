@@ -286,8 +286,11 @@ which still holds: the reference is the only implementation and it ships
 the route. Recording why it did not bump the version, since the standing
 rule is that it should have. The surface is mandatory but its content is
 optional — an authority declaring no `acceptedMedia` (§5.2 constraint 9)
-conforms by refusing every upload — so no authority's *decisions* change
-under it, only its obligation to answer the route. That is the last
+conforms by refusing every upload. Said plainly rather than as a
+softening clause: a deployment that was conforming before this change is
+nonconforming until it answers the route. What the narrow scope buys is
+that the remedy is a route returning refusals, not a change to any
+authority's decisions. That is the last
 change this condition is available for: with a deployed consumer, the
 same addition bumps the version.
 
@@ -452,7 +455,17 @@ Normative constraints:
 
    Where the model can inspect the kind but the case carries **more
    items than the profile permits**, the case is decided on as many as
-   the profile takes, and the record names the rest as not shown. It
+   the profile takes, and the record names the rest as not shown.
+
+   Which ones is part of the rule, not an implementation choice. The
+   subset is the **first N in evidence order, report items before
+   response items**. Any selection that lets later items displace
+   earlier ones — last-N being the obvious one — reopens the door this
+   paragraph closes from the other side: the accused attaches items past
+   the limit and pushes the reporter's evidence out of what the model
+   sees, reaching the same self-acquittal by a different route.
+   Counter-evidence fills whatever budget the report's items leave,
+   in filing order. It
    must *not* be left undecided. An undecided case is dismissed at its
    decision deadline (§3.5), so "refuse to decide" is an outcome anyone
    able to add evidence to a case can choose — including the accused,
@@ -529,9 +542,15 @@ Normative constraints:
    Where an authority's decider cannot review a declared type and its
    output is the decision, the pairing is self-contradictory: it publishes
    that it accepts material nothing will read. A conforming authority does
-   not publish that combination, and `media_unreviewable` exists for
-   material already on file when terms change beneath it rather than as a
-   normal intake outcome.
+   not publish that combination. `media_unreviewable` is nonetheless an
+   ordinary intake refusal, not a rarity: whether a deployment's pinned
+   model can read images is operational configuration, so a manifest
+   that was conforming when published can be paired with a decider that
+   cannot read what it declares. The code exists for exactly that drift,
+   and it is refused at intake rather than accepted and left undecided.
+   Its difference from `media_class_refused` is what a client can act
+   on: one says another authority might take the same report, the other
+   says the class refuses the modality wherever it is declared.
 
    Between them, `acceptedMedia` and `preservation` are what make a
    decline legible before filing rather than discovered by being refused —
@@ -565,9 +584,23 @@ Normative constraints:
     - `caseRecord` — its reports, responses, assessments and the document
       a model read, from the same instant.
     - `auditRecord` — its non-content events, from the same instant.
-    - `sanctionRecord` — the mandate and verdicts behind a sanction, from
-      the moment the last mark they justify expires or is cleared, and
-      never while one is in force. It must be at least as long as
+    - `sanctionRecord` — the verdicts of a decided case and the mandate
+      snapshot its periods are resolved from, whether or not it produced
+      a sanction. For a case that marked a device, from the moment the
+      last mark expires or is cleared, and never while one is in force;
+      for one that ended in dismissal, from the decision itself, since
+      there is no mark to outlive. It has to cover the dismissed case
+      too, or the pinned snapshot has no period at all: an unresolvable
+      period retains, so the case record would be kept forever waiting
+      on terms nothing was ever going to delete.
+
+      The mandate row is not the snapshot, and dropping it is separately
+      gated: a mandate several cases pin is not one case's to discard,
+      and a consent still inside its manifest's `validUntil` is a live
+      agreement whose deletion silently revokes a user's standing. So
+      the mandate goes only when no remaining case pins it *and* its own
+      consent has expired — a case's tail is not a clock over anybody's
+      consent. It must be at least as long as
       `caseRecord` and `auditRecord`: an authority that discards the
       mandate first loses the terms the other two are resolved from, and
       the record it published a period for is then kept indefinitely.
@@ -613,6 +646,19 @@ Normative constraints:
     the ordinary rules. An absent `preservation` and an empty one mean the
     same thing — no class is preserved — the way an absent and an empty
     `interfaceAffiliations` both mean none.
+
+    `preservation` lives inside `retention` and cannot be declared
+    without it. That is a real restriction and it is deliberate: an
+    authority declaring no schedule promises nothing about when this
+    material is destroyed, and taking custody of material that carries a
+    statutory reporting duty while promising nothing about its
+    destruction is the posture this constraint exists to refuse. It also
+    means v1 has no way to say "kept, with no period" — every value is a
+    duration, there is no never sentinel, and an authority whose posture
+    is genuinely indefinite retention therefore declines media on these
+    classes. Naming the limitation rather than leaving it to be
+    discovered: it is the price of making the schedule the thing a
+    mandate pins.
 
     Declining media does not decline the class. Text reports under it are
     filed, decided and appealed on the ordinary rules, and their record is
@@ -764,7 +810,10 @@ version of this schema. A commitment format that binds attachment bytes
 puts their digest, media type and byte length *inside* the signed
 string, so the reporter's signature over the report covers the image
 identity for free and no `content` union, `blobRef` field, or
-`reportVersion` bump is required. A conforming commitment format must:
+`reportVersion` bump is required. A conforming commitment format must
+satisfy these four **commitment properties**, numbered here and cited by
+that name so they are not confused with this section's normative
+constraints:
 
 1. carry a version discriminator, and be read by that discriminator
    rather than by which fields happen to be present — otherwise a
@@ -822,6 +871,19 @@ uploader needs in order to write a commitment that will verify:
   "derivativeVersion": 1
 }
 ```
+
+There is deliberately no `expiresAt`. An uploader can compute one:
+`unreferencedUpload` is the single deployment-wide period, it is in the
+published manifest, and the upload time is the uploader's own. Stamping
+it into the receipt would not make it more reliable, because the period
+it derives from can be republished shorter — so a stamped deadline is
+exactly as stale as the value behind it, while looking like a promise.
+What is a promise is the obligation below: an acknowledgement means the
+bytes are there, and an authority that answers success to a re-upload
+restarts the clock. The residual sharp edge is real and stated here
+rather than papered over — a period shortened after an upload is not
+observable in anything the uploader already holds, and only re-reading
+the published manifest reveals it.
 
 `width` and `height` are the reason this receipt is specified rather
 than left as "describes what was stored": constraint 4 below requires
@@ -2033,8 +2095,8 @@ and the extended `CaseStatus` assessment and claim fields in §5.4.1.
 PR #39 adds the retention schedule, preservation holds and referral.
 The commitment format is the iOS chat proof preimage at version 2, which
 adds a `media` array binding each attachment's plaintext digest, media
-type, byte length and pixel dimensions, which satisfies constraint 4 of
-§5.4: the authority refuses an image commitment that carries no
+type, byte length and pixel dimensions, which satisfies commitment
+property 4 of §5.4: the authority refuses an image commitment that carries no
 dimensions and compares the signed pair against what it decoded, so the
 numbers a case document prints are the numbers the accused signed.
 Version 1 preimages are unchanged byte for byte,
@@ -2073,7 +2135,13 @@ in a shape it cannot act on. Its retention anchors do not lengthen
 `caseRecord` for a case whose sanction is still in force, so on a
 permanent ban the record would go at 400 days while the mark stayed
 appealable; the reference manifest declares no permanent class, so the
-combination is unreachable there today. And the reference decides *which*
+combination is unreachable there today. The §5.2 example does declare
+`banTerm: "permanent"` for `csam`, which is not an oversight in either
+place — the example is what a manifest exercising the full contract
+looks like, and the reference deployment is a narrower one. An operator
+copying the example onto the current reference would reach the gap.
+
+And the reference decides *which*
 classes need
 preservation terms from a hardcoded list rather than from the manifest's
 `lawfulReporting` declarations, as §5.2 constraint 10 specifies. Its list
