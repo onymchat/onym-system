@@ -24,7 +24,8 @@ zero-knowledge proofs without storing conversations or a readable member
 list. **Association registries** attach human-readable names as revocable,
 consent-bound claims — the name is never the identity. Around this core, an
 open set of service and institutional seats (banking, charity, audit,
-arbitration, discovery, growth, sponsorship, recruitment) can be operated by
+arbitration, discovery, growth, sponsorship, recruitment, device backup) can be
+operated by
 anyone, and each earns only when a user or group actually selects it. The
 governing rule for every seat:
 
@@ -51,6 +52,7 @@ governing rule for every seat:
 | [sponsor/](sponsor/Sponsor.md) | Foundation funding with bounded recognition and a capped governance path ([Onym Foundation profile](sponsor/Sponsor-Onym.md)) |
 | [recruitment/](recruitment/Recruitment.md) | Openings and candidate-consented introductions for every seat, without candidate ownership |
 | [moderation/](moderation/Moderation.md) | Consent-bound moderation authorities whose signed verdicts interfaces execute as device marks ([DeviceCheck](moderation/Moderation-DeviceCheck.md), [device recall](moderation/Moderation-Device-Recall.md) profiles) |
+| [backup/](backup/UI-Backup.md) | Device backup boundary — sealed snapshots retained under terms pinned at acceptance, with no operator key and no reset path (no implementation profile yet) |
 
 In review, not yet merged: a **bank seat** (accounts, custody classes, and
 payments against vault-held keys, with a Stellar profile) and an
