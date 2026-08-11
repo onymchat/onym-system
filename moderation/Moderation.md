@@ -1564,7 +1564,9 @@ contract lifecycle.
   the authority does not hold, and a class that declines media) — the
   preimage bytes in particular are a cross-implementation fixture,
   because a signer and a verifier written in different languages agree
-  on them by construction and nothing else would catch the drift;
+  on them by construction and nothing else would catch the drift — the
+  merged reference now carries one such vector, duplicated in both
+  repositories so that changing either half breaks both;
   input-digest sensitivity to the media item, its ordering, and the
   normalization version; modality refusal (a profile whose declared
   inputs do not cover a case's evidence returns undecided and issues no
@@ -1671,9 +1673,7 @@ send time but no authority accepts them as evidence; the reference
 authority declines media for `csam` under §5.4 constraint 1, so its most
 serious class remains text-only; media retention is a sweep over uploads
 and decided cases rather than a published schedule, and the rest of the
-case record still has neither; no cross-implementation fixture pins the
-version 2 commitment bytes, so Swift and Rust agree by construction and
-separate tests rather than against a shared vector; new-holder claims are
+case record still has neither; new-holder claims are
 unauthenticated and eight-slot exhaustible; external appellate routing,
 affiliation validation, designation-revocation, general retention/deletion,
 statutory-reporting, statistics, and compromise-notification mechanisms do not
