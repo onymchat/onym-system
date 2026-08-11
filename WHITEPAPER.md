@@ -284,6 +284,7 @@ different.
 | UI/client | Individual | At any time, if wire and local export formats match |
 | Message relay | Individual or group policy | At any time; multiple relays may be used together |
 | Media/blob server | Sender, group, or client policy | Per object or configuration epoch |
+| Device backup operator | Individual, opt-in | Per enrolment under pinned terms; export, re-enrol, or erase at any time |
 | Transaction relayer | Submitter or client policy | Per notary operation |
 | Notary contract and ledger | Group at creation | By an explicit group migration operation |
 | Association registry | Viewer and identity holder | Per displayed name or credential |
@@ -1552,6 +1553,12 @@ Their implementations remain proposed.
   expiring verdicts, and interface-executed device marks
   ([moderation/Moderation.md](moderation/Moderation.md)), with Apple
   DeviceCheck and Google Play Integrity device recall profiles.
+- A device-backup seat contract for sealed snapshots of a device's own history,
+  with retention, erasure, jurisdiction, sub-processor, export, and
+  end-of-payment terms pinned at acceptance and binding forward only, no
+  operator key or reset path, and the third-party retention cost disclosed
+  before enrolment ([backup/UI-Backup.md](backup/UI-Backup.md)). No
+  implementation profile exists yet.
 - A non-custodial payment capability profile and additional financial-services
   application profiles.
 - Group-state migration between notary deployments.
