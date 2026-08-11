@@ -337,6 +337,13 @@ names to its own physical values through `markBindings`.
   "appellate": "onym:component:<external-appellate-authority-id>",
   "interfaceAffiliations": ["onym:component:<affiliated-interface-id>"],
   "confidentiality": "<hash-or-url: what is published, what stays private>",
+  "acceptedMedia": {
+    "mediaTypes": ["image/jpeg", "image/png"],
+    "maxObjectBytes": 4194304,
+    "maxItemsPerFiling": 8,
+    "maxItemsPerCase": 24,
+    "maxUnreferencedUploads": 16
+  },
   "retention": {
     "policy": "<hash-or-url: the published schedule>",
     "unreferencedUpload": "P1D",
@@ -345,7 +352,7 @@ names to its own physical values through `markBindings`.
     "auditRecord": "P400D",
     "sanctionRecord": "P400D",
     "preservation": {
-      "<classId>": { "period": "P400D", "referral": "<hash-or-url: the procedure>" }
+      "csam": { "period": "P400D", "referral": "<hash-or-url: the procedure>" }
     }
   },
   "statistics": "<hash-or-url: promised anonymized transparency reporting>",
@@ -434,14 +441,17 @@ Normative constraints:
 
    `inputs` restates, in the manifest, what the profile document already
    says: the media types the model inspects and how many items it takes
-   per request. The restatement is not redundant. Modality decides
-   whether a report will be accepted at all, and a reporter must be able
-   to learn that before filing rather than by being refused — which is
-   what §5.4 constraint 1 requires of a decline, and it cannot be
-   satisfied by a value reachable only by fetching and parsing an opaque
-   profile document. `preservation` is the pattern: the manifest carries
-   the fact, the linked document carries the reasoning. The two must
-   agree, and the digest is what makes disagreement detectable.
+   per request. The restatement is not redundant — a value reachable only
+   by fetching and parsing an opaque profile document cannot be compared
+   against what the authority says it accepts, and constraint 9 requires
+   exactly that comparison to be possible before anyone files. The two
+   must agree with the profile document, and the digest is what makes
+   disagreement detectable.
+
+   This describes the model, not the authority. What the authority takes
+   at intake is `acceptedMedia`; a human-only authority omits
+   `modelProfile` entirely and still has somewhere to say what it
+   accepts.
 
    Declared support and a declared maximum are one predicate, not two.
    A profile claiming a modality while permitting zero items of it takes
@@ -450,9 +460,62 @@ Normative constraints:
    evidence it never saw;
 5. class definitions are content-addressed: a user consents to exact
    wording, and the authority cannot edit the definition under existing
-   mandates.
+   mandates;
+6. an authority operated by or affiliated with an interface vendor lists every
+   such interface in `interfaceAffiliations`; omitting a material affiliation
+   is nonconforming. An unaffiliated authority omits the field or publishes an
+   empty list;
+7. `validUntil` bounds the authority's power to accept new mandates and open
+   new cases, not to finish live process. Cases opened before expiry proceed to
+   their fixed deadlines. A lapse without renewal or declared succession makes
+   the designation defunct and invokes §5.7's bounded failure procedure; and
+8. authenticity and consent bind one byte artifact: the manifest fields
+   used to derive mandate classes, the bytes whose hash the mandate pins,
+   the bytes authenticated by the authority, and the bytes retained for
+   later display and verdict validation are the same artifact. Pairing the
+   decoded fields of one manifest with the bytes of another is
+   nonconforming;
+9. an authority that accepts media evidence declares `acceptedMedia`,
+   and one that declares none accepts none.
 
-   `retention` names five periods and a map, each a `P<n>D` **tail
+   This is the **only** surface for that fact, and it has to be a
+   manifest field rather than anything else, because the alternatives do
+   not fit. `surfaces` lives in the shared moderation profile that every
+   manifest pins by id, so it says what the v1 interface contains and
+   cannot say what one authority does with it. `modelProfile.inputs`
+   describes what a model is shown, and a human-only authority omits
+   `modelProfile` altogether (constraint 4) — leaving it no way to speak
+   at all.
+
+   `acceptedMedia` also carries the intake bounds, because a limit that
+   refuses a report is a term of the service and not an implementation
+   detail:
+
+   - `mediaTypes` — what will be decoded at all. An empty list, or the
+     field's absence, is a complete refusal.
+   - `maxObjectBytes` — the ceiling on one uploaded object.
+   - `maxItemsPerFiling` — how many items one report or response may
+     commit to.
+   - `maxItemsPerCase` — how many a case may accumulate, which the
+     per-filing bound cannot cover because reports join and responses
+     accrue.
+   - `maxUnreferencedUploads` — how many uploaded objects one key may
+     hold that no filing has named.
+
+   Where an authority's decider cannot review a declared type and its
+   output is the decision, the pairing is self-contradictory: it publishes
+   that it accepts material nothing will read. A conforming authority does
+   not publish that combination, and `media_unreviewable` exists for
+   material already on file when terms change beneath it rather than as a
+   normal intake outcome.
+
+   Between them, `acceptedMedia` and `preservation` are what make a
+   decline legible before filing rather than discovered by being refused —
+   for a modality and for a class respectively;
+10. an authority that deletes material on a schedule declares
+   `retention`.
+
+   It names five periods and a map, each a `P<n>D` **tail
    measured from the moment the thing it governs is finished** rather
    than a lifetime from arrival. The anchors are what make a duration
    resolvable, so they are part of the term:
@@ -473,6 +536,17 @@ Normative constraints:
      the record it published a period for is then kept indefinitely.
    - `preservation.<classId>.period` — from the moment the hold is
      placed, not from the case, since the duty attaches to the material.
+
+   A case that produced a sanction still in force takes its
+   `caseRecord` and `auditRecord` anchor from `sanctionRecord` instead of
+   from its own deadlines. Otherwise the two schedules contradict
+   constraint 2: a permanent ban is appealable for as long as it is in
+   force, and an appellate authority 400 days later would be reviewing a
+   mark whose reports, responses and events this authority had already
+   deleted on time. `caseMedia` is deliberately not extended with them —
+   the appeal is heard on the record of what was decided and why, and
+   keeping a photograph alive for the lifetime of a permanent mark is the
+   opposite of what the shortest period on the list is for.
 
    The inline durations govern. `policy` is the human-readable document
    those numbers are explained in, and a mandate pins the manifest, so a
@@ -506,20 +580,7 @@ Normative constraints:
    reporting relationship that role carries may commit an offence merely by
    holding such material, and a conforming profile says so where an operator
    will read it;
-6. an authority operated by or affiliated with an interface vendor lists every
-   such interface in `interfaceAffiliations`; omitting a material affiliation
-   is nonconforming. An unaffiliated authority omits the field or publishes an
-   empty list;
-7. `validUntil` bounds the authority's power to accept new mandates and open
-   new cases, not to finish live process. Cases opened before expiry proceed to
-   their fixed deadlines. A lapse without renewal or declared succession makes
-   the designation defunct and invokes §5.7's bounded failure procedure; and
-8. authenticity and consent bind one byte artifact: the manifest fields
-   used to derive mandate classes, the bytes whose hash the mandate pins,
-   the bytes authenticated by the authority, and the bytes retained for
-   later display and verdict validation are the same artifact. Pairing the
-   decoded fields of one manifest with the bytes of another is
-   nonconforming.
+
 
 **Merged-reference status.** `onym-moderation` main treats `appellate`,
 `newHolderAppeal`, and `interfaceAffiliations` as optional/unvalidated
@@ -729,17 +790,22 @@ Normative constraints:
 
    An authority may also decline media for a class that declares
    `lawfulReporting` while still accepting text reports for it, and it
-   declines by publishing — the `preservation` map in §5.2 is the
-   surface, and a class needing terms it does not carry is refused. The
+   declines by publishing — the `retention.preservation` map of §5.2
+   constraint 10 is the surface, and a class needing terms it does not
+   carry is refused. The
    permission is exactly as wide as that surface on purpose: a class with
    no reporting duty has nowhere to express a decline, so it accepts
    media on the ordinary rules, and an authority that takes no media at
-   all expresses that through its profile's declared inputs rather than
-   per class. Refusing on those grounds says
+   all says so once in `acceptedMedia` (§5.2 constraint 9) rather than
+   class by class. Refusing on those grounds says
    nothing about the report's merit, and it must be legible before
-   filing rather than discovered by being refused. §5.2 constraint 5
-   carries the rule; this constraint carries only its consequence for
-   evidence intake;
+   filing rather than discovered by being refused. Legible means
+   readable in the authority's own manifest, without fetching a linked
+   document and without filing to find out: `acceptedMedia` for a
+   modality (§5.2 constraint 9), `retention.preservation` for a class
+   (§5.2 constraint 10). Both are inside the bytes a mandate pins, so a
+   decline that appears after consent is a term that was changed rather
+   than a term that was published;
 2. the reporter discloses only items they legitimately received; an
    authority that requests broader disclosure ("send us the whole
    conversation") is nonconforming;
@@ -1287,7 +1353,7 @@ mandate rather than inlined into the Authority operations.
 | `file-report` | Signed `Report` with authenticity proofs | `ReportReceipt` naming the opened/joined case, current deadlines, and intake weight; not a merits decision |
 | `respond` | Routed case ID + signed `CaseResponse` containing the same case ID | `CaseResponseReceipt` or a typed refusal |
 | `appeal` | Routed case ID + `AppealSubmission` containing the same case ID | `AppealReceipt`; ordinary appeals are authenticated, new-holder claims deliberately are not |
-| `upload-evidence` | Content address + the exact bytes, from a consented key | Receipt describing what was stored. Declared only by authorities that accept media; absent from `surfaces` means the authority takes none |
+| `upload-evidence` | Content address + the exact bytes, from a consented key | Receipt describing what was stored. Part of the v1 interface; whether a given authority accepts anything through it is its manifest's `acceptedMedia` (§5.2 constraint 9), not this list |
 | `query-status` | Case ID + fresh party-signature headers, or moderator bearer token | The concrete `CaseStatus` in §5.4.1 |
 
 The client selects the implementation for the authority named by the active
@@ -1296,9 +1362,10 @@ is no separate client-side `submit-evidence` operation — an evidence
 *item* enters only through `file-report` or `respond`. `upload-evidence`
 is not an exception to that: it carries no item, no claim and no
 signature over content, only the bytes a later item will name by digest,
-and an upload nobody names is adjudicated against nobody. An authority
-that accepts media declares it; one that does not, omits it, and a client
-reading `surfaces` learns which before it tries. The reference signing
+and an upload nobody names is adjudicated against nobody. Every conforming
+authority exposes it, because `surfaces` describes the interface rather
+than one deployment; what an authority will actually take through it is
+`acceptedMedia` in its own manifest. The reference signing
 form removes `signature` structurally, sorts JSON object keys by UTF-8 byte
 order, and serializes without escaping slashes. `caseId` is inside response and
 ordinary-appeal signing bytes. The authority retains each complete raw object
@@ -1636,9 +1703,10 @@ against suspected reporters.
 | `authenticity_unverified` | Evidence intake | Item is complaint, not evidence; cannot alone support a verdict. Media whose bytes do not match what the commitment describes lands here rather than under a media code: the format is fine, the proof is not |
 | `media_missing` | Media evidence names bytes the authority does not hold | Retryable once uploaded; distinct from a conflict, which on a content-addressed route means agreement |
 | `media_unsupported` | Media type outside what the authority decodes, or bytes it cannot parse | Refused rather than stored unexamined |
-| `media_too_large` | Upload exceeds the declared per-object ceiling | Refused; about the object, not the caller |
-| `media_quota_exceeded` | Uploader already holds the permitted number of unreferenced uploads | Retryable after filing or abandoning them. Deliberately not a size code: a client reading only a size refusal shrinks the image and retries forever against a limit that is not about size |
-| `media_class_refused` | This authority declines media for the class, per its published `preservation` terms | Terminal here, not everywhere: declining is a per-authority declared term, so another authority may accept the same report. Text reports for the class are unaffected |
+| `media_too_large` | Upload exceeds `acceptedMedia.maxObjectBytes` | Refused; about the object, not the caller |
+| `media_too_many` | The filing commits to more items than `acceptedMedia.maxItemsPerFiling`, or the case would pass `maxItemsPerCase` | About the count, and the two are distinguished in the message: one is retryable by filing fewer, the other is not retryable on that case at all |
+| `media_quota_exceeded` | Uploader already holds `acceptedMedia.maxUnreferencedUploads` uploads no filing has named | Retryable after filing or abandoning them. Deliberately not a size code: a client reading only a size refusal shrinks the image and retries forever against a limit that is not about size |
+| `media_class_refused` | The class carries a reporting duty (`lawfulReporting`) and this authority publishes no `preservation` terms for it, so it declines the material | Terminal here, not everywhere: declining is a per-authority declared term, so another authority may accept the same report. Text reports for the class are unaffected |
 | `media_unreviewable` | This authority's pinned profile cannot review the modality | Not the same as the class refusing it — the identical report at an authority pinned to a capable profile would be accepted, and a client can act on that difference |
 | `reporter_unconsented` | Report intake | Report refused; reporting requires a mandate |
 | `no_jurisdiction` | Report intake | Accused has no currently registered mandate naming this authority, or the consented manifest expired; refused locally, with consented forwarding permitted by §5.4 constraint 5 |
@@ -1907,14 +1975,21 @@ where the manifest declares preservation for it, and the reference
 manifest declares none — so the reference behaviour is still refusal,
 with the bytes deleted before the refusal returns.
 
-Two conformance nuances. Its manifest carries no `modelProfile.inputs`:
-modality lives only inside the pinned profile document, so a client
-cannot learn what media the authority accepts without fetching and
-parsing it, and `media_unreviewable` is discoverable mainly by filing —
-the thing §5.4 constraint 1 forbids. And the reference decides *which*
+Four conformance nuances. Its manifest carries neither `acceptedMedia`
+nor `modelProfile.inputs`: what it accepts, its 4 MiB object ceiling,
+its bounds of 8 items per filing and 24 per case, and its 16
+unreferenced uploads are all compiled-in constants, so a client cannot
+learn any of them without filing and being refused — the thing §5.4
+constraint 1 forbids. Its intake bounds also answer with `bad_request`
+rather than `media_too_many`, which is the same fact reaching the client
+in a shape it cannot act on. Its retention anchors do not lengthen
+`caseRecord` for a case whose sanction is still in force, so on a
+permanent ban the record would go at 400 days while the mark stayed
+appealable; the reference manifest declares no permanent class, so the
+combination is unreachable there today. And the reference decides *which*
 classes need
 preservation terms from a hardcoded list rather than from the manifest's
-`lawfulReporting` declarations, as §5.2 constraint 5 specifies. Its list
+`lawfulReporting` declarations, as §5.2 constraint 10 specifies. Its list
 and those declarations currently name the same single class, so the
 behaviour agrees; a manifest that declared `lawfulReporting` for another
 class would diverge, and the list is what would have to change.
