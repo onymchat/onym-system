@@ -372,9 +372,20 @@ Normative constraints:
    acquires a marked device can obtain review without the former holder's key;
 4. an authority that permits model-assisted or autonomous decisions declares
    `modelProfile`. Its digest binds the published model repository/revision,
-   prompt, output adapter, thresholds, class mapping, and invalid-output
-   behavior. Replacing any of those terms requires a new manifest and fresh
-   consent; a human-only authority omits the field;
+   prompt, output adapter, thresholds, class mapping, invalid-output
+   behavior, **and the input modalities the profile enables** — which
+   media types the model inspects and how many items per request.
+   Replacing any of those terms requires a new manifest and fresh
+   consent; a human-only authority omits the field.
+
+   Modality is a consented term because it decides what a verdict means.
+   A profile whose declared inputs do not cover a case's evidence must
+   return the undecided outcome (§3.5). It must not classify the part it
+   can read and sign a verdict that reads as though it had reviewed the
+   whole — a text-only model shown a reported image scoring its caption
+   alone is the specific failure this forbids, and it is worse than no
+   decision because nothing in the record reveals it. Silently dropping
+   an evidence item it cannot process is the same failure by omission;
 5. class definitions are content-addressed: a user consents to exact
    wording, and the authority cannot edit the definition under existing
    mandates;
@@ -496,7 +507,7 @@ hardware. These are conformance gaps against constraints 4 and 8.
   "classId": "unsolicited-pornography",
   "evidence": [
     {
-      "disclosedContent": "<the specific message or media, from the reporter's device>",
+      "disclosedContent": "<the exact bytes the accused signed, verbatim>",
       "authenticityProof": "<sender-signature-or-envelope-commitment binding content to accused key>",
       "context": "<hash-or-inline: conversation context the reporter chooses to add>"
     }
@@ -506,11 +517,73 @@ hardware. These are conformance gaps against constraints 4 and 8.
 }
 ```
 
+**`EvidenceItem`.** One disclosed item, and the only place evidence
+enters this contract — a `CaseResponse` carries counter-evidence in the
+same shape (§6.1), held to the same rules.
+
+`disclosedContent` is an opaque string. Its meaning belongs to the
+sender's commitment format, not to this object: the authority verifies
+`authenticityProof` over its exact bytes and does not reconstruct,
+normalize, re-serialize, or re-encode it. An authority that
+canonicalizes disclosed content before verifying has broken the
+signature it was checking.
+
+That opacity is what lets the same object carry media without a second
+version of this schema. A commitment format that binds attachment bytes
+puts their digest, media type and byte length *inside* the signed
+string, so the reporter's signature over the report covers the image
+identity for free and no `content` union, `blobRef` field, or
+`reportVersion` bump is required. A conforming commitment format must:
+
+1. carry a version discriminator, and be read by that discriminator
+   rather than by which fields happen to be present — otherwise a
+   sender chooses which rules apply to their own signed bytes;
+2. bind the item to one concrete send, so a disclosed
+   (content, signature) pair cannot be replayed onto another message;
+   and
+3. for media, bind the digest of the exact bytes a recipient decrypts
+   and sees, its media type, and its byte length. A digest over
+   ciphertext alone does not identify what was received, and a URL,
+   storage locator, or provider identifier is not an authenticity
+   commitment at all.
+
+**Media bytes do not travel in the report.** They exceed any sane JSON
+body bound, and base64 in a signed object would make the report's
+canonical bytes depend on an encoder's line-wrapping. An authority that
+accepts media declares a separate content-addressed route and names the
+bytes in the report by the digest the accused signed. Content addressing
+carries the integrity: an upload is immutable because its name is its
+hash, arriving twice is idempotent, and bytes hashing to anything else
+are not the reported material regardless of who uploaded them.
+
+An upload therefore needs no ownership scoping, sealing ceremony, or
+single-use token to be safe to accept — referencing another reporter's
+upload is useless without a signature over that same digest, and such a
+signature *is* the evidence. Whatever authentication the route carries
+is resource control, and a profile should say so rather than present it
+as the integrity story.
+
 Normative constraints:
 
 1. every evidence item verifies against the accused's key — content
    without an authenticity proof is a complaint, not evidence, and
-   cannot alone support a verdict;
+   cannot alone support a verdict. For media this has a second half:
+   the authority recomputes the digest of the bytes it holds and
+   requires it to equal the one inside the signed commitment, together
+   with the media type and byte length that commitment declares. A
+   mismatch is an authenticity failure, not a format one — the bytes
+   may be a perfectly good image, just not the one the proof attests
+   to. Media an authority cannot decode, or whose declared media type
+   is outside what it accepts, is refused rather than stored
+   unexamined.
+
+   An authority may also decline media for a particular class while
+   still accepting text reports for it, and must publish which classes
+   those are. Taking custody of material an authority is not equipped
+   to retain, delete, or lawfully report is a harm in itself, and
+   refusing on those grounds says nothing about the report's merit. The
+   refusal is a declared term rather than a silent behaviour: a
+   reporter must be able to learn it before filing;
 2. the reporter discloses only items they legitimately received; an
    authority that requests broader disclosure ("send us the whole
    conversation") is nonconforming;
@@ -695,6 +768,28 @@ output, adapter outcome/score/labels/note, assessment time, and the case
 document; reporter-authored context is redacted from an accused's copy. The
 event list exposes timestamps and kinds but not private event details. Optional
 deadlines may be absent when not applicable.
+
+**Input digest.** The value recorded here and on the verdict (§5.6) is a
+digest over **everything the model was shown**, not over a textual
+rendering of the case. It covers the document text, the identity of
+every media item in evidence order, and — where the model is sent a
+normalized derivative rather than the original bytes — the identity of
+that derivative and the version of the transformation that produced it.
+Two assessments differing in the image, the ordering, or the
+normalization must not be able to record the same digest.
+
+The simplest conforming construction is to write those identities into
+the document text and hash that, so one digest keeps one meaning.
+Hashing a rendering that omits the media is nonconforming: it claims to
+pin what was reviewed while pinning only its captions, and an appeal
+reconstructing the record from it reconstructs the wrong thing.
+
+Where original and derivative differ, the original is the authenticated
+evidence and the derivative is what was classified. Both identities are
+recorded and neither substitutes for the other — "this is what the
+accused sent" and "this is what the model saw" are different claims, and
+a record that cannot distinguish them cannot answer an appeal about
+either.
 
 #### 5.4.2 Interface–authority envelopes
 
@@ -1254,7 +1349,14 @@ Conforming moderation authorities must:
 6. keep case materials under the declared confidentiality terms, retain
    disclosed content no longer than the case and appeal require — except for
    exactly the material and period an applicable declared statutory
-   preservation duty requires — and never reuse it commercially;
+   preservation duty requires — and never reuse it commercially. Disclosed
+   media is retained and deleted as one artifact: an original and every
+   derivative made from it go together, since a deletion that leaves a
+   legible copy behind has not deleted the material. Bytes uploaded for a
+   report that was never filed are not case material and expire on their
+   own bound. Nothing is deleted while a review that would examine it is
+   pending — a deadline is not authority to decide a live appeal by
+   destroying its subject;
 7. perform the lawful statutory reporting the manifest declares, and nothing
    beyond it;
 8. publish promised anonymized statistics consistently, not only the numbers
@@ -1454,7 +1556,19 @@ contract lifecycle.
   future `acceptedAt`, raw-bytes/decoded-fields mismatch, and a hosted manifest
   changing between review and agreement);
   report authenticity verification
-  (valid proof, forged proof, proofless complaint); notice and window
+  (valid proof, forged proof, proofless complaint); media evidence
+  (exact commitment preimage bytes for every version the format
+  defines, a flipped byte in the referenced object, a commitment
+  misstating media type or byte length, a media array inside a version
+  that does not define one, an unknown version, evidence naming bytes
+  the authority does not hold, and a class that declines media) — the
+  preimage bytes in particular are a cross-implementation fixture,
+  because a signer and a verifier written in different languages agree
+  on them by construction and nothing else would catch the drift;
+  input-digest sensitivity to the media item, its ordering, and the
+  normalization version; modality refusal (a profile whose declared
+  inputs do not cover a case's evidence returns undecided and issues no
+  model request at all); notice and window
   arithmetic including timezone-hostile boundaries; verdict shape
   validation at interfaces (no mandate, class outside mandate, missing
   expiry, marks inconsistent with disposition, missing or inconsistent
@@ -1517,6 +1631,7 @@ fixed deadlines, or other current fields are absent.
 | `GET /manifest.json` | Fetch exact authority-manifest bytes; detached authenticity remains the directory binding |
 | `POST /v1/mandates` | `register-mandate` |
 | `POST /v1/reports` | `file-report` |
+| `PUT /v1/evidence-blobs/:sha256` | Content-addressed evidence bytes for a report that names them by digest; its own body limit, and idempotent by construction |
 | `POST /v1/cases/:caseId/respond` | `respond` |
 | `POST /v1/cases/:caseId/appeal` | `appeal` |
 | `GET /v1/cases/:caseId/status` | `query-status` |
@@ -1535,9 +1650,32 @@ PR #4 adds off/advisory/autonomous local-model triage modes, consent-bound
 model profiles, a shared-token moderator panel, human appeal/new-holder review,
 and the extended `CaseStatus` assessment and claim fields in §5.4.1.
 
-The implementation gaps are equally part of its status: new-holder claims are
+`onym-moderation` PR #38 and `onym-ios` PRs #238/#239 add reported images.
+The commitment format is the iOS chat proof preimage at version 2, which
+adds a `media` array binding each attachment's plaintext digest, media
+type and byte length; version 1 preimages are unchanged byte for byte,
+and a `media` array inside one is refused. Bytes travel on
+`PUT /v1/evidence-blobs/:sha256` under its own body limit, and the report
+names them by the digest the accused signed. The case document carries
+each image's original digest, derivative digest, transformation version
+and dimensions inline, so the existing document hash satisfies the input
+digest rule above without a second digest scheme. `ModelProfile` gained
+an enforced image capability and per-profile maximum drawn from the
+published profile documents, which already stated both.
+
+The implementation gaps are equally part of its status: attachments sent
+before commitment version 2 existed cannot be authenticated at all and are
+permanently unreportable, which is a property of the commitment rather
+than a missing feature; video, album and voice attachments are signed at
+send time but no authority accepts them as evidence; the reference
+authority declines media for `csam` under §5.4 constraint 1, so its most
+serious class remains text-only; media retention is a sweep over uploads
+and decided cases rather than a published schedule, and the rest of the
+case record still has neither; no cross-implementation fixture pins the
+version 2 commitment bytes, so Swift and Rust agree by construction and
+separate tests rather than against a shared vector; new-holder claims are
 unauthenticated and eight-slot exhaustible; external appellate routing,
-affiliation validation, designation-revocation, retention/deletion,
+affiliation validation, designation-revocation, general retention/deletion,
 statutory-reporting, statistics, and compromise-notification mechanisms do not
 exist; mandate withdrawal, reputation-gated intake, and consented report
 forwarding are absent; current Authority verdicts omit the signed fixed
