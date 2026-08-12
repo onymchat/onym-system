@@ -417,14 +417,16 @@ backend performs the same checks before every Apple write.
    verification plus verdict verification, but the relevant enforcement
    switches remain off, and the Rust backend likewise defaults authority
    verdict-signature enforcement off. The merged reference fixes the current Rust HTTP shapes
-   and UTF-8-byte-order canonical JSON form, but the Swift authority client has
-   no network transport and its report signing must use the same ordering.
-   Turning enforcement on requires real keys plus cross-language fixtures.
+   and UTF-8-byte-order canonical JSON form, and the Swift authority client now
+   ships a URLSession transport whose signing forms are pinned to the same
+   ordering. Turning enforcement on requires real keys plus cross-language
+   fixtures.
 10. **Ban recourse is not wired end to end.** The abstract contract requires
     the gate to display working ordinary-appeal and new-holder paths. The Rust
     `BanState` has `appealUrl` and `newHolderUrl`, but the merged Apple backend
-    leaves both absent, and the iOS client has no Authority transport. A ban
-    screen without usable recourse remains nonconforming.
+    leaves both absent; the iOS client now has Authority transport, so the
+    remaining gap is the backend's missing recourse URLs. A ban screen without
+    usable recourse remains nonconforming.
 11. **Authority-failure defaults are missing.** The Rust Interface clears
     `case-open` only after the Authority sweep delivers a dismissal and has no
     designation-revocation or successor-forum state. Permanent Authority
@@ -437,9 +439,9 @@ The `OnymModeration` package introduced by
 [onym-ios PR #216](https://github.com/onymchat/onym-ios/pull/216) maps the
 abstract contract to the following client components. The authority-client
 claims below are directly checkable in
-[`ModerationAuthorityClient.swift`](https://github.com/onymchat/onym-ios/blob/87d5b62e8ebaeeb5aa623e4eaed41c038c8c695a/Packages/OnymModeration/Sources/OnymModeration/ModerationAuthorityClient.swift),
+[`ModerationAuthorityClient.swift`](https://github.com/onymchat/onym-ios/blob/dad8ffffe757e37e6a70593681d4668835dcabef/Packages/OnymModeration/Sources/OnymModeration/ModerationAuthorityClient.swift),
 and the gate result in
-[`EnforcementBackendClient.swift`](https://github.com/onymchat/onym-ios/blob/87d5b62e8ebaeeb5aa623e4eaed41c038c8c695a/Packages/OnymModeration/Sources/OnymModeration/EnforcementBackendClient.swift):
+[`EnforcementBackendClient.swift`](https://github.com/onymchat/onym-ios/blob/dad8ffffe757e37e6a70593681d4668835dcabef/Packages/OnymModeration/Sources/OnymModeration/EnforcementBackendClient.swift):
 
 | Contract/profile responsibility | Current iOS status |
 |---|---|
@@ -452,12 +454,12 @@ and the gate result in
 | Backend boundary | Typed enrollment, countersignature, and gate-check protocol; the iOS package still uses a development stub, while merged `onym-moderation` supplies a separate Rust reference backend |
 | Gate behavior | Launch/interval state machine, persisted last-known result, P3D grace, fail-closed clock rollback, stale-completion guard, and blocking `checkRequired` reasons |
 | Verdict handling | Domain objects and mechanical validator for mandate/manifest bindings, marks, appeal timing, execution timing, and consented ban duration |
-| Authority client boundary | `ModerationAuthorityClient` exposes `fileReport`, `respond` (including additional evidence), `appeal` (ordinary or new-holder), and `queryStatus`; typed request/result objects and an honest throwing stub exist, but no endpoint resolution or network transport does |
+| Authority client boundary | `ModerationAuthorityClient` exposes `registerMandate`, `fileReport`, `uploadEvidenceImage`, `respond` (including additional evidence), `appeal` (ordinary or new-holder), `queryStatus`, and the device-recovery claim operations; `URLSessionModerationAuthorityClientFactory` resolves a URLSession transport per directory-selected authority, with the honest throwing stub retained for previews |
 | Authority outbound delivery | `GateCheckResult.caseOpen` carries `CaseNotice` values and `.banned` carries ban/verdict display state from the interface backend; the authority has no client-side mark-write method |
-| Mandate registration | Missing: the client appends and persists the interface countersignature but exposes no path that registers the finalized mandate with the named authority |
+| Mandate registration | Implemented: the client appends the interface countersignature and registers the finalized two-signature mandate with the named authority via `registerMandate`, verifying the returned `mandateRef` against its own content hash, with single-flight deduplication and retry of interrupted registrations |
 | Authority reference service | [Merged `onym-moderation` main](https://github.com/onymchat/onym-moderation/tree/d08e55cc2dac8a3db90f70d3445552366b4ec9ef) defines the concrete v1 request/response shapes and exposes mandate registration, the four client operations, local-model triage, moderator review, verdict delivery, and a DeviceCheck backend; it remains undeployed |
 | App composition | Package is linked but PR #216 does not wire onboarding, foreground checks, root gating, or ban/case UI; those integrations belong to later stack layers |
-| Authority service and Apple writes | Merged work through PR #10 implements the Authority, triage/review, reconciliation, write log, and `update_two_bits` path; no production deployment exists, verdict-signature enforcement defaults off, external appellate routing is absent, and the iOS app does not call mandate registration |
+| Authority service and Apple writes | Merged work through PR #10 implements the Authority, triage/review, reconciliation, write log, and `update_two_bits` path; no production deployment exists, verdict-signature enforcement defaults off, and external appellate routing is absent; the iOS app now calls mandate registration from its consent flow |
 
 The iOS reviewed-manifest path is stricter than the v1 Rust reference: it
 requires a new-holder procedure and parses an external appellate for permanent
