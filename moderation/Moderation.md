@@ -2186,10 +2186,9 @@ enforcement-profile pin; the Apple
 service's authority-signature enforcement defaults off; numeric
 manifest/mandate/report/verdict version fields are decoded but not rejected
 when they differ from 1; Authority startup does not validate the moderation
-seat/profile ID; and no current iOS call registers the finalized mandate with
-the Authority. There is no production deployment. The current iOS authority
-client remains a typed seam with no network transport, as the DeviceCheck
-profile records.
+seat/profile ID. There is no production deployment. The iOS authority client
+is URLSession-backed and registers the finalized two-signature mandate with
+the Authority from the consent flow, as the DeviceCheck profile records.
 
 ## 14. Acceptance criteria
 
