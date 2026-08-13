@@ -555,10 +555,12 @@ A conforming client must:
   unsupported filters, sponsored placement, source conflicts, malicious URIs,
   oversized content, and privacy-profile behavior.
 
-No concrete implementation profile exists yet. A first profile should prefer
-signed static snapshots over account-based remote search, because that makes
-verification, caching, mirroring, comparison, and local private filtering
-straightforward.
+A first implementation profile is in draft:
+[Discovery-Static-Ed25519.md](Discovery-Static-Ed25519.md) — Ed25519-signed
+static snapshots over HTTPS with full-download local filtering. It follows
+this contract's recommendation to prefer signed static snapshots over
+account-based remote search, because that makes verification, caching,
+mirroring, comparison, and local private filtering straightforward.
 
 ## 17. Acceptance criteria
 
