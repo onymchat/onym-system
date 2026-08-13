@@ -675,6 +675,13 @@ The current implementation is:
   contracts, PLONK evidence, HTTP fee-paying relayer, and Stellar RPC/read
   reconciliation.
 
+An accepted second implementation is in draft:
+
+- [UI-Notary-BNB.md](UI-Notary-BNB.md) — BNB Smart Chain, Solidity contracts,
+  PLONK evidence re-targeted to BN254, the relayer operating as a declared
+  notary-seat operator, and user-selectable circuit type in the notary
+  manifest.
+
 Future profiles may use different canonical systems while preserving the same
 UI-facing semantics. They must not reuse the same profile ID if state,
 authorization, finality, or migration meaning differs.
