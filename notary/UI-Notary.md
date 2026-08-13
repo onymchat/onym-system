@@ -51,6 +51,26 @@ must remain under the same notary binding when opened in another. A frontend
 may support several notary profiles. A notary may serve several frontends
 without making their publisher an authority over group state.
 
+A notary operator may run deployments on several canonical systems
+simultaneously — different blockchains, or a blockchain beside a
+non-blockchain backend. Each backend is a separate deployment under its own
+implementation profile; sharing an operator does not merge their state,
+evidence, or finality semantics. The **user chooses, at group creation,
+which backend receives the group's authorization evidence**; that choice is
+pinned into the group binding and is thereafter as sticky as every other
+binding field.
+
+The Discovery seat presents the catalog of notaries operated by different
+parties. Each catalog entry declares, machine-readably, which implementation
+profiles and network namespaces that operator supports — and some operators
+support only a subset. A conforming UI filters its creation choices to the
+intersection of what the selected operator declares, what the client can
+verify and prove, and what the catalog entry's signatures substantiate. It
+must never infer chain support from an operator's brand, another operator's
+capabilities, or an earlier catalog version; and a Discovery listing remains
+advertisement, not verification — the deployment objects it points to are
+still verified independently before use.
+
 ## 2. What the notary does
 
 The notary answers narrow questions about shared state:
@@ -674,6 +694,13 @@ The current implementation is:
 - [UI-Notary-Stellar.md](UI-Notary-Stellar.md) — Stellar network, Soroban
   contracts, PLONK evidence, HTTP fee-paying relayer, and Stellar RPC/read
   reconciliation.
+
+An accepted second implementation is in draft:
+
+- [UI-Notary-BNB.md](UI-Notary-BNB.md) — BNB Smart Chain, Solidity contracts,
+  PLONK evidence re-targeted to BN254, the relayer operating as a declared
+  notary-seat operator, and user-selectable circuit type in the notary
+  manifest.
 
 Future profiles may use different canonical systems while preserving the same
 UI-facing semantics. They must not reuse the same profile ID if state,
