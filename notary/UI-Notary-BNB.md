@@ -176,10 +176,15 @@ The abstract `NotaryDeployment` maps as:
 }
 ```
 
-Network identity is the EIP-155 chain ID, not a display name. BSC mainnet
-(56), BSC testnet (97), and opBNB (204) are distinct namespaces. The contract
-address selects one instance; the keccak-256 hash of the deployed runtime
-bytecode identifies its implementation. Both are required.
+Network identity is the EIP-155 chain ID, not a display name. This profile
+is scoped to BSC mainnet (56) and BSC testnet (97): its finality rule (§10)
+and reorg model are BSC-L1 fast-finality semantics. opBNB (204) is a
+distinct namespace with L2 finality semantics — soft confirmation by the
+sequencer, then L1 settlement — and is **not covered** by this profile; a
+deployment there requires a separate implementation profile declaring its
+own finality, sequencer-trust, and reorg rules. The contract address selects
+one instance; the keccak-256 hash of the deployed runtime bytecode
+identifies its implementation. Both are required.
 
 Upgradeable proxies are **prohibited** for `sep-*` deployments under this
 profile. If a future profile permits them, the upgrade power is an operator
@@ -236,22 +241,37 @@ change what they prove.
 | `readState` | `getCommitment` (`view`) | All five |
 | `readHistory` | `getHistory` (`view`) | All except one-on-one |
 | Flavor read | `getAdminCommitment` (`view`) | Tyranny only |
-| `maintainState` | — | Unsupported; capability flag absent |
+| `maintainState` | — | Unsupported; capability flag explicitly `false` |
 | Deployment administration | `setRestrictedMode` | All five; operator only; not group governance |
 
 Evidence rules:
 
 - Public inputs keep the exact ordered statements defined in the Stellar
-  profile (§9 there), re-encoded as BN254 field elements. Any value that
-  cannot fit the BN254 scalar field verbatim (e.g. a 32-byte commitment) is
-  reduced by a declared, fixture-pinned rule; silent truncation is a
-  conformance failure.
+  profile (§9 there), re-encoded as BN254 field elements. Client-chosen
+  identifiers and commitments (`group_id`, group and occupancy commitments)
+  must be **canonically in-field**: generated below the BN254 scalar modulus
+  by rejection sampling, and rejected by the contract when out of range.
+  Reduction modulo the field is forbidden for these values — it is
+  non-injective over 32 bytes, so a crafted `group_id' = group_id + r` would
+  share a proof-bound field element with a different storage key and let
+  evidence for one group authorize a second. A declared, fixture-pinned
+  reduction rule is permitted only for values the client cannot choose
+  (e.g. epoch counters, which are far below the modulus by construction);
+  silent truncation is a conformance failure everywhere.
 - The contract reads prior state from storage and compares it to the ordered
   public inputs before calling the verifier. `c_new` and the next epoch are
   proof-bound or storage-derived, never trusted from a separate caller field.
 - Verifier contracts are toolchain-generated per flavor (and per tier where
   applicable), deployed immutably, and referenced by address plus code hash
   in the manifest. Verifying keys are content-addressed in `verifierAnchors`.
+- The verifier address and the operator admin address are Solidity
+  `immutable` values, embedded in the deployed runtime bytecode — never
+  constructor-set storage. This is what makes the `runtimeCodeHash` pin in
+  §5/§6 actually cover which verifier runs and who holds operator powers;
+  a storage-configured verifier would sit outside the hash and void the
+  binding check. The contract additionally exposes `getVerifier()` and
+  `getOperatorAdmin()` view functions, and the client's binding verification
+  compares both against the manifest before first use.
 - Replay protection stores the keccak-256 hash of the proof bytes per group
   for state-changing calls; a repeated proof reverts with `ProofReplay`.
   Read-only `verifyMembership` does not consume the proof.
@@ -296,7 +316,7 @@ byte-for-byte, because group bindings and entitlements pin its hash:
     "onym:notary-implementation:bnb-evm-sep-plonk-bn254-v1"
   ],
   "networks": [
-    { "namespace": "eip155:97", "submitterAccount": "0x...", "role": "gas-payer" },
+    { "namespace": "eip155:97", "submitterAccount": "0x...", "adminAccount": "0x...", "role": "gas-payer" },
     { "namespace": "stellar:<passphrase-hash>", "submitterAccount": "G...", "role": "fee-payer" }
   ],
   "powers": {
@@ -325,10 +345,26 @@ Rules carried over from the Authority pattern:
 3. powers are exhaustive — a power not declared is a power the operator does
    not have, and `canCensorSubmission: true` is declared honestly because any
    submitter can refuse; the abstract boundary already makes censorship
-   survivable, not impossible; and
+   survivable, not impossible;
 4. the manifest hash referenced by a binding or entitlement freezes those
    bytes; changed terms mean a new manifest version and hash, never an edit
-   in place.
+   in place;
+5. the manifest's ed25519 `operator` key and the EVM secp256k1 accounts are
+   different keys, and the manifest is what binds them: each `networks`
+   entry declares the `adminAccount` whose `msg.sender` the contracts'
+   `setRestrictedMode` accepts (matching the contract's immutable operator
+   admin, §7) and the `submitterAccount` that pays gas. The client's
+   deployment verification compares the manifest's `adminAccount` against
+   the contract's `getOperatorAdmin()` — without this comparison, "declared
+   powers match contract-enforced reality" (§19.3) is not verifiable; and
+6. `validUntil` expiry ends *new* reliance only: no new group may bind and
+   no new entitlement may reference an expired manifest, but bindings and
+   consent records pinning its hash remain verifiable against those exact
+   bytes forever, and the operator must keep superseded manifest versions
+   retrievable by hash. A successor manifest is signed by the same
+   `operator` key, or by a new key via an explicit rotation statement signed
+   by the old key; an unsigned key change is a different operator, not a
+   rotation.
 
 The operator manifest describes the **service seat**. It does not replace the
 per-deployment `NotaryDeployment` object (§5); a deployment references the
@@ -361,7 +397,9 @@ The request shape extends the current protocol:
   "operationId": "<client-random-id>",
   "network": "bnb-testnet",
   "chainId": 97,
-  "contractID": "0x...",
+  "deploymentId": "onym:notary:bnb:97:0x...",
+  "contractId": "0x...",
+  "runtimeCodeHash": "0x...",
   "contractType": "tyranny",
   "proofSystem": "plonk-bn254-kzg",
   "function": "updateCommitment",
@@ -375,9 +413,14 @@ The request shape extends the current protocol:
 }
 ```
 
-The relayer validates operator-manifest scope, allowlist membership
-(network × flavor × address × proofSystem), function/flavor compatibility,
-field lengths, and encodings before spending gas; ABI-encodes the call; signs
+The `contractId` spelling replaces the legacy Stellar `contractID`; the EVM
+request uses `chainId`-consistent camel case throughout. The relayer
+validates operator-manifest scope, allowlist membership
+(network × flavor × address × proofSystem), that the client's pinned
+`deploymentId` and `runtimeCodeHash` match the allowlisted deployment — a
+mismatch is `deployment_mismatch`, refused before gas is spent, so a client
+holding a stale or wrong binding cannot be silently served a different
+contract — function/flavor compatibility, field lengths, and encodings; ABI-encodes the call; signs
 with its funded account; submits; and returns the transaction hash
 immediately:
 
@@ -395,16 +438,21 @@ immediately:
 ```
 
 Unlike the current Stellar write path, returning the transaction hash on the
-success path is **mandatory** from the first EVM release — it is what lets
-the client run independent receipt reconciliation. An outcome-query endpoint
-(`GET /operations/:operationId`) resolves unknown outcomes by mapping the
-stored operation ID to its transaction hash and current receipt status.
+success path is **mandatory** from the first EVM release. It is, however,
+**provisional**: a stuck-transaction replacement (same-nonce gas bump)
+produces a different hash for the same logical operation, so the hash in the
+submission receipt may never be mined. The stable reconciliation key is
+`operationId`, not the hash. The outcome-query endpoint
+(`GET /operations/:operationId`) returns the current transaction hash, every
+superseded hash, and the current receipt status; a client that polls a
+receipt by hash and finds nothing must fall back to the operation query
+before concluding anything.
 
 Gas note: the relayer's EOA nonce serializes its submissions; the
-implementation must manage nonce assignment and stuck-transaction replacement
-(same-nonce gas bump) without ever changing the logical operation. Duplicate
-client retries with the same `operationId` map to the same transaction, not a
-second execution.
+implementation must manage nonce assignment and replacement without ever
+changing the logical operation — a replacement carries byte-identical
+calldata, only fee fields differ. Duplicate client retries with the same
+`operationId` map to the same logical operation, not a second execution.
 
 ## 10. Write lifecycle, finality, and receipt
 
@@ -414,8 +462,10 @@ second execution.
 3. UI serializes the profile-pinned operation.
 4. Relayer validates manifest scope, allowlist, function, payload, entitlement.
 5. Relayer ABI-encodes, estimates gas, signs with its funded account.
-6. Relayer submits and returns the transaction hash.
-7. Client polls eth_getTransactionReceipt (directly or via the relayer).
+6. Relayer submits and returns the (provisional) transaction hash.
+7. Client polls eth_getTransactionReceipt for that hash, falling back to
+   GET /operations/:operationId when the hash resolves to nothing, since a
+   nonce replacement may have superseded it.
 8. status == 1 in an included block means executed; the client then waits for
    the binding's finality rule.
 9. Client decodes the GroupCreated / CommitmentUpdated event, confirms
@@ -486,8 +536,12 @@ Contract-retained bounded history maps to `getHistory` where the flavor
 supports it. RPC log retention is an operator window, not history.
 
 There is no TTL, archival, or rent on BNB Chain: state persists once written.
-`maintainState` is therefore **unsupported** and its capability flag is
-absent — clients must honor the flag rather than assume the Stellar behavior.
+`maintainState` is therefore **unsupported**, and the deployment's
+capabilities declare it explicitly as `"maintainState": false`. An absent
+flag is not a statement — it is indistinguishable from an older manifest —
+so clients must treat absence as unknown and refuse, per the §3 rule against
+defaulting unknown fields, rather than assume either the Stellar behavior or
+this one.
 The corresponding operational cost moves to write time (gas per state slot),
 which the operator's offers may price accordingly.
 
@@ -503,8 +557,8 @@ which the operator's offers may price accordingly.
 | `state_exists` | Contract `GroupAlreadyExists()` revert |
 | `state_not_found` | Contract `GroupNotFound()` revert |
 | `invalid_evidence` | Contract `InvalidProof()` revert or verifier failure |
-| `public_input_mismatch` | Contract `PublicInputsMismatch()` revert |
-| `stale_revision` | Stored commitment/epoch differs from public inputs |
+| `public_input_mismatch` | Contract `PublicInputsMismatch()` revert (malformed or misordered statement) |
+| `stale_revision` | Contract `StaleRevision()` revert (well-formed statement bound to a superseded epoch/commitment) |
 | `replay` | Contract `ProofReplay()` revert or duplicate operationId mapping |
 | `unauthorized` | `OperatorOnly()` revert or restricted-mode refusal |
 | `submission_failed` | HTTP, gas estimation, nonce, mempool, or inclusion failure |
@@ -514,7 +568,11 @@ which the operator's offers may price accordingly.
 | `state_unavailable` | RPC unavailable or log window exceeded |
 
 Custom Solidity errors (four-byte selectors) are the stable contract-level
-taxonomy; raw revert data and HTTP status remain diagnostics.
+taxonomy; raw revert data and HTTP status remain diagnostics. `StaleRevision`
+and `PublicInputsMismatch` are distinct selectors by requirement — the
+Stellar profile collapses them into one comparison, but here the adapter's
+retry guidance differs (refresh-and-rebuild versus refuse-as-defect), so the
+contract must make them decidable.
 
 ## 14. Payment and fee mapping
 
@@ -565,8 +623,9 @@ by claim, not the same group.
    calldata or contract state.
 7. Verifier addresses, verifying keys, and runtime code hashes are pinned;
    "latest release" never substitutes for a pinned binding.
-8. The operator key signs the manifest and administrative transactions; it
-   never appears in group authorization evidence.
+8. The ed25519 operator key signs the manifest; the manifest-declared
+   secp256k1 `adminAccount` signs administrative transactions. Neither
+   appears in group authorization evidence.
 9. Client state is durable only after receipt, event, and finalized-state
    reconciliation.
 
@@ -596,11 +655,19 @@ Swift/Kotlin input
   -> normalized NotaryStateSnapshot and NotaryReceipt
 ```
 
+The prover toolchain is deliberately unpinned by this draft, but toolchains
+disagree on proof point order and public-input serialization, so the fixture
+chain above is a **ship-blocker, not an afterthought**: no client may ship
+against this profile until the end-to-end fixtures exist and pin the chosen
+toolchain's exact byte encoding.
+
 Fixtures cover all five flavors, every tier, create/read/update or
 immutability, membership verification, invalid proof, wrong public-input
-order, stale epoch, replay, restricted creation, revert-selector decoding,
-nonce-replacement safety, reorg-before-finality handling, receipt
-reconciliation, and unknown outcome. Canonicalization fixtures for the
+order, stale epoch, replay, restricted creation, revert-selector decoding
+(including `StaleRevision` versus `PublicInputsMismatch`), out-of-field
+identifier rejection, nonce-replacement safety and superseded-hash outcome
+queries, reorg-before-finality handling, receipt reconciliation, and unknown
+outcome. Canonicalization fixtures for the
 operator manifest are shared byte-for-byte between the relayer and any
 verifier, following the `onym-moderation` pattern.
 
@@ -657,8 +724,8 @@ The BNB implementation satisfies `UI-Notary.md` when:
    with distinct errors, in fixtures;
 9. payment entitlement is scoped to the operator-manifest hash and never
    enters calldata or state;
-10. `maintainState` absence is expressed as a capability flag the clients
-    honor; and
+10. `maintainState` is declared explicitly `false` in deployment
+    capabilities, and clients honor the declaration; and
 11. a third-party UI, relayer, RPC provider, and deployment interoperate
     using the published profile and test suite.
 
