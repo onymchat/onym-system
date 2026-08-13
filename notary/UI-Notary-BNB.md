@@ -125,6 +125,16 @@ network and governance flavor. The UI must:
    groups only. An existing group never changes circuit type outside the
    declared migration protocol (§15).
 
+The selection is two-dimensional: **which notary operator**, and **which of
+that operator's backends receives the proofs**. Operators may run Stellar
+and BNB deployments simultaneously, or only one; the Discovery seat lists
+notaries owned by different parties with their declared support, and the UI
+offers only combinations that appear in the selected operator's signed
+manifest (§8.1), pass deployment verification, and match a prover the
+client actually has. An operator supporting a subset of chains is a normal,
+honestly-declared condition — not something the UI papers over by silently
+switching operators.
+
 A joiner does not select a circuit type; the invitation carries the pinned
 binding and the joining client verifies it or refuses. Prover availability is
 a capability, not a preference: a client lacking the BN254 prover must refuse
@@ -369,6 +379,16 @@ Rules carried over from the Authority pattern:
 The operator manifest describes the **service seat**. It does not replace the
 per-deployment `NotaryDeployment` object (§5); a deployment references the
 operator, and the operator manifest lists which deployments it administers.
+
+`implementationProfiles` and `networks` are the operator's machine-readable
+statement of chain support, and they are what the Discovery seat surfaces
+when listing notaries. An operator running both Stellar and BNB backends
+lists both; a Stellar-only or BNB-only operator lists one, and that is the
+complete truth about it — Discovery must not extrapolate, and a UI must not
+offer this operator a backend its manifest does not declare. Backends listed
+in one manifest remain separate deployments with separate state; a
+multi-chain operator is several notary deployments under one accountable
+seat, not one notary spanning chains.
 
 ### 8.2 What the operator seat does and does not decide
 
