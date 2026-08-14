@@ -42,6 +42,11 @@ The document distinguishes:
 | Transport | HTTPS static file hosting; no accounts, cookies, or query endpoints |
 | Capabilities | `signed-snapshot-v1`, `local-filtering-v1` |
 
+`version` is exactly `1` in every document of this profile; any other
+value — including a higher major — is `provider_manifest_invalid` /
+`snapshot_invalid` for the document carrying it, per the abstract §16
+unknown-major rule.
+
 The implementation profile identifier is:
 
 ```text
@@ -186,8 +191,8 @@ Field requirements and strictness, normatively (levels not shown for
 | Document / level | Required | Optional | Unknown keys |
 |---|---|---|---|
 | Provider manifest (top) | version, implementationProfileId, providerId, operator, seat, catalogs, capabilities, offers, privacyProfile, privacyProfileUri, validUntil, signature | — | document invalid |
-| `catalogs[]` descriptor | catalogId, snapshot, audience, seatTypes, policy, policyUri | — | descriptor skipped (surfaced in the source's skipped-catalog count); a manifest with zero surviving descriptors is `provider_manifest_invalid` |
-| Snapshot (top) | version, implementationProfileId, catalogId, providerId, sequence, policyDigest, generatedAt, expiresAt, entries, signature | previousDigest (forbidden at sequence 1) | document invalid |
+| `catalogs[]` descriptor | catalogId, snapshot, audience, seatTypes, policy, policyUri | — | descriptor skipped (surfaced in the source's skipped-catalog count); a manifest where zero descriptors even **decode** is `provider_manifest_invalid` — audience-based skips (§1) do NOT count toward invalidity: a manifest of decodable but all-non-public catalogs is a valid, empty-by-policy source |
+| Snapshot (top) | version, implementationProfileId, catalogId, providerId, sequence, policyDigest, generatedAt, expiresAt, entries, signature; previousDigest **required when sequence > 1, forbidden at 1** | — | document invalid |
 | `CatalogEntry` + its nested `manifest{}`/`evidence[]` | componentId, seatType, manifest{uri,digest}, operator, listedAt, relationship, placement | profiles, evidence, reviewedAt | entry skipped (lossy) |
 
 `catalogId` matches `[a-z0-9-]{1,64}` and is unique within the manifest.
@@ -262,7 +267,11 @@ Chain rules:
 Entry rules:
 
 - `entries` is ordered; the order is the provider's declared policy rank;
-- duplicate `componentId` values within one snapshot are `snapshot_invalid`;
+- duplicate `componentId` values are `snapshot_invalid`, detected over
+  the **decoded-and-surviving** entries after lossy skipping (pinned so
+  byte-identical fixtures verify identically on every client: a
+  duplicate hidden inside a skipped-malformed entry does not invalidate
+  the snapshot);
 - `manifest.digest` binds the destination manifest bytes the provider
   reviewed; a fetched manifest that hashes differently is
   `entry_manifest_mismatch` — the entry is rejected, never "refreshed" by
@@ -465,8 +474,8 @@ specific sources:
 
 | Abstract error | This profile's trigger |
 |---|---|
-| `provider_manifest_invalid` | Signature/key-pin failure, detached-`.sig` disagreement, unknown top-level field, bad version/profile/seat, refresh identity mismatch, zero surviving catalog descriptors, expired `validUntil`, oversize, URI violation |
-| `snapshot_invalid` | Signature or detached-`.sig` failure, rollback, fork/`previousDigest` mismatch, `policyDigest` ≠ manifest's declared policy, future-dated or born-expired `generatedAt`/`expiresAt`, duplicate `componentId`, unknown top-level field, oversize (forward jumps are accepted-with-note, §6) |
+| `provider_manifest_invalid` | Signature/key-pin failure, detached-`.sig` disagreement, unknown top-level field, bad version/profile/seat, refresh identity mismatch, zero decodable catalog descriptors (audience skips excluded), expired `validUntil`, oversize, URI violation |
+| `snapshot_invalid` | Signature or detached-`.sig` failure, rollback, fork/`previousDigest` mismatch or a missing `previousDigest` at sequence > 1, more than 512 entries, `policyDigest` ≠ manifest's declared policy, future-dated or born-expired `generatedAt`/`expiresAt`, duplicate `componentId`, unknown top-level field, oversize (forward jumps are accepted-with-note, §6) |
 | `snapshot_expired` | `expiresAt` more than 10 minutes in the past (the §4.2 skew allowance — one outcome per client) |
 | `policy_unavailable` | `policyUri` unreachable or bytes ≠ `policyDigest` |
 | `entry_manifest_unavailable` | Destination fetch failure/timeout/oversize |
@@ -476,7 +485,7 @@ specific sources:
 | `profile_incompatible` | An entry's `profiles` contains nothing the client implements — hidden only under an explicit compatibility filter, never silently |
 | `query_unsupported` | Always, for server-side filters — this profile has none; filter locally |
 | `rate_limited` | HTTP 429 from static host; honor `Retry-After` |
-| `source_conflict` | Two configured sources bind the same `componentId` to different digests **and** both pinned manifests are currently fetchable with conflicting signed contents; mere digest divergence (routine review lag across providers) is a low-severity review-lag note, not this error |
+| `source_conflict` | Two configured sources bind the same `componentId` to different manifest digests — both claims preserved, per the abstract §12. Clients MAY grade severity (routine review lag when only one digest matches the currently served bytes, versus both manifests fetchable with conflicting signed contents) but must not suppress the error |
 
 ## 10. Conformance fixtures
 
@@ -541,9 +550,10 @@ source management, consent) in review. Remaining gaps:
   intermediate-fetch continuity walk) and §5's MUST-retention publishing
   are specified here but not yet implemented anywhere;
 - the required privacy/policy fields, descriptor-skip lossiness, and
-  continuity-walk semantics of this revision are in the reference
+  symmetric expiry skew of this revision are in the reference
   implementation but reach the client packages only with their next
-  fixture sync;
+  fixture sync (the continuity walk itself remains unimplemented, per
+  the bullet above);
 - manifest re-refresh with expiry states, entry-vs-manifest field
   conflict checks, skipped-catalog surfacing, symmetric expiry skew,
   and the two-tier source-conflict semantics are specified here but not
@@ -555,8 +565,10 @@ source management, consent) in review. Remaining gaps:
 - the reference verifier's URL parsing normalizes a redundant `:443`
   before the port check and needs the §7 raw-string check;
 - no snapshot field carries the abstract §9 removal reason codes
-  (`manifest_expired`, `policy_mismatch`, …); since top-level decoding is
-  strict, adding one is a profile version bump, deferred to v2; and
+  (`manifest_expired`, `policy_mismatch`, …) nor the abstract's
+  "entry under a disclosed warning or review" status; since top-level
+  decoding is strict, adding either is a profile version bump, deferred
+  to v2; and
 - migration off the unsigned legacy catalogs (`relayers.json`,
   `nostr-relays.json`, `blossom-servers.json`, `authorities.json`),
   which remain the operational path until then.

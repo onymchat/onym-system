@@ -27,8 +27,9 @@ layer, ranking algorithm, payment rail, jurisdiction, or business model. A
 concrete implementation profile must define canonical encodings, transport,
 pagination, signatures, and test vectors.
 
-This is proposed architecture. No current Onym repository implements this
-contract or a conforming Discovery profile.
+This began as proposed architecture; a first implementation profile is
+now in draft (§16) with reference tooling and client packages in
+progress. That profile's §11 tracks exact implementation status.
 
 ## 1. Decision
 
