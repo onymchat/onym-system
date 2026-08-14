@@ -25,8 +25,7 @@ The document distinguishes:
 - **profile requirements**, which are required for a complete conforming
   implementation; and
 - **gaps** — §11 is the single source of truth for implementation
-  status; no other section makes status claims. In brief: reference
-  tooling and client packages exist, the deployed provider does not.
+  status; no other section makes status claims.
 
 ## 1. Conformance declaration
 
@@ -195,13 +194,17 @@ Field requirements and strictness, normatively (levels not shown for
 | Snapshot (top) | version, implementationProfileId, catalogId, providerId, sequence, policyDigest, generatedAt, expiresAt, entries, signature; previousDigest **required when sequence > 1, forbidden at 1** | — | document invalid |
 | `CatalogEntry` + its nested `manifest{}` | componentId, seatType, manifest{uri,digest}, operator, listedAt, relationship, placement | profiles, evidence, reviewedAt, status | entry skipped (lossy) |
 
-`catalogId` matches `[a-z0-9-]{1,64}` and is unique within the manifest.
+`catalogId` matches `[a-z0-9-]{1,64}`; a duplicate among the decoded
+descriptors is `provider_manifest_invalid` (pinned, like duplicate
+`componentId`, for cross-client determinism).
 Every `snapshot`, `policyUri`, and `privacyProfileUri` obeys the URI rules
 of §7. `seatTypes` members are either seat-type tokens matching
 `[a-z0-9.-]{1,64}` or the literal `"*"` wildcard the abstract §5.1
 defines (policy accepts every seat type; not a claim the snapshot
-contains one of each); `"*"` must appear alone if present, and a member
-matching neither form makes the manifest `provider_manifest_invalid`.
+contains one of each); `"*"` must appear alone if present. A member
+matching neither form **skips the descriptor** (aligned with the
+unknown-key rule — one lossiness model per level), surfaced in the
+skipped-catalog count.
 
 ### 4.2 Catalog snapshot
 
@@ -284,12 +287,12 @@ Entry rules:
 - `operator` repeats the destination operator key for indexing; the fetched
   manifest remains authoritative (`Discovery.md` §5.3);
 - `status`, when present, is `{"state": "warning" | "review", "uri":
-  "<https-informational-uri>"}` (`uri` optional) — **reserved in v1**
-  precisely because entry-lossy decoding would otherwise make a v2
-  addition silently drop the very entries carrying warnings. Clients
-  must render the state distinctly (abstract §9's
-  disclosed-warning-or-review requirement); an undecodable `status`
-  skips the entry like any other malformed field;
+  "<https-informational-uri>"}` (`uri` optional) — **defined in v1**,
+  optional for writers, and rendered distinctly by clients when present
+  (abstract §9's disclosed-warning-or-review requirement). It is defined
+  now rather than deferred because entry-lossy decoding would make a
+  later addition silently drop the very entries carrying warnings. An
+  undecodable `status` skips the entry like any other malformed field;
 - `evidence` must be absent or the empty array in v1: its member shape
   (issuer, subject, scope, artifact, result, expiry, status — the
   abstract §13 audit-laundering fields) is deferred to v2, and an
@@ -414,8 +417,12 @@ Then, per catalog:
      final path segment of the manifest's `snapshot` URL with
      `<catalogId>-<sequence>.json` — the derived URL must itself pass
      the §7 rules, walking at most the §7 length bound (a larger gap
-     degrades to accept-with-note). Intermediates are
-     **chain-continuity evidence only**:
+     degrades to accept-with-note). Three outcomes: the chain verifies
+     through the intermediates (full acceptance); intermediates are
+     unavailable (accept-with-note, below); or intermediates fetch but
+     the chain **provably breaks** — that is equivocation,
+     `snapshot_invalid`, the strongest signal here, never a note.
+     Intermediates are **chain-continuity evidence only**:
      signature, chain, and schema are checked but `expiresAt` is NOT
      evaluated (a superseded snapshot is expected to age out) — and verify chain
      continuity through them, in which case the jump verifies fully.
@@ -482,10 +489,12 @@ These mirror and tighten the checks in `onym-relayer`'s
 
 ## 8. Freshness and retention on the client
 
-- The client retains, per source, at least: pinned operator key, last
-  accepted snapshot digest + sequence per catalog, and the timestamps of
-  acceptance — enough to detect rollback and equivocation across
-  refreshes and to satisfy abstract §9's state distinctions.
+- The client retains, per source, at least: pinned operator key; per
+  catalog the last accepted snapshot digest + sequence, **its decoded
+  entry set** (required to distinguish "previously listed, now absent"
+  — abstract §9), and **the previous `policy` digest declared before
+  the last manifest refresh** (required by the §4.2 policy-transition
+  grace); and the timestamps of acceptance.
 - A removed source's pins are deleted only on explicit user removal, and
   a removed default source is never silently restored (abstract §8).
 - Entries from an expired snapshot may be shown only as stale history,
@@ -499,9 +508,9 @@ specific sources:
 | Abstract error | This profile's trigger |
 |---|---|
 | `provider_manifest_invalid` | Signature/key-pin failure, detached-`.sig` disagreement, unknown top-level field, bad version/profile/seat, refresh identity mismatch, zero decodable catalog descriptors (audience skips excluded), expired `validUntil`, oversize, URI violation |
-| `snapshot_invalid` | Signature or detached-`.sig` failure, rollback, fork/`previousDigest` mismatch or `previousDigest` missing at sequence > 1 / present at sequence 1, more than 512 entries, `policyDigest` ≠ manifest's declared policy, future-dated or born-expired `generatedAt`/`expiresAt`, duplicate `componentId`, unknown top-level field, oversize (forward jumps are accepted-with-note, §6) |
+| `snapshot_invalid` | Signature or detached-`.sig` failure, rollback, fork/`previousDigest` mismatch or `previousDigest` missing at sequence > 1 / present at sequence 1, more than 512 entries, `policyDigest` ≠ manifest's declared policy, future-dated or born-expired `generatedAt`/`expiresAt`, duplicate `componentId`, unknown top-level field, oversize (unverifiable forward jumps are accepted-with-note; a proven discontinuity through fetched intermediates is `snapshot_invalid`, §6) |
 | `snapshot_expired` | `expiresAt` more than 10 minutes in the past (the §4.2 skew allowance — one outcome per client) |
-| `policy_unavailable` | `policyUri` unreachable or bytes ≠ `policyDigest` |
+| `policy_unavailable` | `policyUri` unreachable or bytes ≠ the **manifest's current** `policy` digest. During the §4.2 grace window a snapshot legitimately cites the previous digest; the policy fetch is evaluated only against the current manifest pair, and the transition note stands in until the next snapshot aligns |
 | `entry_manifest_unavailable` | Destination fetch failure/timeout/oversize |
 | `entry_manifest_mismatch` | Fetched bytes ≠ `manifest.digest`, or an entry-vs-manifest field conflict on `seatType`/`operator`/`profiles` (§6) |
 | `entry_manifest_invalid` | Destination seat signature/schema/expiry failure |
@@ -550,6 +559,15 @@ byte-identically (the moderation seat's fixture-pinning pattern):
    local filtering issues no per-query requests and carries no cookies
    or identifiers.
 
+10. a policy-transition pair: manifest updated to a new policy digest,
+    snapshot still citing the previous one — accepted with the
+    transition note; any third digest fails;
+11. a no-op refresh: identical latest snapshot re-fetched — no warning;
+12. same-provider cross-catalog digest equivocation — surfaced;
+13. an audience-skip manifest (single non-public catalog) — valid,
+    empty-by-policy, skip count surfaced; and
+14. detached-`.sig` disagreement — fails closed.
+
 Two fixtures the abstract §16 lists are discharged as **not applicable**
 rather than omitted: pagination and unsupported server-side filters —
 this profile has no server-side query surface at all (`query_unsupported`
@@ -568,7 +586,7 @@ source management, consent) in review. Remaining gaps:
   (templates and runbook exist in the reference repo);
 - the inclusion/ranking policy and privacy-profile documents this
   profile's `policyDigest`/`privacyProfile` fields must pin are unwritten;
-- item 1's case-divergence and escaping sub-vectors and items 6–9 of §10 do not exist
+- item 1's case-divergence and escaping sub-vectors and items 6–14 of §10 do not exist
   yet in the reference implementation;
 - current implementations treat every non-successor sequence as invalid —
   the §6 no-op-refresh and forward-jump cases (including the
@@ -593,10 +611,11 @@ source management, consent) in review. Remaining gaps:
 - the reference verifier's URL parsing normalizes a redundant `:443`
   before the port check and needs the §7 raw-string check;
 - no snapshot field carries the abstract §9 removal reason codes
-  (`manifest_expired`, `policy_mismatch`, …) nor the abstract's
-  "entry under a disclosed warning or review" status; since top-level
-  decoding is strict, adding either is a profile version bump, deferred
-  to v2; and
+  (`manifest_expired`, `policy_mismatch`, …); since top-level decoding
+  is strict, adding one is a profile version bump, deferred to v2 (the
+  disclosed-warning/review status is NOT deferred — §4.2 defines the
+  entry-level `status` field; client rendering of it is among the
+  unimplemented obligations above); and
 - migration off the unsigned legacy catalogs (`relayers.json`,
   `nostr-relays.json`, `blossom-servers.json`, `authorities.json`),
   which remain the operational path until then.
