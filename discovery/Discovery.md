@@ -27,9 +27,9 @@ layer, ranking algorithm, payment rail, jurisdiction, or business model. A
 concrete implementation profile must define canonical encodings, transport,
 pagination, signatures, and test vectors.
 
-This began as proposed architecture; a first implementation profile is
-now in draft (§16) with reference tooling and client packages in
-progress. That profile's §11 tracks exact implementation status.
+This began as proposed architecture. A first implementation profile is
+in draft (§16); implementation status is tracked solely by that
+profile's §11.
 
 ## 1. Decision
 

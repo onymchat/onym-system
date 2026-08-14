@@ -193,7 +193,7 @@ Field requirements and strictness, normatively (levels not shown for
 | Provider manifest (top) | version, implementationProfileId, providerId, operator, seat, catalogs, capabilities, offers, privacyProfile, privacyProfileUri, validUntil, signature | — | document invalid |
 | `catalogs[]` descriptor | catalogId, snapshot, audience, seatTypes, policy, policyUri | — | descriptor skipped (surfaced in the source's skipped-catalog count); a manifest where zero descriptors even **decode** is `provider_manifest_invalid` — audience-based skips (§1) do NOT count toward invalidity: a manifest of decodable but all-non-public catalogs is a valid, empty-by-policy source |
 | Snapshot (top) | version, implementationProfileId, catalogId, providerId, sequence, policyDigest, generatedAt, expiresAt, entries, signature; previousDigest **required when sequence > 1, forbidden at 1** | — | document invalid |
-| `CatalogEntry` + its nested `manifest{}`/`evidence[]` | componentId, seatType, manifest{uri,digest}, operator, listedAt, relationship, placement | profiles, evidence, reviewedAt | entry skipped (lossy) |
+| `CatalogEntry` + its nested `manifest{}` | componentId, seatType, manifest{uri,digest}, operator, listedAt, relationship, placement | profiles, evidence, reviewedAt, status | entry skipped (lossy) |
 
 `catalogId` matches `[a-z0-9-]{1,64}` and is unique within the manifest.
 Every `snapshot`, `policyUri`, and `privacyProfileUri` obeys the URI rules
@@ -248,8 +248,13 @@ Chain rules:
   published bytes; it is absent (field omitted) only when `sequence` is 1;
 - a correction is a new sequence; published snapshot bytes are immutable;
 - `policyDigest` must equal the `policy` digest the provider manifest
-  declares for this `catalogId`; a snapshot citing a policy the manifest
-  never declared is `snapshot_invalid`;
+  declares for this `catalogId` — **or the immediately previous
+  declaration** the client retained for it before the last manifest
+  refresh, accepted with a surfaced policy-transition note. Two static
+  files cannot be swapped atomically, so publishers MUST update the
+  manifest first and the snapshot next, and the one-generation grace is
+  what keeps conforming clients from rejecting the catalog inside that
+  window. Any other digest is `snapshot_invalid`;
 - `expiresAt` must be strictly after `generatedAt`; a snapshot born
   expired is `snapshot_invalid`;
 - `generatedAt` must not lie in the verifier's future beyond a 10-minute
@@ -278,6 +283,22 @@ Entry rules:
   trusting newer bytes the provider did not review;
 - `operator` repeats the destination operator key for indexing; the fetched
   manifest remains authoritative (`Discovery.md` §5.3);
+- `status`, when present, is `{"state": "warning" | "review", "uri":
+  "<https-informational-uri>"}` (`uri` optional) — **reserved in v1**
+  precisely because entry-lossy decoding would otherwise make a v2
+  addition silently drop the very entries carrying warnings. Clients
+  must render the state distinctly (abstract §9's
+  disclosed-warning-or-review requirement); an undecodable `status`
+  skips the entry like any other malformed field;
+- `evidence` must be absent or the empty array in v1: its member shape
+  (issuer, subject, scope, artifact, result, expiry, status — the
+  abstract §13 audit-laundering fields) is deferred to v2, and an
+  unrenderable attestation is exactly what that row forbids presenting.
+  A non-empty `evidence` skips the entry;
+- within one provider, entries for the same `componentId` across its
+  catalogs must carry the same `manifest.digest`; a mismatch is
+  provider-level equivocation, surfaced as a source integrity warning
+  — the cheapest equivocation must not be the one nobody checks;
 - the accepted `relationship` values for this profile version are pinned
   inline: `none`, `catalog-subscriber`, `listing-fee`,
   `sponsored-placement`, `common-owner`, `catalog-sponsor`,
@@ -392,7 +413,9 @@ Then, per catalog:
      the expiry window), each URL derived normatively by replacing the
      final path segment of the manifest's `snapshot` URL with
      `<catalogId>-<sequence>.json` — the derived URL must itself pass
-     the §7 rules. Intermediates are **chain-continuity evidence only**:
+     the §7 rules, walking at most the §7 length bound (a larger gap
+     degrades to accept-with-note). Intermediates are
+     **chain-continuity evidence only**:
      signature, chain, and schema are checked but `expiresAt` is NOT
      evaluated (a superseded snapshot is expected to age out) — and verify chain
      continuity through them, in which case the jump verifies fully.
@@ -437,6 +460,7 @@ obligation that absence from every catalog never blocks use.
 | Policy / privacy document size | ≤ 1 MiB |
 | Redirects per fetch | ≤ 3, HTTPS-to-HTTPS only |
 | Fetch timeout | ≤ 60 s per request |
+| Continuity-walk length | ≤ 64 intermediates per refresh; a larger gap degrades to accept-with-note (never rejection) |
 
 URI rules for every URI in these documents (`snapshot`, `manifest.uri`,
 `policyUri`, `privacyProfileUri`, evidence URIs):
@@ -475,7 +499,7 @@ specific sources:
 | Abstract error | This profile's trigger |
 |---|---|
 | `provider_manifest_invalid` | Signature/key-pin failure, detached-`.sig` disagreement, unknown top-level field, bad version/profile/seat, refresh identity mismatch, zero decodable catalog descriptors (audience skips excluded), expired `validUntil`, oversize, URI violation |
-| `snapshot_invalid` | Signature or detached-`.sig` failure, rollback, fork/`previousDigest` mismatch or a missing `previousDigest` at sequence > 1, more than 512 entries, `policyDigest` ≠ manifest's declared policy, future-dated or born-expired `generatedAt`/`expiresAt`, duplicate `componentId`, unknown top-level field, oversize (forward jumps are accepted-with-note, §6) |
+| `snapshot_invalid` | Signature or detached-`.sig` failure, rollback, fork/`previousDigest` mismatch or `previousDigest` missing at sequence > 1 / present at sequence 1, more than 512 entries, `policyDigest` ≠ manifest's declared policy, future-dated or born-expired `generatedAt`/`expiresAt`, duplicate `componentId`, unknown top-level field, oversize (forward jumps are accepted-with-note, §6) |
 | `snapshot_expired` | `expiresAt` more than 10 minutes in the past (the §4.2 skew allowance — one outcome per client) |
 | `policy_unavailable` | `policyUri` unreachable or bytes ≠ `policyDigest` |
 | `entry_manifest_unavailable` | Destination fetch failure/timeout/oversize |
@@ -534,7 +558,8 @@ is unconditional, §9).
 ## 11. Gaps
 
 What exists as of this revision: the `onym-discovery` reference CLI with
-fixture items 2–5 of §10; the relayer's served operator manifest; iOS and
+fixture items 2–5 of §10 and item 1's base canonical vectors (the
+key-order-scrambled input and its canonical bytes); the relayer's served operator manifest; iOS and
 Android client packages (fetching, TOFU pinning, chain verification,
 source management, consent) in review. Remaining gaps:
 
@@ -543,7 +568,7 @@ source management, consent) in review. Remaining gaps:
   (templates and runbook exist in the reference repo);
 - the inclusion/ranking policy and privacy-profile documents this
   profile's `policyDigest`/`privacyProfile` fields must pin are unwritten;
-- fixture items 1 (case-divergence and escaping vectors) and 6–9 of §10 do not exist
+- item 1's case-divergence and escaping sub-vectors and items 6–9 of §10 do not exist
   yet in the reference implementation;
 - current implementations treat every non-successor sequence as invalid —
   the §6 no-op-refresh and forward-jump cases (including the
@@ -554,10 +579,13 @@ source management, consent) in review. Remaining gaps:
   implementation but reach the client packages only with their next
   fixture sync (the continuity walk itself remains unimplemented, per
   the bullet above);
+- the policy-transition grace, walk-length bound, reserved `status`
+  rendering, empty-`evidence` enforcement, and same-provider
+  cross-catalog digest check are in no implementation yet;
 - manifest re-refresh with expiry states, entry-vs-manifest field
-  conflict checks, skipped-catalog surfacing, symmetric expiry skew,
-  and the two-tier source-conflict semantics are specified here but not
-  yet in any implementation;
+  conflict checks, skipped-catalog surfacing, and graded
+  source-conflict severity are specified here but not yet in any
+  implementation;
 - the client packages have adopted the `implementationProfileId`
   rename and regenerated fixtures on their open branches; one Android
   instrumented-test branch awaits a pre-existing unrelated fix before
