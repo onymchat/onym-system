@@ -55,13 +55,17 @@ profiles (an oversized snapshot is split into multiple declared catalogs);
 this profile serves public catalogs only; a v1 client **skips** any
 catalog whose `audience` is not exactly `"public"` — skipped, not
 `provider_manifest_invalid`, so future audience values do not brick v1
-clients, and no soft private-catalog path exists); and **operator
+clients, and no soft private-catalog path exists — and the client must
+surface the skipped-catalog count on the source, so a manifest whose
+catalogs are all skipped reads as an empty-by-policy source, never a
+silently empty one); and **operator
 key rotation** (§6 — re-adding the source is the only path).
 
 The field name is `implementationProfileId`, matching the sibling seat
 profiles' convention. (An earlier draft used `implementationProfile`;
-it was renamed while no deployed provider had signed any bytes, so
-nothing published pins the old name.)
+it was renamed while no deployed provider had signed any bytes; the
+migration cost fell on the already-written client packages, which
+adopted the rename and regenerated fixtures — see §11.)
 
 ## 2. Identifiers
 
@@ -86,9 +90,11 @@ implementation (`onym-moderation` `authority/src/canonical.rs` /
 cross-language byte agreement:
 
 1. decode the document as UTF-8 JSON; the top level must be an object;
-2. remove the `signature` field **structurally** (never by string surgery
-   — planted signature copies elsewhere in the document make textual
-   removal forgeable);
+2. remove the `signature` field **structurally and at the top level
+   only** — a nested `signature` key anywhere deeper is ordinary signed
+   content, canonicalized like any other key (never string surgery:
+   planted signature copies elsewhere in the document make textual
+   removal forgeable, which is also why removal must not recurse);
 3. re-serialize compactly (no insignificant whitespace) with all object
    keys, at every nesting level, sorted by UTF-8 byte order; the `/`
    character is not escaped.
@@ -167,6 +173,16 @@ profile-pinned refinements. Unknown top-level fields are rejected
 }
 ```
 
+Field requirements and strictness, normatively (levels not shown for
+`CatalogEntry` follow §4.2's entry-lossy rule):
+
+| Document / level | Required | Optional | Unknown keys |
+|---|---|---|---|
+| Provider manifest (top) | version, implementationProfileId, providerId, operator, seat, catalogs, capabilities, offers, validUntil, signature | privacyProfile, privacyProfileUri | document invalid |
+| `catalogs[]` descriptor | catalogId, snapshot, audience, seatTypes, policy | policyUri | document invalid |
+| Snapshot (top) | version, implementationProfileId, catalogId, providerId, sequence, policyDigest, generatedAt, expiresAt, entries, signature | previousDigest (forbidden at sequence 1) | document invalid |
+| `CatalogEntry` + its nested `manifest{}`/`evidence[]` | componentId, seatType, manifest{uri,digest}, operator, listedAt, relationship, placement | profiles, evidence, reviewedAt | entry skipped (lossy) |
+
 `catalogId` matches `[a-z0-9-]{1,64}` and is unique within the manifest.
 Every `snapshot`, `policyUri`, and `privacyProfileUri` obeys the URI rules
 of §7. `seatTypes` members are either seat-type tokens matching
@@ -231,9 +247,10 @@ Chain rules:
   not a default. Providers SHOULD publish much shorter windows (days to a
   few weeks): expiry is the abstract contract's primary defense (§13)
   against a removed or compromised instance remaining recommended, and a
-  quarter-long window defeats it. Expired snapshots are
-  `snapshot_expired` and a client must not treat their entries as
-  current recommendations.
+  quarter-long window defeats it. Expiry is evaluated with the same 10-minute clock-skew allowance as
+  `generatedAt` (a fast clock must not reject a fresh snapshot).
+  Expired snapshots are `snapshot_expired` and a client must not treat
+  their entries as current recommendations.
 
 Entry rules:
 
@@ -318,9 +335,20 @@ On adding a provider (by URL entry, QR, file, or deep link):
    decision. A future profile version may define an old-key-signed
    rotation statement; until it does, nothing may be interpreted as one.
 
-On each refresh, per catalog:
+On each refresh cycle, **first re-fetch the provider manifest** from its
+stable URL: unchanged bytes are a no-op; changed bytes are verified
+against the pinned operator key (§6 add-time rules — a different key is
+`provider_manifest_invalid`, never a silent rotation) and, when valid,
+replace the working manifest (catalogs added/removed/re-pointed, policy
+digests updated). A pinned manifest whose `validUntil` has passed puts
+the **source into an expired state**: existing data may be shown only as
+clearly stale history, no new snapshot is accepted, and the state is
+surfaced on the source — this is what makes §9's expired-`validUntil`
+trigger reachable after add time.
 
-1. fetch the snapshot from the pinned manifest's `snapshot` URL within
+Then, per catalog:
+
+1. fetch the snapshot from the current manifest's `snapshot` URL within
    bounds;
 2. verify the signature against the pinned operator key;
 3. check `catalogId`/`providerId` match, `version`, profile, expiry;
@@ -358,6 +386,12 @@ Before presenting or selecting an instance:
 1. fetch the destination manifest from `manifest.uri` within bounds;
 2. verify its bytes against `manifest.digest`
    (`entry_manifest_mismatch` on failure);
+2a. compare the entry's indexing fields against the fetched manifest:
+   a conflict on `seatType`, `operator`, or any `profiles` member is
+   also `entry_manifest_mismatch` — the catalog must not advertise
+   capabilities the operator's signed manifest does not declare
+   (exactly the extrapolation the notary operator-manifest rules
+   forbid);
 3. verify the destination operator's signature under its seat's rules;
 4. apply the destination seat's own compatibility and consent flow.
 
@@ -425,7 +459,7 @@ specific sources:
 | `profile_incompatible` | An entry's `profiles` contains nothing the client implements — hidden only under an explicit compatibility filter, never silently |
 | `query_unsupported` | Always, for server-side filters — this profile has none; filter locally |
 | `rate_limited` | HTTP 429 from static host; honor `Retry-After` |
-| `source_conflict` | Two configured sources bind the same `componentId` to different manifest digests |
+| `source_conflict` | Two configured sources bind the same `componentId` to different digests **and** both pinned manifests are currently fetchable with conflicting signed contents; mere digest divergence (routine review lag across providers) is a low-severity review-lag note, not this error |
 
 ## 10. Conformance fixtures
 
@@ -489,9 +523,14 @@ source management, consent) in review. Remaining gaps:
   the §6 no-op-refresh and forward-jump cases (including the
   intermediate-fetch continuity walk) and §5's MUST-retention publishing
   are specified here but not yet implemented anywhere;
-- the iOS and Android packages still carry the pre-rename
-  `implementationProfile` field and the superseded fixtures until they
-  adopt the reference implementation's rename;
+- manifest re-refresh with expiry states, entry-vs-manifest field
+  conflict checks, skipped-catalog surfacing, symmetric expiry skew,
+  and the two-tier source-conflict semantics are specified here but not
+  yet in any implementation;
+- the client packages have adopted the `implementationProfileId`
+  rename and regenerated fixtures on their open branches; one Android
+  instrumented-test branch awaits a pre-existing unrelated fix before
+  it can push;
 - the reference verifier's URL parsing normalizes a redundant `:443`
   before the port check and needs the §7 raw-string check;
 - no snapshot field carries the abstract §9 removal reason codes
