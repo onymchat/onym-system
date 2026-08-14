@@ -24,9 +24,9 @@ The document distinguishes:
 
 - **profile requirements**, which are required for a complete conforming
   implementation; and
-- **gaps** — as of this draft the entire profile is unimplemented: no
-  publisher tooling, no deployed catalog, and no client support exist. The
-  planned reference implementation is the `onym-discovery` CLI.
+- **gaps** — §11 is the single source of truth for implementation
+  status; no other section makes status claims. In brief: reference
+  tooling and client packages exist, the deployed provider does not.
 
 ## 1. Conformance declaration
 
@@ -56,12 +56,10 @@ this profile serves public catalogs only, and `audience` is informational
 free text with `"public"` the only value given meaning); and **operator
 key rotation** (§6 — re-adding the source is the only path).
 
-A naming note: the field is `implementationProfile`, where sibling seat
-profiles write `implementationProfileId`. The divergence is acknowledged
-and kept for v1: the reference implementation's published conformance
-fixtures and the shipped Rust/Swift/Kotlin codebases (§11 lists what
-exists) pin these exact bytes, so a rename is no longer free — it rides
-the next profile version, which changes signatures anyway.
+The field name is `implementationProfileId`, matching the sibling seat
+profiles' convention. (An earlier draft used `implementationProfile`;
+it was renamed while no deployed provider had signed any bytes, so
+nothing published pins the old name.)
 
 ## 2. Identifiers
 
@@ -134,7 +132,7 @@ profile-pinned refinements. Unknown top-level fields are rejected
 ```json
 {
   "version": 1,
-  "implementationProfile": "onym:discovery-implementation:static-ed25519-v1",
+  "implementationProfileId": "onym:discovery-implementation:static-ed25519-v1",
   "providerId": "onym:component:onym-discovery",
   "operator": "onym:key:<hex>",
   "seat": "discovery",
@@ -159,14 +157,18 @@ profile-pinned refinements. Unknown top-level fields are rejected
 
 `catalogId` matches `[a-z0-9-]{1,64}` and is unique within the manifest.
 Every `snapshot`, `policyUri`, and `privacyProfileUri` obeys the URI rules
-of §7.
+of §7. `seatTypes` members are either seat-type tokens matching
+`[a-z0-9.-]{1,64}` or the literal `"*"` wildcard the abstract §5.1
+defines (policy accepts every seat type; not a claim the snapshot
+contains one of each); `"*"` must appear alone if present, and a member
+matching neither form makes the manifest `provider_manifest_invalid`.
 
 ### 4.2 Catalog snapshot
 
 ```json
 {
   "version": 1,
-  "implementationProfile": "onym:discovery-implementation:static-ed25519-v1",
+  "implementationProfileId": "onym:discovery-implementation:static-ed25519-v1",
   "catalogId": "public-all-seats",
   "providerId": "onym:component:onym-discovery",
   "sequence": 42,
@@ -205,6 +207,9 @@ Chain rules:
 - `policyDigest` must equal the `policy` digest the provider manifest
   declares for this `catalogId`; a snapshot citing a policy the manifest
   never declared is `snapshot_invalid`;
+- `generatedAt` must not lie in the verifier's future beyond a 10-minute
+  clock-skew allowance; a future-dated snapshot is `snapshot_invalid`
+  (otherwise the 90-day ceiling could be minted forward);
 - `expiresAt` − `generatedAt` must not exceed 90 days — a hard ceiling,
   not a default. Providers SHOULD publish much shorter windows (days to a
   few weeks): expiry is the abstract contract's primary defense (§13)
@@ -263,14 +268,14 @@ that seat's contract, applied by the client after discovery.
   (recommended: `https://<host>/manifest.json`). Snapshot URLs come only
   from the verified provider manifest, and each catalog's `snapshot` URL
   always serves the latest snapshot.
-- A provider SHOULD additionally retain recent superseded snapshots as
-  sibling files named `<catalogId>-<sequence>.json` (e.g.
+- A provider **MUST** retain every superseded snapshot that has not yet
+  expired as a sibling file named `<catalogId>-<sequence>.json` (e.g.
   `public-all-seats-41.json` beside `public-all-seats.json` — a flat
   scheme, because `<name>.json` and a `<name>/` directory cannot coexist
-  on filesystem-backed static hosts) so auditors and gapped clients can
-  walk the chain. This is optional in v1, which is why a forward jump
-  past unretained history is accepted-with-note rather than rejected
-  (§6).
+  on filesystem-backed static hosts). This retention window is what makes
+  forward jumps auditable: without it, an equivocator could publish
+  divergent branches that always skip a sequence and never face a
+  continuity check. Retention beyond expiry is optional.
 - No cookies, no authentication, no per-user URLs for public catalogs
   (abstract §10 baseline). `Cache-Control` is operator's choice; clients
   bound staleness by `expiresAt`, not by HTTP caching.
@@ -314,11 +319,17 @@ On each refresh, per catalog:
      retained snapshot's digest: `snapshot_invalid`, evidence of
      equivocation, never silently resolved toward either side;
    - **forward jump** — `sequence` more than retained + 1 (the client
-     missed intermediate publications and cannot check continuity):
-     **accept**, with a source-integrity note that continuity was
-     unverified across the gap. Only the latest snapshot is required to
-     be served (§5), so a client that skips publications must not
-     permanently reject an honest catalog;
+     missed intermediate publications): the client MUST first attempt to
+     fetch the intermediate `<catalogId>-<sequence>.json` files (§5
+     requires their retention within the expiry window) and verify chain
+     continuity through them, in which case the jump verifies fully.
+     Only when intermediates are unavailable does the client **accept
+     with a source-integrity note** stating both that continuity was
+     unverified across the gap and that the provider failed a retention
+     obligation — a conforming provider never puts an honest client in
+     this branch, so the note is a provider-conformance signal, not
+     noise. A client that skips publications still must not permanently
+     reject an honest catalog;
 5. decode entries lossily; retain at least the digest of the accepted
    snapshot for future chain comparison.
 
@@ -345,7 +356,7 @@ obligation that absence from every catalog never blocks use.
 | Destination manifest size | ≤ 256 KiB |
 | Policy / privacy document size | ≤ 1 MiB |
 | Redirects per fetch | ≤ 3, HTTPS-to-HTTPS only |
-| Fetch timeout | client-declared, ≤ 60 s |
+| Fetch timeout | ≤ 60 s per request |
 
 URI rules for every URI in these documents (`snapshot`, `manifest.uri`,
 `policyUri`, `privacyProfileUri`, evidence URIs):
@@ -405,7 +416,11 @@ byte-identically (the moderation seat's fixture-pinning pattern):
    the provider manifest and a snapshot, including a key-order-scrambled
    input that must canonicalize identically **and a case-divergence
    vector whose keys differ only by letter case at a discriminating
-   position** (the vector a case-insensitive sort fails on — §3);
+   position** — necessarily a *synthetic, non-conforming document*
+   (every schema key in this profile is camelCase with no case-only
+   pairs), because it exercises the serializer layer in isolation: the
+   vector a case-insensitive sort fails on (§3), guarding the layer
+   before schema validation ever runs;
 2. a valid three-snapshot chain (sequences 1–3);
 3. tamper set, each expected to fail with a named error: bad signature;
    resigned-by-different-key manifest; sequence rollback; forked
@@ -429,6 +444,11 @@ byte-identically (the moderation seat's fixture-pinning pattern):
    local filtering issues no per-query requests and carries no cookies
    or identifiers.
 
+Two fixtures the abstract §16 lists are discharged as **not applicable**
+rather than omitted: pagination and unsupported server-side filters —
+this profile has no server-side query surface at all (`query_unsupported`
+is unconditional, §9).
+
 ## 11. Gaps
 
 What exists as of this revision: the `onym-discovery` reference CLI with
@@ -444,8 +464,12 @@ source management, consent) in review. Remaining gaps:
 - fixture items 1 (case-divergence vector) and 6–9 of §10 do not exist
   yet in the reference implementation;
 - current implementations treat every non-successor sequence as invalid —
-  the §6 no-op-refresh and forward-jump cases are specified here but not
-  yet implemented anywhere;
+  the §6 no-op-refresh and forward-jump cases (including the
+  intermediate-fetch continuity walk) and §5's MUST-retention publishing
+  are specified here but not yet implemented anywhere;
+- the iOS and Android packages still carry the pre-rename
+  `implementationProfile` field and the superseded fixtures until they
+  adopt the reference implementation's rename;
 - the reference verifier's URL parsing normalizes a redundant `:443`
   before the port check and needs the §7 raw-string check;
 - no snapshot field carries the abstract §9 removal reason codes
