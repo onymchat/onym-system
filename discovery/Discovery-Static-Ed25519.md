@@ -573,47 +573,72 @@ rather than omitted: pagination and unsupported server-side filters —
 this profile has no server-side query surface at all (`query_unsupported`
 is unconditional, §9).
 
+Item 9 is likewise discharged rather than published as bytes: it is a
+**client network-behavior obligation**, not an offline byte fixture —
+there are no reference bytes to pin, so the obligation is met by tests
+and traces in each consuming client (§11), not by a vector in the
+reference set.
+
 ## 11. Gaps
 
 What exists as of this revision (reference CLI and both client
-packages on open review branches): the `onym-discovery` reference CLI
-with §10's items 1 (all three canonical sub-vectors: scrambled-order,
-case-divergence, escaping), 2, 5, 6, 7, 10, 12, 13, and 14 as published
-byte-pinned fixtures, items 3–4 as in-repo tests, and items 8 and 11
-(forward-jump acceptance, no-op refresh) as tests over the chain
-fixtures; item 9 (the privacy fetch trace) is discharged as a client
-network-behavior obligation, not an offline byte fixture. All three
-implementations now share: the §6 four-case chain comparison against
-retained per-catalog state (no-op refresh without warning, rollback and
-forks rejected, forward jumps accepted with a surfaced source-integrity
-note, any sequence accepted on first acceptance of a source); the §4.2
-one-generation policy-transition grace via a retained previous policy
-digest, surfaced as a note; future-dated `generatedAt` rejection and
-the strictly-after born-expired rule; audience-based skipping of
-non-public catalogs (counted, never invalid — zero *decodable*
-descriptors is the invalidity bar) and `seatTypes` member validation;
-the entry `status` field decoded (`warning`/`review`, optional URI) and
-surfaced — a valid status never skips its entry — with both clients
-rendering it as a distinct chip; non-empty `evidence` skipping the
-entry; the closed relationship set failing closed; optional
-`profiles`/`evidence`; the §7 raw-string port check (a redundant `:443`
-is rejected before URL-library normalization) plus integer- and
-hex-form IPv4 literal rejection; oversize destination manifests mapped
-to `entry_manifest_unavailable`; and skip counts surfaced — both
-clients now attach per-source refresh notes (skipped catalogs and
-entries / `result_incomplete`, audience skips, forward-jump and
-policy-transition notes) to their UI models. Client-specific: the iOS
-canonicalizer no longer delegates to Foundation's `.sortedKeys` — it
-serializes with UTF-8-byte-order key sorting and the §3 pinned
-escaping, proven against the case-divergence and escaping vectors;
-both clients enforce the §7 redirect bounds (≤ 3, HTTPS-to-HTTPS,
-IP-literal targets refused) and the 60 s timeout; the reference
-implementation rejects §3 duplicate keys at any depth, has a
-detached-`.sig` verify path that fails closed, ships cross-catalog
-equivocation and `source_conflict` detection helpers with fixtures,
-and its builder publishes the §5 retention siblings
-(`<catalogId>-<sequence>.json`). The relayer's operator manifest is in
-review (the deployed relayer does not serve it yet).
+packages on open review branches), grouped for line-by-line audit:
+
+**Fixtures (§10, in the `onym-discovery` reference CLI):**
+
+- items 1 (all three canonical sub-vectors: scrambled-order,
+  case-divergence, escaping), 2, 5, 6, 7, 10, 12, 13, and 14 as
+  published byte-pinned fixtures;
+- items 3–4 as in-repo tests;
+- items 8 and 11 (forward-jump acceptance, no-op refresh) as tests
+  over the chain fixtures;
+- item 9 (the privacy fetch trace) is discharged as a client
+  network-behavior obligation, not an offline byte fixture.
+
+**Shared by all three implementations:**
+
+- the §6 four-case chain comparison against retained per-catalog
+  state (no-op refresh without warning, rollback and forks rejected,
+  forward jumps accepted with a surfaced source-integrity note, any
+  sequence accepted on first acceptance of a source);
+- the §4.2 one-generation policy-transition grace via a retained
+  previous policy digest, surfaced as a note;
+- future-dated `generatedAt` rejection and the strictly-after
+  born-expired rule;
+- audience-based skipping of non-public catalogs (counted, never
+  invalid — zero *decodable* descriptors is the invalidity bar) and
+  `seatTypes` member validation;
+- the entry `status` field decoded (`warning`/`review`, optional URI)
+  and surfaced — a valid status never skips its entry — with both
+  clients rendering it as a distinct chip;
+- non-empty `evidence` skipping the entry;
+- the closed relationship set failing closed;
+- optional `profiles`/`evidence`;
+- the §7 raw-string port check (a redundant `:443` is rejected before
+  URL-library normalization) plus integer- and hex-form IPv4 literal
+  rejection;
+- oversize destination manifests mapped to
+  `entry_manifest_unavailable`;
+- skip counts surfaced — both clients now attach per-source refresh
+  notes (skipped catalogs and entries / `result_incomplete`, audience
+  skips, forward-jump and policy-transition notes) to their UI models.
+
+**Client-specific (and reference-only):**
+
+- the iOS canonicalizer no longer delegates to Foundation's
+  `.sortedKeys` — it serializes with UTF-8-byte-order key sorting and
+  the §3 pinned escaping, proven against the case-divergence and
+  escaping vectors;
+- both clients enforce the §7 redirect bounds (≤ 3, HTTPS-to-HTTPS,
+  IP-literal targets refused) and the 60 s timeout;
+- the reference implementation rejects §3 duplicate keys at any
+  depth, has a detached-`.sig` verify path that fails closed, ships
+  cross-catalog equivocation and `source_conflict` detection helpers
+  with fixtures, and its builder publishes the §5 retention siblings
+  (`<catalogId>-<sequence>.json`);
+- the relayer's operator manifest is in review (the deployed relayer
+  does not serve it yet).
+
 Remaining gaps:
 
 - the Onym provider deployment (`discovery.onym.app`) is not live: no
@@ -647,13 +672,17 @@ Remaining gaps:
   as clearly stale history, surfaced on the source) is approximated on
   both clients as a refresh failure plus retained-snapshot expiry
   filtering, not as the distinct source-level state §6 describes;
-- one Android instrumented-test branch (`discovery-uitests`) still
-  awaits a pre-existing unrelated fix (identity/transport test
-  compilation) before it can push; its discovery merge is committed
-  locally and compiles clean of discovery errors;
+- the Android instrumented-test branch (`discovery-uitests`,
+  onym-android#208) is now in open review alongside the other client
+  branches; a pre-existing androidTest compile break on `main` in
+  three legacy identity/nostr test files (internal-visibility,
+  unrelated to discovery) blocks *running* the full instrumented
+  suite, not pushing it — the discovery suite itself assembles
+  (`assembleDebugAndroidTest`), and execution additionally requires a
+  device;
 - several §9 codes remain declared but unreachable in the clients
-  (`policy_unavailable`, `query_unsupported` among them — policy
-  documents are never fetched because none are published);
+  (`policy_unavailable` among them — policy documents are never
+  fetched because none are published);
 - no snapshot field carries the abstract §9 removal reason codes
   (`manifest_expired`, `policy_mismatch`, …); since top-level decoding
   is strict, adding one is a profile version bump, deferred to v2; and
