@@ -173,13 +173,20 @@ profile-pinned refinements. Unknown top-level fields are rejected
 }
 ```
 
+`privacyProfile` + `privacyProfileUri` and every descriptor's
+`policyUri` are **required**: the abstract contract obliges a provider
+to declare and follow a privacy profile (§10, §14.1) and to publish the
+exact pinned policy (§14.1) — a public catalog has no reason to omit
+either, and without `policyUri` the `policy_unavailable` error is
+unreachable and rank could never be shown as policy-backed.
+
 Field requirements and strictness, normatively (levels not shown for
 `CatalogEntry` follow §4.2's entry-lossy rule):
 
 | Document / level | Required | Optional | Unknown keys |
 |---|---|---|---|
-| Provider manifest (top) | version, implementationProfileId, providerId, operator, seat, catalogs, capabilities, offers, validUntil, signature | privacyProfile, privacyProfileUri | document invalid |
-| `catalogs[]` descriptor | catalogId, snapshot, audience, seatTypes, policy | policyUri | document invalid |
+| Provider manifest (top) | version, implementationProfileId, providerId, operator, seat, catalogs, capabilities, offers, privacyProfile, privacyProfileUri, validUntil, signature | — | document invalid |
+| `catalogs[]` descriptor | catalogId, snapshot, audience, seatTypes, policy, policyUri | — | descriptor skipped (surfaced in the source's skipped-catalog count); a manifest with zero surviving descriptors is `provider_manifest_invalid` |
 | Snapshot (top) | version, implementationProfileId, catalogId, providerId, sequence, policyDigest, generatedAt, expiresAt, entries, signature | previousDigest (forbidden at sequence 1) | document invalid |
 | `CatalogEntry` + its nested `manifest{}`/`evidence[]` | componentId, seatType, manifest{uri,digest}, operator, listedAt, relationship, placement | profiles, evidence, reviewedAt | entry skipped (lossy) |
 
@@ -338,9 +345,16 @@ On adding a provider (by URL entry, QR, file, or deep link):
 On each refresh cycle, **first re-fetch the provider manifest** from its
 stable URL: unchanged bytes are a no-op; changed bytes are verified
 against the pinned operator key (§6 add-time rules — a different key is
-`provider_manifest_invalid`, never a silent rotation) and, when valid,
-replace the working manifest (catalogs added/removed/re-pointed, policy
-digests updated). A pinned manifest whose `validUntil` has passed puts
+`provider_manifest_invalid`, never a silent rotation), require
+`providerId`, `seat`, and `implementationProfileId` to match the pinned
+source (a mismatch is `provider_manifest_invalid` — the URL now serves a
+different provider), and, when valid, replace the working manifest (catalogs added/removed/re-pointed, policy
+digests updated). Retained per-catalog sequence state is keyed by
+`(providerId, catalogId)` and is **never deleted when a catalogId
+disappears** from the manifest: if the catalog later returns, chain
+comparison resumes against the retained digest and sequence, so a
+returning catalog at a lower sequence is a rollback, not a fresh
+catalog. A pinned manifest whose `validUntil` has passed puts
 the **source into an expired state**: existing data may be shown only as
 clearly stale history, no new snapshot is accepted, and the state is
 surfaced on the source — this is what makes §9's expired-`validUntil`
@@ -369,14 +383,17 @@ Then, per catalog:
      the expiry window), each URL derived normatively by replacing the
      final path segment of the manifest's `snapshot` URL with
      `<catalogId>-<sequence>.json` — the derived URL must itself pass
-     the §7 rules — and verify chain
+     the §7 rules. Intermediates are **chain-continuity evidence only**:
+     signature, chain, and schema are checked but `expiresAt` is NOT
+     evaluated (a superseded snapshot is expected to age out) — and verify chain
      continuity through them, in which case the jump verifies fully.
      Only when intermediates are unavailable does the client **accept
-     with a source-integrity note** stating both that continuity was
-     unverified across the gap and that the provider failed a retention
-     obligation — a conforming provider never puts an honest client in
-     this branch, so the note is a provider-conformance signal, not
-     noise. A client that skips publications still must not permanently
+     with a source-integrity note.** The note asserts a provider
+     retention failure only when the missing intermediate lies within
+     the §5 retention window (its sequence's snapshot would not yet
+     have expired); a gap older than the window is stated as
+     unverifiable-by-construction, with no blame — §5 never required
+     those files to exist. A client that skips publications still must not permanently
      reject an honest catalog;
 5. decode entries lossily; retain at least the digest of the accepted
    snapshot for future chain comparison.
@@ -386,14 +403,14 @@ Before presenting or selecting an instance:
 1. fetch the destination manifest from `manifest.uri` within bounds;
 2. verify its bytes against `manifest.digest`
    (`entry_manifest_mismatch` on failure);
-2a. compare the entry's indexing fields against the fetched manifest:
+3. compare the entry's indexing fields against the fetched manifest:
    a conflict on `seatType`, `operator`, or any `profiles` member is
    also `entry_manifest_mismatch` — the catalog must not advertise
    capabilities the operator's signed manifest does not declare
    (exactly the extrapolation the notary operator-manifest rules
    forbid);
-3. verify the destination operator's signature under its seat's rules;
-4. apply the destination seat's own compatibility and consent flow.
+4. verify the destination operator's signature under its seat's rules;
+5. apply the destination seat's own compatibility and consent flow.
 
 Direct import of a destination manifest (no provider) follows only the
 last block, with the digest supplied by the user's source or skipped in
@@ -448,12 +465,12 @@ specific sources:
 
 | Abstract error | This profile's trigger |
 |---|---|
-| `provider_manifest_invalid` | Signature/key-pin failure, unknown top-level field, bad version/profile/seat, expired `validUntil`, oversize, URI violation |
-| `snapshot_invalid` | Signature failure, rollback, fork/`previousDigest` mismatch, `policyDigest` ≠ manifest's declared policy, future-dated or born-expired `generatedAt`/`expiresAt`, duplicate `componentId`, unknown top-level field, oversize (forward jumps are accepted-with-note, §6) |
-| `snapshot_expired` | `expiresAt` in the past |
+| `provider_manifest_invalid` | Signature/key-pin failure, detached-`.sig` disagreement, unknown top-level field, bad version/profile/seat, refresh identity mismatch, zero surviving catalog descriptors, expired `validUntil`, oversize, URI violation |
+| `snapshot_invalid` | Signature or detached-`.sig` failure, rollback, fork/`previousDigest` mismatch, `policyDigest` ≠ manifest's declared policy, future-dated or born-expired `generatedAt`/`expiresAt`, duplicate `componentId`, unknown top-level field, oversize (forward jumps are accepted-with-note, §6) |
+| `snapshot_expired` | `expiresAt` more than 10 minutes in the past (the §4.2 skew allowance — one outcome per client) |
 | `policy_unavailable` | `policyUri` unreachable or bytes ≠ `policyDigest` |
 | `entry_manifest_unavailable` | Destination fetch failure/timeout/oversize |
-| `entry_manifest_mismatch` | Fetched bytes ≠ `manifest.digest` |
+| `entry_manifest_mismatch` | Fetched bytes ≠ `manifest.digest`, or an entry-vs-manifest field conflict on `seatType`/`operator`/`profiles` (§6) |
 | `entry_manifest_invalid` | Destination seat signature/schema/expiry failure |
 | `result_incomplete` | One or more entries were skipped by lossy decode or the fail-closed relationship rule — the client must surface the skip count and never present the shrunken set as the whole catalog |
 | `profile_incompatible` | An entry's `profiles` contains nothing the client implements — hidden only under an explicit compatibility filter, never silently |
@@ -523,6 +540,10 @@ source management, consent) in review. Remaining gaps:
   the §6 no-op-refresh and forward-jump cases (including the
   intermediate-fetch continuity walk) and §5's MUST-retention publishing
   are specified here but not yet implemented anywhere;
+- the required privacy/policy fields, descriptor-skip lossiness, and
+  continuity-walk semantics of this revision are in the reference
+  implementation but reach the client packages only with their next
+  fixture sync;
 - manifest re-refresh with expiry states, entry-vs-manifest field
   conflict checks, skipped-catalog surfacing, symmetric expiry skew,
   and the two-tier source-conflict semantics are specified here but not
