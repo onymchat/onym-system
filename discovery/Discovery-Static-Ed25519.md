@@ -204,7 +204,9 @@ defines (policy accepts every seat type; not a claim the snapshot
 contains one of each); `"*"` must appear alone if present. A member
 matching neither form **skips the descriptor** (aligned with the
 unknown-key rule — one lossiness model per level), surfaced in the
-skipped-catalog count.
+skipped-catalog count. An empty `seatTypes` array likewise skips the
+descriptor: a catalog whose policy accepts no seat type is not a
+defined state.
 
 ### 4.2 Catalog snapshot
 
