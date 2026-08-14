@@ -309,10 +309,12 @@ Entry rules:
   `sponsored-placement`, `common-owner`, `catalog-sponsor`,
   `other-disclosed`. The abstract contract calls this set extensible
   (§5.3); this profile deliberately **fails closed** against it — an
-  entry with an unknown `relationship`, or an undecodable `placement`, is
+  entry with an unknown `relationship`, or an unknown `placement`, is
   skipped rather than defaulted, because a commercial disclosure the
-  client cannot render is a disclosure the user never saw. Admitting a
-  new relationship value is a profile version bump, not a soft addition.
+  client cannot render is a disclosure the user never saw. The accepted
+  `placement` values are pinned the same way: `policy-ranked`,
+  `sponsored`. Admitting a new relationship or placement value is a
+  profile version bump, not a soft addition.
 
 ### 4.3 Destination seat manifests
 
