@@ -48,9 +48,19 @@ The implementation profile identifier is:
 onym:discovery-implementation:static-ed25519-v1
 ```
 
-Server-side query, pagination, and transparency-log profiles are out of
-scope; a snapshot that exceeds this profile's bounds must be split into
-multiple declared catalogs rather than paginated.
+Out of scope for v1, stated here so their absence reads as a decision and
+not an oversight: server-side query, pagination, and transparency-log
+profiles (an oversized snapshot is split into multiple declared catalogs);
+**private or authenticated catalogs** (the abstract §10 permits them —
+this profile serves public catalogs only, and `audience` is informational
+free text with `"public"` the only value given meaning); and **operator
+key rotation** (§6 — re-adding the source is the only path).
+
+A naming note: the field is `implementationProfile`, where sibling seat
+profiles write `implementationProfileId`. The divergence is acknowledged
+and kept for v1 — the conformance fixtures and three client
+implementations pin these exact bytes — and a rename rides the next
+profile version, which changes signatures anyway.
 
 ## 2. Identifiers
 
@@ -82,11 +92,14 @@ cross-language byte agreement:
    keys, at every nesting level, sorted by UTF-8 byte order; the `/`
    character is not escaped.
 
-This matches Rust `serde_json` with `BTreeMap` objects and Swift
-`JSONSerialization` with `.sortedKeys` + `.withoutEscapingSlashes`.
-(Beware Foundation's case-insensitive key sort pitfall documented by the
-moderation seat; keys in this profile are ASCII lowercase precisely so the
-two sorts coincide.)
+The sort is **UTF-8 byte order**, stated normatively rather than by
+reference to any library: Rust `serde_json`'s `BTreeMap` ordering conforms;
+Foundation's `.sortedKeys` does **not** in general, because it sorts
+case-insensitively — and this profile's keys are camelCase, so two keys
+differing only by case at a discriminating position would diverge. A Swift
+implementation must therefore either sort explicitly by UTF-8 bytes or
+prove, via the mandatory case-divergence fixture (§10 item 1), that its
+serializer agrees on every document shape this profile can produce.
 
 Constraints that keep canonicalization trivial:
 
@@ -98,9 +111,10 @@ Constraints that keep canonicalization trivial:
 The **signature** is Ed25519 over the canonical bytes, embedded in the
 document's `signature` field as base64 (unpadded or padded both accepted on
 read; writers emit standard padded base64). A detached sibling file
-`<name>.json.sig` MAY be published containing the same 64 signature bytes
-raw or base64-encoded, for tooling that verifies before parsing; when both
-exist they must agree.
+`<name>.json.sig` MAY be published for tooling that verifies before
+parsing; its content is exactly the embedded signature's standard padded
+base64 followed by one newline — never raw bytes — and when both exist
+they must agree.
 
 Both the provider manifest and every catalog snapshot are signed by the
 **same operator key** named in the provider manifest's `operator` field.
@@ -185,8 +199,15 @@ Chain rules:
 - `previousDigest` is the SHA-256 of the previous snapshot's exact
   published bytes; it is absent (field omitted) only when `sequence` is 1;
 - a correction is a new sequence; published snapshot bytes are immutable;
-- `expiresAt` − `generatedAt` must not exceed 90 days; expired snapshots
-  are `snapshot_expired` and a client must not treat their entries as
+- `policyDigest` must equal the `policy` digest the provider manifest
+  declares for this `catalogId`; a snapshot citing a policy the manifest
+  never declared is `snapshot_invalid`;
+- `expiresAt` − `generatedAt` must not exceed 90 days — a hard ceiling,
+  not a default. Providers SHOULD publish much shorter windows (days to a
+  few weeks): expiry is the abstract contract's primary defense (§13)
+  against a removed or compromised instance remaining recommended, and a
+  quarter-long window defeats it. Expired snapshots are
+  `snapshot_expired` and a client must not treat their entries as
   current recommendations.
 
 Entry rules:
@@ -199,9 +220,15 @@ Entry rules:
   trusting newer bytes the provider did not review;
 - `operator` repeats the destination operator key for indexing; the fetched
   manifest remains authoritative (`Discovery.md` §5.3);
-- `relationship` values are the abstract contract's set; entries whose
-  `relationship` or `placement` cannot be decoded are skipped, not
-  defaulted to `none`/`policy-ranked`.
+- the accepted `relationship` values for this profile version are pinned
+  inline: `none`, `catalog-subscriber`, `listing-fee`,
+  `sponsored-placement`, `common-owner`, `catalog-sponsor`,
+  `other-disclosed`. The abstract contract calls this set extensible
+  (§5.3); this profile deliberately **fails closed** against it — an
+  entry with an unknown `relationship`, or an undecodable `placement`, is
+  skipped rather than defaulted, because a commercial disclosure the
+  client cannot render is a disclosure the user never saw. Admitting a
+  new relationship value is a profile version bump, not a soft addition.
 
 ### 4.3 Destination seat manifests
 
@@ -231,7 +258,13 @@ that seat's contract, applied by the client after discovery.
   client's reason to reject.
 - The provider manifest lives at a stable HTTPS URL chosen by the operator
   (recommended: `https://<host>/manifest.json`). Snapshot URLs come only
-  from the verified provider manifest.
+  from the verified provider manifest, and each catalog's `snapshot` URL
+  always serves the latest snapshot.
+- A provider SHOULD additionally retain recent superseded snapshots at
+  `<snapshot-url minus .json>/<sequence>.json` so auditors and gapped
+  clients can walk the chain; this is optional in v1, which is why a
+  forward jump past unretained history is accepted-with-note rather than
+  rejected (§6).
 - No cookies, no authentication, no per-user URLs for public catalogs
   (abstract §10 baseline). `Cache-Control` is operator's choice; clients
   bound staleness by `expiresAt`, not by HTTP caching.
@@ -250,9 +283,12 @@ On adding a provider (by URL entry, QR, file, or deep link):
    key;
 4. display the operator key fingerprint for user confirmation and **pin
    the key** (trust-on-first-use; a later manifest signed by a different
-   key is `provider_manifest_invalid`, never a silent rotation — key
-   rotation requires a rotation statement signed by the old key, or
-   re-adding the source as new).
+   key is `provider_manifest_invalid`, never a silent rotation).
+   **Key rotation is out of scope for v1 of this profile**: there is no
+   rotation-statement document, and the only path to a new key is the
+   user removing the source and re-adding it — a fresh, explicit TOFU
+   decision. A future profile version may define an old-key-signed
+   rotation statement; until it does, nothing may be interpreted as one.
 
 On each refresh, per catalog:
 
@@ -261,10 +297,19 @@ On each refresh, per catalog:
 2. verify the signature against the pinned operator key;
 3. check `catalogId`/`providerId` match, `version`, profile, expiry;
 4. compare `sequence` and `previousDigest` against the last retained
-   snapshot: a lower or equal sequence, or a `previousDigest` that does
-   not match retained bytes at the claimed predecessor, is evidence of
-   rollback or equivocation — surface it as a source integrity warning
-   (`snapshot_invalid`), do not silently accept either fork;
+   acceptance, distinguishing three cases:
+   - **rollback** — `sequence` lower than or equal to the retained one:
+     `snapshot_invalid`, surfaced as a source integrity warning;
+   - **fork** — `sequence` is retained + 1 but `previousDigest` does not
+     match the retained snapshot's digest, or the same sequence appears
+     with different bytes: `snapshot_invalid`, evidence of equivocation,
+     never silently resolved toward either side;
+   - **forward jump** — `sequence` is more than retained + 1 (the client
+     missed intermediate publications and cannot check continuity):
+     **accept**, with a source-integrity note that continuity was
+     unverified across the gap. Only the latest snapshot is required to
+     be served (§5), so a client that skips publications must not
+     permanently reject an honest catalog;
 5. decode entries lossily; retain at least the digest of the accepted
    snapshot for future chain comparison.
 
@@ -301,7 +346,10 @@ URI rules for every URI in these documents (`snapshot`, `manifest.uri`,
   the obvious SSRF-to-local-network path; clients additionally refuse to
   follow redirects to IP literals or non-HTTPS targets;
 - no userinfo, no query, no fragment;
-- port 443 only (omitted in the URI).
+- no explicit port: writers must omit it. A verifier MUST reject any URI
+  carrying a non-default explicit port, and MAY treat a redundant
+  explicit `:443` as equivalent to omission (URL libraries commonly
+  normalize the default port away before the check is reachable).
 
 These mirror and tighten the checks in `onym-relayer`'s
 `scripts/validate-*.py`, today's de facto catalog validators.
@@ -325,7 +373,7 @@ specific sources:
 | Abstract error | This profile's trigger |
 |---|---|
 | `provider_manifest_invalid` | Signature/key-pin failure, unknown top-level field, bad version/profile/seat, expired `validUntil`, oversize, URI violation |
-| `snapshot_invalid` | Signature failure, sequence gap/repeat/rollback, `previousDigest` mismatch, duplicate `componentId`, unknown top-level field, oversize |
+| `snapshot_invalid` | Signature failure, rollback, fork/`previousDigest` mismatch, `policyDigest` ≠ manifest's declared policy, duplicate `componentId`, unknown top-level field, oversize (forward jumps are accepted-with-note, §6) |
 | `snapshot_expired` | `expiresAt` in the past |
 | `policy_unavailable` | `policyUri` unreachable or bytes ≠ `policyDigest` |
 | `entry_manifest_unavailable` | Destination fetch failure/timeout/oversize |
@@ -342,7 +390,9 @@ byte-identically (the moderation seat's fixture-pinning pattern):
 
 1. canonical-bytes vectors: document → canonical bytes → signature, for
    the provider manifest and a snapshot, including a key-order-scrambled
-   input that must canonicalize identically;
+   input that must canonicalize identically **and a case-divergence
+   vector whose keys differ only by letter case at a discriminating
+   position** (the vector a case-insensitive sort fails on — §3);
 2. a valid three-snapshot chain (sequences 1–3);
 3. tamper set, each expected to fail with a named error: bad signature;
    resigned-by-different-key manifest; sequence rollback; sequence gap;
@@ -352,7 +402,16 @@ byte-identically (the moderation seat's fixture-pinning pattern):
    canonicalization attack per §3;
 4. a lossy-decoding snapshot: one malformed entry among valid ones —
    valid entries survive, the malformed one is skipped;
-5. a direct-import destination manifest with no catalog context.
+5. a direct-import destination manifest with no catalog context;
+6. a sponsored-placement entry whose `relationship`/`placement`
+   disclosure must survive into the client's rendered attribution;
+7. a `source_conflict` pair: two providers binding the same
+   `componentId` to different manifest digests, both claims preserved;
+8. a forward-jump acceptance: latest snapshot at sequence N versus a
+   retained acceptance at N−2, accepted with the integrity note; and
+9. privacy-profile behavior: a fetch trace showing snapshot download +
+   local filtering issues no per-query requests and carries no cookies
+   or identifiers.
 
 ## 11. Gaps
 
@@ -370,7 +429,12 @@ Everything is unbuilt; this list is the work plan:
   profile's `policyDigest`/`privacyProfile` fields must pin;
 - migration off the unsigned legacy catalogs (`relayers.json`,
   `nostr-relays.json`, `blossom-servers.json`, `authorities.json`),
-  which remain the operational path until then.
+  which remain the operational path until then;
+- fixture items 1 (case-divergence vector), 6–9 of §10 do not exist yet
+  in the reference implementation; and
+- current client implementations treat every non-successor sequence as
+  invalid — the §6 forward-jump acceptance (and its fixture) is
+  specified here but not yet implemented anywhere.
 
 ## 12. Acceptance criteria
 
