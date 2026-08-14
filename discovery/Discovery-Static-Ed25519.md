@@ -576,10 +576,13 @@ is unconditional, §9).
 ## 11. Gaps
 
 What exists as of this revision: the `onym-discovery` reference CLI with
-fixture items 2–5 of §10 and item 1's base canonical vectors (the
-key-order-scrambled input and its canonical bytes); the relayer's served operator manifest; iOS and
-Android client packages (fetching, TOFU pinning, chain verification,
-source management, consent) in review. Remaining gaps:
+§10's items 2 and 5 as published byte-pinned fixtures, items 3–4 as
+in-repo tests not yet published as fixture files, and item 1's base
+canonical vectors (the key-order-scrambled input and its canonical
+bytes); the relayer's operator manifest (in review; the deployed relayer
+does not serve it yet); iOS and Android client packages (fetching, TOFU
+pinning, chain verification, source management, consent) in review.
+Remaining gaps:
 
 - the Onym provider deployment (`discovery.onym.app`) is not live: no
   operator keys, no signed catalog, no hosted courier/blossom manifests
@@ -587,29 +590,63 @@ source management, consent) in review. Remaining gaps:
 - the inclusion/ranking policy and privacy-profile documents this
   profile's `policyDigest`/`privacyProfile` fields must pin are unwritten;
 - item 1's case-divergence and escaping sub-vectors and items 6–14 of §10 do not exist
-  yet in the reference implementation;
-- current implementations treat every non-successor sequence as invalid —
-  the §6 no-op-refresh and forward-jump cases (including the
+  yet in the reference implementation — consequential now, because the
+  iOS canonicalizer relies on Foundation's `.sortedKeys` and both
+  clients delegate string escaping to their JSON serializers, exactly
+  the delegations §3 permits only with those proof vectors;
+- the reference verifier and iOS treat every non-successor sequence as
+  invalid, including the §6 no-op refresh, which Android alone
+  implements; the §6 forward-jump cases (including the
   intermediate-fetch continuity walk) and §5's MUST-retention publishing
-  are specified here but not yet implemented anywhere;
+  are implemented nowhere; iOS additionally requires `sequence` 1 on
+  first fetch, so an established catalog past its first snapshot cannot
+  be added at all;
 - the required privacy/policy fields, descriptor-skip lossiness, and
   symmetric expiry skew of this revision are in the reference
-  implementation but reach the client packages only with their next
-  fixture sync (the continuity walk itself remains unimplemented, per
-  the bullet above);
-- the policy-transition grace, walk-length bound, reserved `status`
-  rendering, empty-`evidence` enforcement, and same-provider
-  cross-catalog digest check are in no implementation yet;
-- manifest re-refresh with expiry states, entry-vs-manifest field
-  conflict checks, skipped-catalog surfacing, and graded
-  source-conflict severity are specified here but not yet in any
-  implementation;
+  implementation and in both client packages' open branches; what no
+  client does yet is *surface* the computed skip counts —
+  `result_incomplete` and the skipped-catalog count never reach any UI;
+- the policy-transition grace, walk-length bound, and same-provider
+  cross-catalog digest check are in no implementation yet. The reserved
+  `status` field is in worse shape than "unrendered": every current
+  decoder omits it from the entry's known keys, so a spec-valid entry
+  carrying `status` is skipped — the exact warning-dropping failure
+  §4.2 defines the field to prevent. Non-empty `evidence` is likewise
+  decoded and passed through by every implementation instead of
+  skipping the entry;
+- manifest re-refresh with expiry states, skipped-catalog surfacing,
+  and graded source-conflict severity are specified here but not yet in
+  any implementation; the entry-vs-manifest field conflict checks exist
+  partially in both clients' consent flows (`operator` and `seatType`,
+  not `profiles`) but are not surfaced as `entry_manifest_mismatch`;
+- no implementation checks a catalog's `audience` or validates
+  `seatTypes` members: non-public catalogs are fetched and their
+  entries served as recommendations instead of skipped-and-surfaced
+  (§1, §4.1);
+- the reference implementation rejects a future-dated `generatedAt`;
+  neither client package does, so on the clients the 90-day ceiling can
+  still be minted forward;
+- the §3 duplicate-key rejection is unenforced in both client decoders
+  (last key wins), and detached-`.sig` agreement (§3) has a write path
+  in the reference implementation but a verify path nowhere;
 - the client packages have adopted the `implementationProfileId`
   rename and regenerated fixtures on their open branches; one Android
   instrumented-test branch awaits a pre-existing unrelated fix before
   it can push;
-- the reference verifier's URL parsing normalizes a redundant `:443`
-  before the port check and needs the §7 raw-string check;
+- all three implementations check only the parsed port, not the §7 raw
+  string: the reference verifier's URL parsing normalizes a redundant
+  `:443` away before its check, and both client packages share the same
+  class of hole (iOS also passes integer-form IPv4 literals, and
+  neither client enforces the §7 redirect bounds or the 60 s timeout);
+- smaller audit findings: the reference CLI maps an oversize
+  destination manifest to `entry_manifest_mismatch` where §9 pins
+  `entry_manifest_unavailable`; iOS decodes `profiles` and `evidence`
+  as required where §4.1 lists them optional (a minimal conforming
+  entry is skipped), accepts `generatedAt` equal to `expiresAt` where
+  §4.2 requires strictly-after, and passes unknown `relationship` /
+  `placement` values through for verbatim disclosure instead of the
+  §4.2 fail-closed skip; several §9 codes are declared but unreachable
+  in every client;
 - no snapshot field carries the abstract §9 removal reason codes
   (`manifest_expired`, `policy_mismatch`, …); since top-level decoding
   is strict, adding one is a profile version bump, deferred to v2 (the
