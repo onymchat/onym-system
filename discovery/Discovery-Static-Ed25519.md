@@ -52,8 +52,10 @@ Out of scope for v1, stated here so their absence reads as a decision and
 not an oversight: server-side query, pagination, and transparency-log
 profiles (an oversized snapshot is split into multiple declared catalogs);
 **private or authenticated catalogs** (the abstract §10 permits them —
-this profile serves public catalogs only, and `audience` is informational
-free text with `"public"` the only value given meaning); and **operator
+this profile serves public catalogs only; a v1 client **skips** any
+catalog whose `audience` is not exactly `"public"` — skipped, not
+`provider_manifest_invalid`, so future audience values do not brick v1
+clients, and no soft private-catalog path exists); and **operator
 key rotation** (§6 — re-adding the source is the only path).
 
 The field name is `implementationProfileId`, matching the sibling seat
@@ -105,7 +107,14 @@ Constraints that keep canonicalization trivial:
 - all numbers are non-negative integers within 2^53 − 1; no floats, no
   exponents, no leading zeros;
 - no duplicate keys; a document with duplicate keys is invalid;
-- strings are valid UTF-8; escaping follows the serializer's minimal form.
+- strings are valid UTF-8, and escaping is pinned, not delegated to a
+  serializer (the same divergence class §3 rejects for key sorting):
+  escape exactly `"` , `\\`, and control characters U+0000–U+001F —
+  using the two-character forms `\"` `\\` `\b` `\f` `\n` `\r` `\t`
+  where defined and `\u00xx` with **lowercase** hex otherwise — and
+  escape nothing else: no `/`, no non-ASCII, no U+007F. (This is Rust
+  `serde_json`'s exact behavior; any other serializer must prove
+  agreement via the §10 item-1 escaping vector.)
 
 The **signature** is Ed25519 over the canonical bytes, embedded in the
 document's `signature` field as base64 (unpadded or padded both accepted on
@@ -115,7 +124,10 @@ parsing; its content is exactly the embedded signature's standard padded
 base64 followed by one newline — never raw bytes. Agreement between the
 embedded and detached forms is defined **after base64 decoding**: both
 must decode to the same 64 signature bytes, regardless of padding
-differences on the embedded side.
+differences on the embedded side. A client that fetches the detached
+form MUST fail closed on disagreement — `provider_manifest_invalid` /
+`snapshot_invalid` for that document — a stale or attacker-served
+`.sig` is never ignorable.
 
 Both the provider manifest and every catalog snapshot are signed by the
 **same operator key** named in the provider manifest's `operator` field.
@@ -200,13 +212,18 @@ matching neither form makes the manifest `provider_manifest_invalid`.
 Chain rules:
 
 - `sequence` starts at 1 and increases by exactly 1 per published snapshot
-  of the same `catalogId`; gaps and repeats are `snapshot_invalid`;
+  of the same `catalogId`. This is a **publisher** rule — a provider MUST
+  NOT publish a gap or a repeat; what a *verifier* does on observing a
+  repeat (no-op refresh vs fork) or a gap (continuity walk, then
+  accept-with-note) is defined solely by §6;
 - `previousDigest` is the SHA-256 of the previous snapshot's exact
   published bytes; it is absent (field omitted) only when `sequence` is 1;
 - a correction is a new sequence; published snapshot bytes are immutable;
 - `policyDigest` must equal the `policy` digest the provider manifest
   declares for this `catalogId`; a snapshot citing a policy the manifest
   never declared is `snapshot_invalid`;
+- `expiresAt` must be strictly after `generatedAt`; a snapshot born
+  expired is `snapshot_invalid`;
 - `generatedAt` must not lie in the verifier's future beyond a 10-minute
   clock-skew allowance; a future-dated snapshot is `snapshot_invalid`
   (otherwise the 90-day ceiling could be minted forward);
@@ -288,7 +305,7 @@ that seat's contract, applied by the client after discovery.
 On adding a provider (by URL entry, QR, file, or deep link):
 
 1. fetch the manifest within the size bounds of §7;
-2. parse and check `version`, `implementationProfile`, `seat`,
+2. parse and check `version`, `implementationProfileId`, `seat`,
    `providerId`, and `validUntil`;
 3. verify the embedded signature against the manifest's own `operator`
    key;
@@ -320,8 +337,11 @@ On each refresh, per catalog:
      equivocation, never silently resolved toward either side;
    - **forward jump** — `sequence` more than retained + 1 (the client
      missed intermediate publications): the client MUST first attempt to
-     fetch the intermediate `<catalogId>-<sequence>.json` files (§5
-     requires their retention within the expiry window) and verify chain
+     fetch the intermediate files (§5 requires their retention within
+     the expiry window), each URL derived normatively by replacing the
+     final path segment of the manifest's `snapshot` URL with
+     `<catalogId>-<sequence>.json` — the derived URL must itself pass
+     the §7 rules — and verify chain
      continuity through them, in which case the jump verifies fully.
      Only when intermediates are unavailable does the client **accept
      with a source-integrity note** stating both that continuity was
@@ -395,7 +415,7 @@ specific sources:
 | Abstract error | This profile's trigger |
 |---|---|
 | `provider_manifest_invalid` | Signature/key-pin failure, unknown top-level field, bad version/profile/seat, expired `validUntil`, oversize, URI violation |
-| `snapshot_invalid` | Signature failure, rollback, fork/`previousDigest` mismatch, `policyDigest` ≠ manifest's declared policy, duplicate `componentId`, unknown top-level field, oversize (forward jumps are accepted-with-note, §6) |
+| `snapshot_invalid` | Signature failure, rollback, fork/`previousDigest` mismatch, `policyDigest` ≠ manifest's declared policy, future-dated or born-expired `generatedAt`/`expiresAt`, duplicate `componentId`, unknown top-level field, oversize (forward jumps are accepted-with-note, §6) |
 | `snapshot_expired` | `expiresAt` in the past |
 | `policy_unavailable` | `policyUri` unreachable or bytes ≠ `policyDigest` |
 | `entry_manifest_unavailable` | Destination fetch failure/timeout/oversize |
@@ -420,7 +440,9 @@ byte-identically (the moderation seat's fixture-pinning pattern):
    (every schema key in this profile is camelCase with no case-only
    pairs), because it exercises the serializer layer in isolation: the
    vector a case-insensitive sort fails on (§3), guarding the layer
-   before schema validation ever runs;
+   before schema validation ever runs — plus an **escaping vector**
+   containing every §3 escape class (two-char forms, `\u00xx` control
+   characters, `/`, non-ASCII, U+007F), likewise synthetic;
 2. a valid three-snapshot chain (sequences 1–3);
 3. tamper set, each expected to fail with a named error: bad signature;
    resigned-by-different-key manifest; sequence rollback; forked
@@ -461,7 +483,7 @@ source management, consent) in review. Remaining gaps:
   (templates and runbook exist in the reference repo);
 - the inclusion/ranking policy and privacy-profile documents this
   profile's `policyDigest`/`privacyProfile` fields must pin are unwritten;
-- fixture items 1 (case-divergence vector) and 6–9 of §10 do not exist
+- fixture items 1 (case-divergence and escaping vectors) and 6–9 of §10 do not exist
   yet in the reference implementation;
 - current implementations treat every non-successor sequence as invalid —
   the §6 no-op-refresh and forward-jump cases (including the
