@@ -638,8 +638,9 @@ packages on open review branches), grouped for line-by-line audit:
   cross-catalog equivocation and `source_conflict` detection helpers
   with fixtures, and its builder publishes the §5 retention siblings
   (`<catalogId>-<sequence>.json`);
-- the relayer's operator manifest is in review (the deployed relayer
-  does not serve it yet).
+- the relayer's operator-manifest endpoint is merged
+  (onym-relayer#13), but the deployed relayer serves 404 until an
+  operator signs a manifest and configures `RELAYER_OPERATOR_MANIFEST`.
 
 Remaining gaps:
 
