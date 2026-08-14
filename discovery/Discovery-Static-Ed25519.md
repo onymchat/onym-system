@@ -58,9 +58,10 @@ key rotation** (§6 — re-adding the source is the only path).
 
 A naming note: the field is `implementationProfile`, where sibling seat
 profiles write `implementationProfileId`. The divergence is acknowledged
-and kept for v1 — the conformance fixtures and three client
-implementations pin these exact bytes — and a rename rides the next
-profile version, which changes signatures anyway.
+and kept for v1: the reference implementation's published conformance
+fixtures and the shipped Rust/Swift/Kotlin codebases (§11 lists what
+exists) pin these exact bytes, so a rename is no longer free — it rides
+the next profile version, which changes signatures anyway.
 
 ## 2. Identifiers
 
@@ -113,8 +114,10 @@ document's `signature` field as base64 (unpadded or padded both accepted on
 read; writers emit standard padded base64). A detached sibling file
 `<name>.json.sig` MAY be published for tooling that verifies before
 parsing; its content is exactly the embedded signature's standard padded
-base64 followed by one newline — never raw bytes — and when both exist
-they must agree.
+base64 followed by one newline — never raw bytes. Agreement between the
+embedded and detached forms is defined **after base64 decoding**: both
+must decode to the same 64 signature bytes, regardless of padding
+differences on the embedded side.
 
 Both the provider manifest and every catalog snapshot are signed by the
 **same operator key** named in the provider manifest's `operator` field.
@@ -260,11 +263,14 @@ that seat's contract, applied by the client after discovery.
   (recommended: `https://<host>/manifest.json`). Snapshot URLs come only
   from the verified provider manifest, and each catalog's `snapshot` URL
   always serves the latest snapshot.
-- A provider SHOULD additionally retain recent superseded snapshots at
-  `<snapshot-url minus .json>/<sequence>.json` so auditors and gapped
-  clients can walk the chain; this is optional in v1, which is why a
-  forward jump past unretained history is accepted-with-note rather than
-  rejected (§6).
+- A provider SHOULD additionally retain recent superseded snapshots as
+  sibling files named `<catalogId>-<sequence>.json` (e.g.
+  `public-all-seats-41.json` beside `public-all-seats.json` — a flat
+  scheme, because `<name>.json` and a `<name>/` directory cannot coexist
+  on filesystem-backed static hosts) so auditors and gapped clients can
+  walk the chain. This is optional in v1, which is why a forward jump
+  past unretained history is accepted-with-note rather than rejected
+  (§6).
 - No cookies, no authentication, no per-user URLs for public catalogs
   (abstract §10 baseline). `Cache-Control` is operator's choice; clients
   bound staleness by `expiresAt`, not by HTTP caching.
@@ -297,14 +303,17 @@ On each refresh, per catalog:
 2. verify the signature against the pinned operator key;
 3. check `catalogId`/`providerId` match, `version`, profile, expiry;
 4. compare `sequence` and `previousDigest` against the last retained
-   acceptance, distinguishing three cases:
-   - **rollback** — `sequence` lower than or equal to the retained one:
+   acceptance, distinguishing four cases:
+   - **no-op refresh** — `sequence` equal to the retained one and bytes
+     hashing to the retained digest: the provider simply hasn't
+     published since; keep the retained acceptance, no warning;
+   - **rollback** — `sequence` strictly lower than the retained one:
      `snapshot_invalid`, surfaced as a source integrity warning;
-   - **fork** — `sequence` is retained + 1 but `previousDigest` does not
-     match the retained snapshot's digest, or the same sequence appears
-     with different bytes: `snapshot_invalid`, evidence of equivocation,
-     never silently resolved toward either side;
-   - **forward jump** — `sequence` is more than retained + 1 (the client
+   - **fork** — the same `sequence` with different bytes, or
+     `sequence` retained + 1 whose `previousDigest` does not match the
+     retained snapshot's digest: `snapshot_invalid`, evidence of
+     equivocation, never silently resolved toward either side;
+   - **forward jump** — `sequence` more than retained + 1 (the client
      missed intermediate publications and cannot check continuity):
      **accept**, with a source-integrity note that continuity was
      unverified across the gap. Only the latest snapshot is required to
@@ -346,10 +355,12 @@ URI rules for every URI in these documents (`snapshot`, `manifest.uri`,
   the obvious SSRF-to-local-network path; clients additionally refuse to
   follow redirects to IP literals or non-HTTPS targets;
 - no userinfo, no query, no fragment;
-- no explicit port: writers must omit it. A verifier MUST reject any URI
-  carrying a non-default explicit port, and MAY treat a redundant
-  explicit `:443` as equivalent to omission (URL libraries commonly
-  normalize the default port away before the check is reachable).
+- no explicit port of any kind, including a redundant `:443`: writers
+  must omit it, and a verifier MUST reject a URI whose **raw string**
+  contains a port component. The raw-string requirement exists because
+  URL libraries commonly normalize `:443` away before a parsed-port
+  check is reachable; a verifier relying only on the parsed port does
+  not conform. One outcome per URI, on every client.
 
 These mirror and tighten the checks in `onym-relayer`'s
 `scripts/validate-*.py`, today's de facto catalog validators.
@@ -379,6 +390,8 @@ specific sources:
 | `entry_manifest_unavailable` | Destination fetch failure/timeout/oversize |
 | `entry_manifest_mismatch` | Fetched bytes ≠ `manifest.digest` |
 | `entry_manifest_invalid` | Destination seat signature/schema/expiry failure |
+| `result_incomplete` | One or more entries were skipped by lossy decode or the fail-closed relationship rule — the client must surface the skip count and never present the shrunken set as the whole catalog |
+| `profile_incompatible` | An entry's `profiles` contains nothing the client implements — hidden only under an explicit compatibility filter, never silently |
 | `query_unsupported` | Always, for server-side filters — this profile has none; filter locally |
 | `rate_limited` | HTTP 429 from static host; honor `Retry-After` |
 | `source_conflict` | Two configured sources bind the same `componentId` to different manifest digests |
@@ -395,8 +408,11 @@ byte-identically (the moderation seat's fixture-pinning pattern):
    position** (the vector a case-insensitive sort fails on — §3);
 2. a valid three-snapshot chain (sequences 1–3);
 3. tamper set, each expected to fail with a named error: bad signature;
-   resigned-by-different-key manifest; sequence rollback; sequence gap;
-   forked `previousDigest`; expired snapshot; duplicate `componentId`;
+   resigned-by-different-key manifest; sequence rollback; forked
+   `previousDigest` (also how a skipped link fails when the claimed
+   predecessor's bytes are supplied — a forward jump *without* them is
+   the acceptance fixture, item 8, not a tamper case);
+   expired snapshot; duplicate `componentId`;
    oversize snapshot; entry with digest-mismatched destination manifest;
    URI-rule violations (http, IP literal, query string); planted-signature
    canonicalization attack per §3;
@@ -415,26 +431,29 @@ byte-identically (the moderation seat's fixture-pinning pattern):
 
 ## 11. Gaps
 
-Everything is unbuilt; this list is the work plan:
+What exists as of this revision: the `onym-discovery` reference CLI with
+fixture items 2–5 of §10; the relayer's served operator manifest; iOS and
+Android client packages (fetching, TOFU pinning, chain verification,
+source management, consent) in review. Remaining gaps:
 
-- the `onym-discovery` reference CLI (keygen, sign, snapshot build,
-  chain/fixture verification, static-dir output);
-- the Onym provider deployment (`discovery.onym.app`) and its first
-  catalog (moderation, notary, transport entries);
-- signed seat manifests for the notary operator and courier (the
-  authority already serves one);
-- client support (iOS `OnymDiscovery` package): fetching, TOFU key
-  pinning, chain verification, source management, direct import;
+- the Onym provider deployment (`discovery.onym.app`) is not live: no
+  operator keys, no signed catalog, no hosted courier/blossom manifests
+  (templates and runbook exist in the reference repo);
 - the inclusion/ranking policy and privacy-profile documents this
-  profile's `policyDigest`/`privacyProfile` fields must pin;
+  profile's `policyDigest`/`privacyProfile` fields must pin are unwritten;
+- fixture items 1 (case-divergence vector) and 6–9 of §10 do not exist
+  yet in the reference implementation;
+- current implementations treat every non-successor sequence as invalid —
+  the §6 no-op-refresh and forward-jump cases are specified here but not
+  yet implemented anywhere;
+- the reference verifier's URL parsing normalizes a redundant `:443`
+  before the port check and needs the §7 raw-string check;
+- no snapshot field carries the abstract §9 removal reason codes
+  (`manifest_expired`, `policy_mismatch`, …); since top-level decoding is
+  strict, adding one is a profile version bump, deferred to v2; and
 - migration off the unsigned legacy catalogs (`relayers.json`,
   `nostr-relays.json`, `blossom-servers.json`, `authorities.json`),
-  which remain the operational path until then;
-- fixture items 1 (case-divergence vector), 6–9 of §10 do not exist yet
-  in the reference implementation; and
-- current client implementations treat every non-successor sequence as
-  invalid — the §6 forward-jump acceptance (and its fixture) is
-  specified here but not yet implemented anywhere.
+  which remain the operational path until then.
 
 ## 12. Acceptance criteria
 
