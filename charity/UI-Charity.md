@@ -23,6 +23,9 @@ bind this UI to Soroban contracts on Stellar, another ledger, a regulated
 payment provider, bank rails, or several adapters. Every concrete financial,
 proof, or notary implementation must publish its own profile and conformance
 vectors. Ledger-specific values do not leak into the common charity UI port.
+A BNB/EVM notary-and-eligibility binding is drafted in
+[UI-Charity-BNB.md](UI-Charity-BNB.md); no financial binding is profiled
+anywhere yet.
 
 The status of this document is **proposed**. It describes the boundary that an
 Onym Messenger implementation should satisfy; it is not a claim that every
