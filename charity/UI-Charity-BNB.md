@@ -20,10 +20,12 @@ This document is a concrete implementation profile for
 [Charity.md](Charity.md). The abstract boundary remains authoritative for
 object meaning and trust semantics; [UI-Charity.md](UI-Charity.md) remains
 authoritative for what the user application shows and refuses. The
-Stellar/Soroban charity binding is a separate, unwritten sibling profile; per
-UI-Charity.md §8.3, neither "uses Soroban" nor "uses BNB" is evidence of
-conformance until the corresponding profile exists and its conformance
-fixtures pass.
+Stellar/Soroban charity binding is a separate, unwritten sibling profile.
+UI-Charity.md §8.3 states, for Soroban, that "uses X" is an implementation
+choice and not evidence of conformance until the implementation profile
+exists and passes conformance tests; this document adopts the same
+principle for BNB — the attribution is to the principle, since §8.3
+itself addresses only the Soroban case.
 
 The document distinguishes:
 
@@ -147,23 +149,31 @@ this contract too:
 
 ## 4. Contract interface
 
-One contract instance (`cha-anchor`) per charity deployment. Interface,
-normative for a conforming implementation:
+One contract instance (`cha-anchor`) per charity deployment.
+
+Typing convention, applied uniformly: values that are **BN254 field
+elements** (`campaignId`, `nullifier`, `policyRoot`) are `uint256`, with
+the same in-range check (§5) at their entry point; **opaque 32-byte
+digests and commitments** (`revisionCommitment`, `policyDigest`,
+`receiptDigest`, `claimDigest`, `recipientCommitment`,
+`disbursementReceiptDigest`, `periodDigest`, `sourceCommitment`) are
+`bytes32` and carry no range constraint. Interface, normative for a
+conforming implementation:
 
 ```solidity
 interface ICharityAnchor {
     // ---- operator-attested writes: msg.sender must equal getOperatorAdmin() ----
 
-    /// Register a campaign. `campaignId` MUST be a BN254 field element (§5).
-    /// `epochStart`/`epochSeconds` fix the claim-window schedule for §6;
-    /// `epochSeconds` MUST be nonzero (`InvalidEpochSchedule` otherwise), and
-    /// `epochStart` MAY lie in the future — claims before it revert
-    /// `CampaignNotStarted`. Registration IS the abstract machine's
-    /// draft→active edge: `draft` exists only off-chain as the operator's
-    /// unsigned working state, and a registered campaign is `active` from
-    /// this call onward.
+    /// Register a campaign at revision 1. `campaignId` MUST be a BN254
+    /// field element (§5). `epochStart`/`epochSeconds` fix the claim-window
+    /// schedule for §6; `epochSeconds` MUST be nonzero
+    /// (`InvalidEpochSchedule` otherwise), and `epochStart` MAY lie in the
+    /// future — claims before it revert `CampaignNotStarted`. Registration
+    /// IS the abstract machine's draft→active edge: `draft` exists only
+    /// off-chain as the operator's unsigned working state, and a registered
+    /// campaign is `active` at revision 1 from this call onward.
     function registerCampaign(
-        bytes32 campaignId,
+        uint256 campaignId,
         bytes32 revisionCommitment,
         uint64  epochStart,
         uint32  epochSeconds
@@ -171,17 +181,21 @@ interface ICharityAnchor {
 
     /// Advance the campaign to `newRevision`. Revisions MUST increase by
     /// exactly one; the commitment is the digest of the new signed record.
+    /// Status-gated: permitted while active or paused (pausing to amend
+    /// terms is the normal workflow); reverts `CampaignNotActive` on a
+    /// closed or revoked campaign, whose record is frozen.
     function advanceCampaignRevision(
-        bytes32 campaignId,
+        uint256 campaignId,
         uint32  newRevision,
         bytes32 revisionCommitment
     ) external;
 
     /// Status codes cover the on-chain states of Charity.md §8.1:
     /// 0 = active, 1 = paused, 2 = closed, 3 = revoked. The machine's
-    /// `draft` state has no code — see registerCampaign. Transitions out of
-    /// closed/revoked MUST revert.
-    function setCampaignStatus(bytes32 campaignId, uint8 status) external;
+    /// `draft` state has no code — see registerCampaign. An illegal
+    /// transition (any exit from closed or revoked, or a `status` byte
+    /// above 3) reverts `InvalidStatusTransition`.
+    function setCampaignStatus(uint256 campaignId, uint8 status) external;
 
     /// Bind an eligibility policy (by digest of its canonical bytes) and its
     /// family-specific public parameter (§9; for membership-set-v1, the
@@ -191,14 +205,20 @@ interface ICharityAnchor {
     /// unchecked root would make every proof against the policy fail
     /// opaquely as `InvalidProof`.
     function registerEligibilityPolicy(
-        bytes32 campaignId,
+        uint256 campaignId,
         bytes32 policyDigest,
         uint256 policyRoot
     ) external;
 
-    /// Anchor the digest of a finalized, signed DonationReceipt.
+    /// Anchor the digest of a finalized, signed DonationReceipt. Keyed by
+    /// `receiptDigest`: re-anchoring the same digest with the same
+    /// `campaignId` and `campaignRevision` is an idempotent no-op;
+    /// re-anchoring it with either differing is `AnchorConflict` (a
+    /// donation-anchor conflict is a metadata conflict under the digest
+    /// key — the digest itself cannot collide with a different value,
+    /// because it IS the key).
     function anchorDonationReceipt(
-        bytes32 campaignId,
+        uint256 campaignId,
         uint32  campaignRevision,
         bytes32 receiptDigest
     ) external;
@@ -217,14 +237,24 @@ interface ICharityAnchor {
         bytes32 disbursementReceiptDigest
     ) external;
 
-    /// Anchor a fund-flow report's source commitment for a period.
+    /// Anchor a fund-flow report's source commitment for a period. Keyed by
+    /// (campaignId, periodDigest); a differing sourceCommitment under an
+    /// anchored key is `AnchorConflict`.
     function anchorFundFlowReport(
-        bytes32 campaignId,
+        uint256 campaignId,
         bytes32 periodDigest,
         bytes32 sourceCommitment
     ) external;
 
-    /// Deployment administration; never campaign governance.
+    /// Deployment administration; never campaign governance. Restricted
+    /// mode gates EXACTLY ONE entrypoint: anchorAidClaim, which reverts
+    /// `RestrictedMode` while enabled. Operator-attested writes and all
+    /// views are unaffected — the audit trail keeps recording during an
+    /// emergency stop. The power is equivalent in authority to pausing
+    /// every campaign at once (a power the admin already holds via
+    /// setCampaignStatus), packaged as one auditable switch; it is not a
+    /// new or selective censorship power, and it MUST be declared in the
+    /// operator manifest (§12).
     function setRestrictedMode(bool enabled) external;
 
     // ---- proof-authorized write: sender-agnostic ----
@@ -240,7 +270,7 @@ interface ICharityAnchor {
     /// `AnchorConflict`. Only an unanchored `claimDigest` proceeds to the
     /// status/revision/epoch/nullifier/proof pipeline.
     function anchorAidClaim(
-        bytes32 campaignId,
+        uint256 campaignId,
         uint32  campaignRevision,
         bytes32 policyDigest,
         uint64  epochIndex,
@@ -252,27 +282,37 @@ interface ICharityAnchor {
 
     // ---- views ----
 
-    function getCampaign(bytes32 campaignId) external view returns (
+    function getCampaign(uint256 campaignId) external view returns (
         uint32  revision,
         bytes32 revisionCommitment,
         uint8   status,
         uint64  epochStart,
         uint32  epochSeconds
     );
-    function currentEpoch(bytes32 campaignId) external view returns (uint64);
+    function currentEpoch(uint256 campaignId) external view returns (uint64);
     function isNullifierUsed(
-        bytes32 campaignId, uint64 epochIndex, uint256 nullifier
+        uint256 campaignId, uint64 epochIndex, uint256 nullifier
     ) external view returns (bool);
+    /// `registeredAt == 0` means unregistered. This is the pre-build read
+    /// clients use to obtain the registered root, and the pre-use
+    /// verification hook §16.1 presumes.
+    function getEligibilityPolicy(uint256 campaignId, bytes32 policyDigest)
+        external view returns (uint256 policyRoot, uint64 registeredAt);
+    /// The claim anchor stores EVERY field of the anchoring call (except
+    /// the proof bytes), so the §7 idempotence precheck's byte-for-byte
+    /// comparison over all supplied fields is implementable from storage.
     function getClaimAnchor(bytes32 claimDigest) external view returns (
-        bytes32 campaignId,
+        uint256 campaignId,
         uint32  campaignRevision,
+        bytes32 policyDigest,
         uint64  epochIndex,
+        uint256 nullifier,
         bytes32 recipientCommitment,
         bytes32 disbursementReceiptDigest   // zero until anchored
     );
     function getDonationAnchor(bytes32 receiptDigest)
-        external view returns (bytes32 campaignId, uint32 campaignRevision, uint64 anchoredAt);
-    function getFundFlowAnchor(bytes32 campaignId, bytes32 periodDigest)
+        external view returns (uint256 campaignId, uint32 campaignRevision, uint64 anchoredAt);
+    function getFundFlowAnchor(uint256 campaignId, bytes32 periodDigest)
         external view returns (bytes32 sourceCommitment, uint64 anchoredAt);
     function getVerifier() external view returns (address);
     function getOperatorAdmin() external view returns (address);
@@ -283,12 +323,12 @@ interface ICharityAnchor {
 Events, all with the campaign or claim key as an indexed topic:
 
 ```solidity
-event CampaignRegistered(bytes32 indexed campaignId, bytes32 revisionCommitment, uint64 epochStart, uint32 epochSeconds);
-event CampaignRevisionAdvanced(bytes32 indexed campaignId, uint32 revision, bytes32 revisionCommitment);
-event CampaignStatusChanged(bytes32 indexed campaignId, uint8 status);
-event EligibilityPolicyRegistered(bytes32 indexed campaignId, bytes32 policyDigest, uint256 policyRoot);
-event DonationReceiptAnchored(bytes32 indexed campaignId, uint32 campaignRevision, bytes32 receiptDigest);
-event AidClaimAnchored(bytes32 indexed campaignId, uint32 campaignRevision, bytes32 indexed claimDigest, uint64 epochIndex, uint256 nullifier, bytes32 recipientCommitment);
+event CampaignRegistered(uint256 indexed campaignId, bytes32 revisionCommitment, uint64 epochStart, uint32 epochSeconds);
+event CampaignRevisionAdvanced(uint256 indexed campaignId, uint32 revision, bytes32 revisionCommitment);
+event CampaignStatusChanged(uint256 indexed campaignId, uint8 status);
+event EligibilityPolicyRegistered(uint256 indexed campaignId, bytes32 policyDigest, uint256 policyRoot);
+event DonationReceiptAnchored(uint256 indexed campaignId, uint32 campaignRevision, bytes32 receiptDigest);
+event AidClaimAnchored(uint256 indexed campaignId, uint32 campaignRevision, bytes32 indexed claimDigest, uint64 epochIndex, uint256 nullifier, bytes32 recipientCommitment);
 event DisbursementAnchored(bytes32 indexed claimDigest, bytes32 disbursementReceiptDigest);
 event RestrictedModeChanged(bool enabled);
 ```
@@ -307,22 +347,23 @@ The full error set, each with its selector's normative retry class:
 
 | Solidity error | Retry class | Meaning |
 |---|---|---|
-| `CampaignExists(bytes32 campaignId)` | refuse-as-defect | Operator tooling attempted a duplicate registration. Not retryable; fix the caller. |
-| `CampaignNotFound(bytes32 campaignId)` | refuse-as-defect | The pinned deployment has no such campaign. A client holding a signed campaign that anchors nowhere treats this as `DEPLOYMENT_INVALID`, not a retry. |
-| `CampaignNotActive(bytes32 campaignId, uint8 status)` | terminal for this campaign state | A *new claim* (`anchorAidClaim`) or policy registration against a paused, closed, or revoked campaign. Maps to `CAMPAIGN_NOT_ACTIVE`; the UI blocks new action and preserves history. Paused MAY become active again; closed/revoked never do. The gate scopes to new authorizations only: receipt, disbursement, and report anchors record already-authorized operations and are exempt, so closing a campaign can never truncate its audit trail. |
+| `CampaignExists(uint256 campaignId)` | refuse-as-defect | Operator tooling attempted a duplicate registration. Not retryable; fix the caller. |
+| `CampaignNotFound(uint256 campaignId)` | refuse-as-defect | The pinned deployment has no such campaign. A client holding a signed campaign that anchors nowhere treats this as `DEPLOYMENT_INVALID`, not a retry. |
+| `CampaignNotActive(uint256 campaignId, uint8 status)` | terminal for this campaign state | A *new claim* (`anchorAidClaim`) or policy registration against a paused, closed, or revoked campaign; also `advanceCampaignRevision` against a closed or revoked one (a frozen record — advancing stays legal while paused, since pausing to amend terms is the normal workflow). Maps to `CAMPAIGN_NOT_ACTIVE`; the UI blocks new action and preserves history. Paused MAY become active again; closed/revoked never do. The gate scopes to new authorizations only: receipt, disbursement, and report anchors record already-authorized operations and are exempt, so closing a campaign can never truncate its audit trail. |
+| `InvalidStatusTransition(uint8 from, uint8 to)` | refuse-as-defect | `setCampaignStatus` attempting an exit from closed or revoked, or a `to` byte above 3. Operator tooling bug; never retryable. |
 | `InvalidEpochSchedule(uint64 epochStart, uint32 epochSeconds)` | refuse-as-defect | `registerCampaign` with `epochSeconds == 0`. Rejected at registration so `currentEpoch` is total for every registered campaign — division by zero is unreachable by construction. |
-| `CampaignNotStarted(bytes32 campaignId, uint64 epochStart)` | retry-after-start | A claim (or `currentEpoch` call) before the registered `epochStart`. Pre-registration of future campaigns is legal; claiming against one is not yet. The client surfaces the start time and retries no earlier. |
+| `CampaignNotStarted(uint256 campaignId, uint64 epochStart)` | retry-after-start | A claim (or `currentEpoch` call) before the registered `epochStart`. Pre-registration of future campaigns is legal; claiming against one is not yet. The client surfaces the start time and retries no earlier. |
 | `RevisionNotSequential(uint32 expected, uint32 supplied)` | refuse-as-defect | Operator attempted a revision skip or rewind. |
 | `StaleCampaignRevision(uint32 current, uint32 supplied)` | refresh-and-rebuild | The presentation was built against a superseded campaign revision. The client re-resolves the campaign, re-obtains user consent for the new revision (UI-Charity.md §5.6 requires the fresh decision; Charity.md §6.7 binds the presentation to the exact revision), rebuilds the presentation, and resubmits. |
 | `EpochNotCurrent(uint64 current, uint64 supplied)` | refresh-and-rebuild | The claim window rolled over between preparation and inclusion. Rebuild against the current epoch — which also derives a new nullifier, so the retry cannot collide with the stale attempt. |
-| `UnknownPolicy(bytes32 campaignId, bytes32 policyDigest)` | refuse-as-defect | The presentation references a policy this campaign never registered. |
-| `ValueNotInField(uint8 argIndex)` | refuse-as-defect | A value that must be a BN254 field element (§5) is out of range. This is a generator bug in the caller, never a transient condition. |
+| `UnknownPolicy(uint256 campaignId, bytes32 policyDigest)` | refuse-as-defect | The presentation references a policy this campaign never registered. |
+| `ValueNotInField(uint8 argIndex)` | refuse-as-defect | A value that must be a BN254 field element (§5) is out of range. `argIndex` is the **zero-based position of the offending argument in the failing external function's own parameter list** (e.g. `campaignId` in `anchorAidClaim` is 0; `policyRoot` in `registerEligibilityPolicy` is 2) — per-function, not a global registry, so fixtures and clients decode it from the ABI they already hold. A generator bug in the caller, never a transient condition. |
 | `NullifierUsed(uint256 nullifier)` | terminal scoped refusal | The entitlement was already claimed in this campaign and epoch **by a different claim**. Maps to `NULLIFIER_USED`: the UI shows a scoped duplicate refusal and MUST NOT expose a person identifier or retry. Replay protection on the claim path is two-layered: a byte-identical resubmission of an already-anchored claim short-circuits as an idempotent no-op at the `claimDigest` precheck (§4, §7) and never reaches this check; a *distinct* claim reusing the nullifier lands here. There is deliberately no separate proof-replay record — between the precheck and the nullifier, both replay shapes are covered. |
 | `InvalidProof()` | refuse-as-defect | The verifier rejected the proof against the contract-derived public inputs. Maps to `PROOF_INVALID`; diagnostics stay private (UI-Charity.md §13). |
-| `AnchorConflict(bytes32 key, bytes32 stored, bytes32 supplied)` | security event | A different digest was submitted under an already-anchored key. Never retried, never overwritten; the client records evidence and raises the incident path. Re-anchoring the *identical* digest is an idempotent success, not an error. |
+| `AnchorConflict(bytes32 key, bytes32 stored, bytes32 supplied)` | security event | A value differing from the stored one was submitted under an already-anchored key. Three shapes, one selector: a different disbursement digest under an anchored `claimDigest`; a claim resubmission differing in any stored field under its `claimDigest` (`stored`/`supplied` then carry the digest of the stored versus supplied field tuple); and a donation or fund-flow *metadata* conflict — same digest key, different `campaignId`/`campaignRevision` or `sourceCommitment` (the donation digest itself cannot conflict, because it is the key). Never retried, never overwritten; the client records evidence and raises the incident path. Re-anchoring identical values is an idempotent success, not an error. |
 | `ClaimNotAnchored(bytes32 claimDigest)` | refuse-as-defect | Disbursement anchor for a claim this contract never saw. |
 | `OperatorOnly(address sender)` | refuse-as-defect | Operator-attested write from a non-admin sender. |
-| `RestrictedMode()` | retry-after-entitlement | The deployment is gated; the relayer surfaces the operator's declared terms. Maps to `PAYMENT_REQUIRED`/`COMPLIANCE_REQUIRED` as the manifest declares. |
+| `RestrictedMode()` | retry-after-entitlement | `anchorAidClaim` — and only `anchorAidClaim` — while the deployment's emergency stop is enabled (§4); operator-attested writes and views are unaffected. The relayer surfaces the operator's declared terms; maps to `PAYMENT_REQUIRED`/`COMPLIANCE_REQUIRED` as the manifest declares. |
 
 `StaleCampaignRevision` and `EpochNotCurrent` versus `InvalidProof` is the
 charity rendering of the notary profile's `StaleRevision` versus
@@ -616,7 +657,11 @@ because they are normative here too:
 ## 12. Operator manifest bindings
 
 The relayer's signed operator manifest (`GET /manifest.json`, byte-served,
-hash-pinned — the live Stellar-side machinery) gains:
+hash-pinned; the machinery is merged on the Stellar side via
+onym-relayer#13, and as of this draft's date the deployed relayer serves a
+signed manifest declaring Stellar notary support only — the served bytes,
+not this document, are always the authoritative statement of what is
+declared) gains:
 
 - `onym:charity-implementation:bnb-evm-cha-plonk-bn254-v1` in
   `implementationProfiles`;
@@ -641,9 +686,12 @@ The governing invariant, adapted from the notary seat:
 
 > The operator's key can pay for, submit, gate, and *attest* — campaign
 > records, receipt anchors, report anchors, all visibly under its admin
-> address. It can never make an ineligible claimant eligible, consume or
-> unconsume a nullifier, alter an anchored digest, or convert an anchor
-> into proof that money moved or aid arrived.
+> address — and it can **pause claim intake deployment-wide** through the
+> restricted-mode emergency stop, a declared, auditable power equivalent
+> to pausing every campaign at once, never a selective one. It can never
+> make an ineligible claimant eligible, consume or unconsume a nullifier,
+> alter an anchored digest, or convert an anchor into proof that money
+> moved or aid arrived.
 
 ## 13. Conformance fixtures
 
@@ -653,10 +701,13 @@ than the positive set: the profile's value is what it refuses.
 
 ### 13.1 Positive fixtures
 
-- `fix-campaign-lifecycle` — register a campaign; advance revision 1→2;
-  pause; reactivate; close. Assert each event, each storage read, and that
-  `setCampaignStatus(closed→active)` and a revision skip revert
-  (`RevisionNotSequential`).
+- `fix-campaign-lifecycle` — register a campaign (assert it exists at
+  revision 1, active); advance revision 1→2; pause; advance 2→3 while
+  paused (legal); reactivate; close. Assert each event, each storage
+  read, and the refusals by selector: `setCampaignStatus(closed→active)`
+  and a status byte above 3 revert `InvalidStatusTransition`; a revision
+  skip reverts `RevisionNotSequential`; `advanceCampaignRevision` on the
+  closed campaign reverts `CampaignNotActive`.
 - `fix-claim-happy-path` — full chain from credential to anchor: issuer
   publishes a set root; operator registers policy; claimant derives
   nullifier and recipient commitment, builds the `membership-set-v1` proof;
@@ -700,11 +751,15 @@ than the positive set: the profile's value is what it refuses.
   second reverts `NullifierUsed`. Assert the selector, that no storage
   changed, and that the error surface contains no value derived from the
   credential beyond the already-public nullifier.
-- `neg-revision-stability` — advance the campaign revision between two
-  claim attempts by the same credential in the same epoch: the second
-  attempt's nullifier MUST be byte-identical to the first (derivation
-  excludes revision) and MUST revert `NullifierUsed`. This is the fixture
-  that proves a policy update cannot mint a second claim.
+- `neg-revision-stability` — claim at revision *n*; advance the campaign
+  to *n+1*; **rebuild the second attempt against revision *n+1*** (fresh
+  consent, fresh proof — the §4 pipeline checks revision before the
+  nullifier, so an un-rebuilt attempt would revert
+  `StaleCampaignRevision` and assert nothing about nullifiers). Assert
+  the rebuilt attempt's nullifier is byte-identical to the first
+  (derivation excludes revision) and that it reverts `NullifierUsed`.
+  This is the fixture that proves a policy update cannot mint a second
+  claim.
 (The cross-campaign and cross-epoch derivation checks assert *successes*
 and live in §13.1 as `fix-cross-campaign-derivation` and
 `fix-cross-epoch-derivation`.)
@@ -765,10 +820,15 @@ and live in §13.1 as `fix-cross-campaign-derivation` and
 
 **State protection**
 
-- `neg-anchor-conflict` — anchor a donation receipt digest, then submit a
-  *different* digest under the same key: `AnchorConflict` with both values
-  in the error; assert nothing was overwritten and the client taxonomy maps
-  it to a security event, not a retry.
+- `neg-anchor-conflict` — all three conflict shapes of §4.1, each
+  asserting `AnchorConflict`, nothing overwritten, and the client
+  taxonomy mapping to a security event, not a retry: (a) anchor a
+  disbursement receipt digest, then submit a *different* digest under
+  the same `claimDigest`; (b) resubmit an anchored claim with one stored
+  field changed (e.g. a different `recipientCommitment`); (c) re-anchor
+  an anchored donation receipt digest with a different
+  `campaignRevision` — the metadata conflict, since the digest is the
+  key and cannot itself collide.
 - `neg-status-gate` — new claims and policy registrations against paused,
   closed, and revoked campaigns: `CampaignNotActive` with the correct
   status code each time. The gate's *scope* is asserted from both sides:
@@ -778,9 +838,12 @@ and live in §13.1 as `fix-cross-campaign-derivation` and
   non-admin account: `OperatorOnly`. Complemented in-fixture by the
   positive assertion that `anchorAidClaim` succeeds from an arbitrary
   account, proving the two authority classes are actually distinct.
-- `neg-restricted-mode` — with restricted mode enabled, assert gated
-  behavior matches the manifest's declared power, and that disabling it
-  restores service without state loss.
+- `neg-restricted-mode` — with restricted mode enabled: `anchorAidClaim`
+  reverts `RestrictedMode`; every operator-attested write (receipt,
+  disbursement, report anchors, status changes) and every view still
+  succeeds — the audit trail records through the emergency stop. Assert
+  the `RestrictedModeChanged` events, that the manifest declares the
+  power, and that disabling restores claim intake without state loss.
 
 **PII exclusion**
 
@@ -873,8 +936,10 @@ Everything below is unbuilt; this list is the work plan, not a polish list:
 - **Prover**: the mobile Rust FFI has no charity proof backend (and no
   BN254 backend at all — that gap is shared with the notary EVM profile
   and MUST be built once, not twice).
-- **Relayer**: `onym-relayer` has no charity operations, no EVM backend,
-  and its operator manifest declares Stellar notary support only.
+- **Relayer**: `onym-relayer` has no charity operations and no EVM
+  backend; the operator manifest it serves (as of this draft's date)
+  declares Stellar notary support only — the served bytes are
+  authoritative, and no manifest anywhere declares a charity profile.
 - **Stellar sibling**: no `UI-Charity-Stellar.md` exists; the
   `neg-cross-curve-bn254-under-stellar` fixture has no counterpart to run
   against.
