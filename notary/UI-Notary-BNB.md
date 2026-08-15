@@ -693,7 +693,8 @@ verifier, following the `onym-moderation` pattern.
 
 ## 18. Current implementation gaps
 
-Everything below is unbuilt; this list is the work plan, not a polish list:
+Everything below is unbuilt except where noted; this list is the work
+plan, not a polish list:
 
 - **Circuits**: no BN254 constraint systems, setup, or verifying keys exist;
   the five flavors' predicates must be re-expressed and cross-checked against
@@ -707,10 +708,15 @@ Everything below is unbuilt; this list is the work plan, not a polish list:
   estimation, receipt tracking), `chainId`/`proofSystem`-aware allowlisting,
   a mandatory transaction hash in write responses, and an outcome-query
   endpoint.
-- **Operator seat**: no operator manifest exists for the relayer — no signing
-  seed handling, canonicalization, `GET /manifest.json`, or boot-time
-  key-match check. The Authority implementation in `onym-moderation` is the
-  reference.
+- **Operator seat**: built and running on the Stellar side — the relayer
+  serves a CI-signed manifest byte-for-byte at `GET /manifest.json` with
+  canonicalization, the boot-time key-match check, and a
+  `verify-operator-manifest` subcommand (onym-relayer#13–#16, live at
+  `https://relayer.onym.app/manifest.json`). Pending for this profile: the
+  manifest declares only the Stellar implementation profile and network
+  today; the BNB declarations of §8.1 (`bnb-evm-sep-plonk-bn254-v1` in
+  `implementationProfiles`, `eip155` `networks` entries with
+  `submitterAccount`/`adminAccount`) do not exist yet.
 - **Manifest**: `contracts-manifest.json` has no `chainId`, `proofSystem`,
   `verifier`, code-hash, or profile fields, and is unsigned.
 - **Clients**: no EVM read path, receipt reconciliation, finality tracking,
