@@ -585,8 +585,9 @@ reference set.
 
 ## 11. Gaps
 
-What exists as of this revision (reference CLI and both client
-packages on open review branches), grouped for line-by-line audit:
+What exists as of this revision (reference CLI, both client packages
+merged to their repos' `main`, and a live Onym provider), grouped for
+line-by-line audit:
 
 **Fixtures (§10, in the `onym-discovery` reference CLI):**
 
@@ -640,17 +641,23 @@ packages on open review branches), grouped for line-by-line audit:
   cross-catalog equivocation and `source_conflict` detection helpers
   with fixtures, and its builder publishes the §5 retention siblings
   (`<catalogId>-<sequence>.json`);
-- the relayer's operator-manifest endpoint is merged
-  (onym-relayer#13), but the deployed relayer serves 404 until an
-  operator signs a manifest and configures `RELAYER_OPERATOR_MANIFEST`.
+- the relayer's operator-manifest endpoint is merged (onym-relayer#13)
+  and the deployed relayer serves a signed manifest live at
+  `https://relayer.onym.app/manifest.json` (with its detached `.sig`):
+  signing runs in CI with the signed bytes committed in-repo and
+  byte-verified against the served pair, and a
+  `verify-operator-manifest` subcommand checks any pair the same way
+  (onym-relayer#14–#16);
+- the Onym provider deployment (`discovery.onym.app`) is live: it
+  serves a signed provider manifest and the `onym-services` catalog
+  (sequence 1, four entries) plus hosted courier/blossom seat
+  manifests, with the inclusion/ranking policy and privacy-profile
+  documents written, served, and pinned by
+  `policyDigest`/`privacyProfile`; the operator key's fingerprint
+  (`4d:a9:ec:c9:e8:6f:6e:97`) is published out of band.
 
 Remaining gaps:
 
-- the Onym provider deployment (`discovery.onym.app`) is not live: no
-  operator keys, no signed catalog, no hosted courier/blossom manifests
-  (templates and runbook exist in the reference repo);
-- the inclusion/ranking policy and privacy-profile documents this
-  profile's `policyDigest`/`privacyProfile` fields must pin are unwritten;
 - the §6 intermediate-fetch continuity walk is implemented nowhere:
   every implementation degrades a forward jump directly to
   accept-with-note without first attempting the retained-sibling
@@ -677,17 +684,17 @@ Remaining gaps:
   as clearly stale history, surfaced on the source) is approximated on
   both clients as a refresh failure plus retained-snapshot expiry
   filtering, not as the distinct source-level state §6 describes;
-- the Android instrumented-test branch (`discovery-uitests`,
-  onym-android#208) is now in open review alongside the other client
-  branches; a pre-existing androidTest compile break on `main` in
+- the Android instrumented-test suite (onym-android#208) is merged
+  alongside the other client packages; a pre-existing androidTest
+  compile break on `main` in
   three legacy identity/nostr test files (internal-visibility,
   unrelated to discovery) blocks *running* the full instrumented
   suite, not pushing it — the discovery suite itself assembles
   (`assembleDebugAndroidTest`), and execution additionally requires a
   device;
 - several §9 codes remain declared but unreachable in the clients
-  (`policy_unavailable` among them — policy documents are never
-  fetched because none are published);
+  (`policy_unavailable` among them — policy documents are published
+  now, but the clients still never fetch them);
 - no snapshot field carries the abstract §9 removal reason codes
   (`manifest_expired`, `policy_mismatch`, …); since top-level decoding
   is strict, adding one is a profile version bump, deferred to v2; and
