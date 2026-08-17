@@ -24,8 +24,11 @@ payment provider, bank rails, or several adapters. Every concrete financial,
 proof, or notary implementation must publish its own profile and conformance
 vectors. Ledger-specific values do not leak into the common charity UI port.
 A BNB/EVM notary-and-eligibility binding is drafted in
-[UI-Charity-BNB.md](UI-Charity-BNB.md); no financial binding is profiled
-anywhere yet.
+[UI-Charity-BNB.md](UI-Charity-BNB.md). Two further notary-and-eligibility
+bindings are planned and neither has a profile document yet: Stellar/Soroban,
+and Cardano (eUTXO, Plutus, at protocol version 11 or later). No financial
+binding is profiled anywhere yet. Bindings do not gate one another; a
+deployment declares the ones it uses and nothing else.
 
 The status of this document is **proposed**. It describes the boundary that an
 Onym Messenger implementation should satisfy; it is not a claim that every
@@ -431,6 +434,19 @@ must separately define:
 
 Until that document exists and passes conformance tests, “uses Soroban” is an
 implementation choice, not evidence that this UI boundary is satisfied.
+
+The requirement is not Stellar-specific. The list above is the general bar for
+selecting any ledger: substitute the ledger's own terms for each item and the
+obligation is unchanged — network and deployment identifiers, code and
+interface hashes, canonical object and operation mappings, authorization and
+public-input coverage, submission and finality rules, public field schemas,
+administrative authorities, read verification and reorganization handling, and
+golden vectors against `Charity.md`. Ledgers whose execution model does not
+supply an item directly must say what replaces it and what the replacement
+costs; an item a profile cannot answer is an open question the profile states,
+not one it omits. “Uses chain X” carries exactly as much evidential weight as
+“uses Soroban” does above — none, until the profile exists and its conformance
+vectors pass.
 
 ### 8.4 Provider offers and participant incentives
 

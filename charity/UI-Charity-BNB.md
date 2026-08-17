@@ -20,7 +20,8 @@ This document is a concrete implementation profile for
 [Charity.md](Charity.md). The abstract boundary remains authoritative for
 object meaning and trust semantics; [UI-Charity.md](UI-Charity.md) remains
 authoritative for what the user application shows and refuses. The
-Stellar/Soroban charity binding is a separate, unwritten sibling profile.
+The Stellar/Soroban and Cardano charity bindings are separate, unwritten
+sibling profiles; both verify over BLS12-381, and neither gates this one.
 UI-Charity.md §8.3 states, for Soroban, that "uses X" is an implementation
 choice and not evidence of conformance until the implementation profile
 exists and passes conformance tests; this document adopts the same
@@ -150,8 +151,16 @@ interoperability criterion would be unachievable; the §13 canonicalization
 fixtures are the proof that they cannot. The `-bn254-` segment is the
 circuit-type discriminator and is load-bearing: a BLS12-381 eligibility proof
 is not valid evidence under this profile, and a BN254 proof is not valid
-evidence under any Stellar charity profile. Fixtures MUST prove both
+evidence under any BLS12-381 charity profile. Fixtures MUST prove both
 rejections (§13, `neg-cross-curve-*`).
+
+Curve separation is necessary but never sufficient, and it does no work at all
+between two sibling profiles that share a curve. The planned Stellar/Soroban
+and Cardano bindings both verify over BLS12-381, so nothing distinguishes them
+from each other by curve; separation there rests entirely on the statement tag
+and the profile ID. Every profile in this family MUST therefore treat
+statement-tag domain separation (§13, `neg-foreign-statement`) as load-bearing
+in its own right, not as a redundant second check behind the curve.
 
 ## 3. Deployment identity and hardening
 
@@ -838,13 +847,18 @@ and live in §13.1 as `fix-cross-campaign-derivation` and
 **Curve and statement separation**
 
 - `neg-cross-curve-bls-under-bn254` — a well-formed BLS12-381 eligibility
-  proof (valid under the future Stellar charity profile's encoding)
-  submitted to `anchorAidClaim`: rejected — by length/decode where lengths
-  differ, by `InvalidProof` where they coincide — and never anchored.
-- `neg-cross-curve-bn254-under-stellar` — the converse fixture, shipped
-  with this profile and executed against the Stellar charity binding when
-  that binding exists; until then it is a published vector with an explicit
-  "counterpart unimplemented" marker, not silently omitted.
+  proof (valid under a future BLS12-381 sibling profile's encoding — Stellar
+  or Cardano; the fixture MUST record which sibling's encoding produced the
+  vector, because the two are not interchangeable) submitted to
+  `anchorAidClaim`: rejected — by length/decode where lengths differ, by
+  `InvalidProof` where they coincide — and never anchored.
+- `neg-cross-curve-bn254-under-bls` — the converse fixture, shipped with this
+  profile and executed against each BLS12-381 charity binding as that binding
+  arrives. Until the first one exists it is a published vector with an
+  explicit "counterpart unimplemented" marker, not silently omitted; once one
+  exists, the marker is retired only for the sibling actually run against, and
+  remains for the other. (Named `neg-cross-curve-bn254-under-stellar` in draft
+  0.1, when Stellar was the only planned counterpart.)
 - `neg-foreign-statement` — a valid BN254 proof for a *different* statement
   family with a compatible shape (the notary `sep-*` transition circuits
   are the natural donor): `InvalidProof`, because the statement tag
@@ -1020,9 +1034,12 @@ Everything below is unbuilt; this list is the work plan, not a polish list:
   backend; the operator manifest it serves (as of this draft's date)
   declares Stellar notary support only — the served bytes are
   authoritative, and no manifest anywhere declares a charity profile.
-- **Stellar sibling**: no `UI-Charity-Stellar.md` exists; the
-  `neg-cross-curve-bn254-under-stellar` fixture has no counterpart to run
-  against.
+- **BLS12-381 siblings**: neither `UI-Charity-Stellar.md` nor
+  `UI-Charity-Cardano.md` exists, so the `neg-cross-curve-bn254-under-bls`
+  fixture has no counterpart to run against in either direction. Whichever
+  sibling profile is written first supplies the counterpart; the other keeps
+  the "counterpart unimplemented" marker until it arrives. Neither sibling
+  gates this profile, and this profile gates neither.
 - **Clients**: no charity module implements the UI-Charity.md port; no
   eligibility flow, no anchor reconciliation.
 - **Fixtures**: none of §13 exists in any repository.
@@ -1044,7 +1061,9 @@ This profile is satisfied when:
    class the client actually implements;
 5. the §13.2 PII fixture passes at all three layers on the full happy path;
 6. cross-curve and cross-statement proofs are rejected in fixtures, in both
-   directions once the Stellar sibling exists;
+   directions once a BLS12-381 sibling exists — and cross-statement rejection
+   is required on its own terms, since it is the only separation available
+   between two siblings that share a curve;
 7. write reconciliation survives nonce replacement, unknown outcomes, and
    pre-finality reorgs with the operation ID as the stable key and
    `conflicting_state` treated as a security event; and
