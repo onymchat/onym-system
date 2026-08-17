@@ -20,13 +20,12 @@ This document is a concrete implementation profile for
 [Charity.md](Charity.md). The abstract boundary remains authoritative for
 object meaning and trust semantics; [UI-Charity.md](UI-Charity.md) remains
 authoritative for what the user application shows and refuses. The
-The Stellar/Soroban and Cardano charity bindings are separate, unwritten
+Stellar/Soroban and Cardano charity bindings are separate, unwritten
 sibling profiles; both verify over BLS12-381, and neither gates this one.
-UI-Charity.md §8.3 states, for Soroban, that "uses X" is an implementation
-choice and not evidence of conformance until the implementation profile
-exists and passes conformance tests; this document adopts the same
-principle for BNB — the attribution is to the principle, since §8.3
-itself addresses only the Soroban case.
+UI-Charity.md §8.3 states the conformance bar for selecting any ledger:
+"uses X" is an implementation choice and not evidence of conformance until
+the implementation profile exists and passes conformance tests. This
+document is that profile for BNB.
 
 The document distinguishes:
 
@@ -154,13 +153,22 @@ is not valid evidence under this profile, and a BN254 proof is not valid
 evidence under any BLS12-381 charity profile. Fixtures MUST prove both
 rejections (§13, `neg-cross-curve-*`).
 
-Curve separation is necessary but never sufficient, and it does no work at all
-between two sibling profiles that share a curve. The planned Stellar/Soroban
-and Cardano bindings both verify over BLS12-381, so nothing distinguishes them
-from each other by curve; separation there rests entirely on the statement tag
-and the profile ID. Every profile in this family MUST therefore treat
-statement-tag domain separation (§13, `neg-foreign-statement`) as load-bearing
-in its own right, not as a redundant second check behind the curve.
+Curve separation is necessary but never sufficient, which is why
+UI-Charity.md §8.3 requires every profile in this family to carry a separation
+that holds independently of the proof system. This profile satisfies that
+requirement through the statement-tag constant bound into the proven
+statement, not through the curve: the `-bn254-` discriminator above is the
+weaker of the two checks, and would carry no weight at all against a sibling
+that shared this curve. The planned Stellar/Soroban and Cardano bindings both
+verify over BLS12-381, so they are separated from each other only by their own
+statement tags — a constraint on those profiles, stated in §8.3 where it binds
+them, not here.
+
+The fixture that exercises this profile's statement separation is §13's
+`neg-foreign-statement`, which rejects a BN254 proof from the notary `sep-*`
+family. It demonstrates the mechanism against the donor family available
+today; it is not, and cannot be, evidence about separation between two
+profiles that do not yet exist.
 
 ## 3. Deployment identity and hardening
 
@@ -847,11 +855,19 @@ and live in §13.1 as `fix-cross-campaign-derivation` and
 **Curve and statement separation**
 
 - `neg-cross-curve-bls-under-bn254` — a well-formed BLS12-381 eligibility
-  proof (valid under a future BLS12-381 sibling profile's encoding — Stellar
-  or Cardano; the fixture MUST record which sibling's encoding produced the
-  vector, because the two are not interchangeable) submitted to
-  `anchorAidClaim`: rejected — by length/decode where lengths differ, by
-  `InvalidProof` where they coincide — and never anchored.
+  proof submitted to `anchorAidClaim`: rejected — by length/decode where
+  lengths differ, by `InvalidProof` where they coincide — and never anchored.
+  Two stages, because no sibling encoding is defined yet. **Until a BLS12-381
+  sibling profile exists**, the vector is generated from this profile's own
+  circuit re-instantiated over BLS12-381, and ships marked
+  "sibling-encoding pending" — it proves the curve check rejects, which is all
+  it can prove without a sibling to borrow an encoding from. **Once a sibling
+  exists**, the vector MUST be regenerated under that sibling's published
+  encoding and MUST record which sibling produced it, because the two sibling
+  encodings are not interchangeable and a vector under one is not evidence
+  about the other. (Draft 0.1 described the vector as "valid under the future
+  Stellar charity profile's encoding", which was already unsatisfiable for the
+  same reason.)
 - `neg-cross-curve-bn254-under-bls` — the converse fixture, shipped with this
   profile and executed against each BLS12-381 charity binding as that binding
   arrives. Until the first one exists it is a published vector with an

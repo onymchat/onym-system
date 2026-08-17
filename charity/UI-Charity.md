@@ -448,6 +448,19 @@ not one it omits. “Uses chain X” carries exactly as much evidential weight a
 “uses Soroban” does above — none, until the profile exists and its conformance
 vectors pass.
 
+One requirement binds every implementation profile in this family, and is
+stated here rather than in any one of them because no sibling can impose it on
+the others. A proof accepted under one implementation profile MUST NOT be
+valid evidence under another. Where two profiles select different proof
+systems or curves, that difference supplies part of the separation — but it is
+never sufficient on its own, and it supplies nothing at all between two
+profiles that select the same one. Each profile MUST therefore carry a
+separation that holds independently of the proof system: a statement-family or
+domain-separation constant bound into the proven statement, distinct per
+profile, together with a fixture proving that a proof valid under a sibling
+profile is rejected. A profile whose only separation from a sibling is the
+curve does not satisfy this requirement.
+
 ### 8.4 Provider offers and participant incentives
 
 Onym can present signed offers from independent charity, issuer, financial,
