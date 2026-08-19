@@ -174,7 +174,17 @@ All derivations are `HKDF-SHA256(ikm, salt, info, 32)`.
 | Access agreement (X25519) | BIP39 seed | `app.onym.bip39` | `backup-access-x25519-v1\|<componentId>\|r<rotation>` |
 
 `<componentId>` is the operator's `componentId` verbatim; `<rotation>` is a
-decimal counter starting at `0`. Binding the access key to `componentId` means
+decimal counter starting at `0`.
+
+The **signing** key is what this profile authenticates with (§8). The
+**agreement** key is not used against the operator at all — it is the key a
+billing broker seals a `SeatEntitlement` to, so a purchased credential travels to
+one seat and is readable by one device
+([../WHITEPAPER.md](../WHITEPAPER.md) §17.5). It is derived
+here, beside its sibling, because both are seat-scoped and both must survive a
+restore from the recovery phrase alone; an operator never sees it. A free
+operator's holder derives it and never uses it, which is correct rather than
+wasteful. Binding the access key to `componentId` means
 one operator never receives a key another operator can recognise
 ([UI-Backup.md](UI-Backup.md) §14.12), and no operator receives anything linkable
 to the holder's identity keys.
@@ -264,14 +274,28 @@ no decoded archive, no locator, and no mutable metadata.
 `sealedByteSize` is the length of that same sequence. An operator must reject a
 commit whose received byte count differs, before recomputing anything.
 
-### 6.2 Collision response
+### 6.2 Digest scope
 
-A `digest` already retained **for the same holder** is `already_retained`; the
-operator must not accept a second upload under it, and must not overwrite.
-A `digest` already retained for a *different* holder is not a collision: storage
-is holder-partitioned (§9.7), and under §5.3 an identical digest across two
-holders is a SHA-256 collision, not a shared file. An operator that observes one
-should refuse both and say so; it must never serve one holder's bytes to another.
+**A snapshot's identity is the pair `(holder, digest)`, never the digest alone.**
+
+Within one holder, a `digest` already retained is `already_retained`: the
+operator does not accept a second upload under it and does not overwrite.
+
+Across holders there is no collision concept at all, and an operator must not
+invent one. The same digest legitimately appears under two handles whenever
+sealed bytes move — a migration under §12, a re-upload of an exported archive, or
+the destructive rotation flow of §5.5, all of which are supposed to preserve the
+bytes and therefore the reference verbatim. An operator seeing a familiar digest
+arrive under a new handle is watching the export path work.
+
+It follows that the operator must not deduplicate across holders (§14.6 of the
+abstract forbids it independently), must not refuse the second upload, must never
+serve one holder's bytes to another, and must not treat the coincidence as
+evidence about either holder. The last of those is the one worth stating: two
+handles holding one digest is exactly what a person migrating between operators,
+or restoring their own archive under a rotated key, produces — and an operator
+that logged or acted on the observation would be building the cross-holder
+linkage this seat is shaped to prevent.
 
 ### 6.3 Canonical bytes
 
@@ -280,12 +304,17 @@ parse to a JSON value, remove the named signature field **structurally** (never
 by string editing), re-serialise with object keys sorted by **UTF-8 byte order**,
 no insignificant whitespace, and integer-only numbers.
 
-Byte-order sorting is not the same as case-insensitive or locale sorting, and the
-difference is live here: in a `SeatEntitlement`, `type` sorts *after* both
-`notBefore` and `offerId` by byte order. An implementation that sorts any other
-way will produce signatures the other side rejects, intermittently and only for
-documents containing the fields that differ. Cross-implementation fixtures for
-this are mandatory (§18).
+Byte-order sorting is not the same as case-insensitive, locale, or
+Unicode-scalar sorting. The trap is that **every document this profile defines
+today sorts identically under all four**, because their keys are all lowercase
+ASCII — so an implementation can choose the wrong rule, pass every test it has,
+and break the first time a field arrives with an uppercase initial (`Z` precedes
+`a` by byte order and follows it case-insensitively) or a non-ASCII character
+(where UTF-8 byte order and Unicode scalar order diverge above U+FFFF).
+
+The rule is therefore pinned now, before anything depends on it, and the
+conformance fixtures must include a document whose keys actually distinguish the
+orderings — not only the real documents, which cannot (§18.11).
 
 Floating-point numbers are prohibited in every signed document this profile
 touches, matching the service-manifest rule. A fractional value is published as
@@ -476,6 +505,11 @@ Returns the outcome recorded for that operation, or `404` if the operator has no
 record. A client that lost a response uses this to reconcile rather than
 relabelling silence. `unknown` is preserved as `unknown`
 ([UI-Backup.md](UI-Backup.md) §14.9).
+
+The operator declares how long it keeps outcome records in `metadataRetention`,
+and a `404` after that window is not evidence the operation failed — a client
+that has aged past it reconciles by *reference* instead, through `listSnapshots`.
+The window exists to be short (§15).
 
 ## 10. Payment mapping
 
@@ -668,23 +702,43 @@ A timeout or transport failure is `unknown`, reconciled through §9.8. It is nev
 
 ## 15. Logging and retained metadata
 
-A conforming operator logs route, status, byte count, and duration. It does
-**not** log the holder key, the holder handle, a snapshot digest, an upload id, an
-operation id, or a client address, and it does not aggregate any of these per
-holder over time. There is no access-log table; that absence is a design
-commitment, and an operator adding one has changed what it is.
+Two different things are governed here, and conflating them is how a
+`metadataRetention` declaration ends up understating what an operator holds.
 
-The metadata an operator unavoidably retains is: the holder handle, one
-`sealedByteSize` and one `retainedAt` per retained snapshot, the pinned
-`acceptedTermsId`, and live entitlement records. Its `metadataRetention`
-declaration must say exactly this, and saying less than it retains is the failure
-mode this field exists to prevent.
+**Logs** are diagnostic and are discarded. A conforming operator logs route,
+status, byte count, and duration. It does **not** log the holder key, the holder
+handle, a snapshot digest, an upload id, an operation id, or a client address,
+and it does not aggregate any of these per holder over time. There is no
+access-log table; that absence is a design commitment, and an operator adding one
+has changed what it is.
+
+**Records** are the state the profile's own operations require, and they must be
+declared rather than wished away:
+
+| Record | Why it must exist | Bound |
+|---|---|---|
+| Holder handle | the only identity this seat has | while any snapshot or receipt is held |
+| `sealedByteSize`, `retainedAt`, `acceptedTermsId`, `supersedes` per snapshot | `listSnapshots`, quota, lapse, and terms pinning | while the snapshot is retained |
+| Outcome per `operationId` | §9.8 exists so a lost response is reconciled rather than relabelled | a declared window past the operation, then discarded |
+| Issued erasure receipts | §12 exports them, and a holder may need to re-present one | a declared window, disclosed as outliving the erased snapshot |
+| Live entitlement records | §10.4 | to `expiresAt` plus one revocation-epoch interval |
+
+The outcome record is the awkward one, and it is worth naming rather than
+hiding: keeping an operation id long enough to answer §9.8 is precisely the
+per-holder timing trace §15 otherwise forbids. The resolution is a **bound, not
+an exception** — the window is declared in `metadataRetention`, it is measured in
+hours rather than months, and nothing is retained past it. An operator that finds
+this uncomfortable is reading it correctly; the alternative is a client that
+converts silence into `retained`, which is worse.
+
+An operator's `metadataRetention` declaration must cover every row of that table.
+Declaring less than it holds is the exact failure this field exists to prevent.
 
 ## 16. Corrections to the abstract boundary
 
-Two invariants in [UI-Backup.md](UI-Backup.md) cannot be implemented as written.
-Both are wording problems, not design problems, and the abstract document should
-be amended.
+Three claims in [UI-Backup.md](UI-Backup.md) cannot be implemented as written.
+All three are wording problems rather than design problems, and this PR amends
+the abstract document alongside publishing this profile.
 
 ### 16.1 §14.1 — "group secrets never enter operator requests"
 
@@ -696,12 +750,18 @@ metadata, in a locator, in a receipt, or in a log**. Under this profile that is
 mechanically true — everything sensitive is inside the AEAD, and the operator
 sees a handle, a digest, a byte count, and a date.
 
-### 16.2 §5.8 — the access key "separate from the identity signing key"
+### 16.2 §5.8 and §14.4 — the access key "separate from the identity signing key"
 
-This profile derives the access key from the same BIP39 seed as the identity
-keys, through a distinct HKDF context and per `componentId`. The letter of §5.8 is
-met: it is a different key, it is unlinkable to the identity keys, and abandoning
-it touches nothing else.
+§5.8 said a backup credential "can be rotated or abandoned without touching the
+identity", §7.10 required a client to "offer its rotation", and §14.4 stated
+rotation as a property of the seat. This profile derives the access key from the
+same BIP39 seed as the identity keys, through a distinct HKDF context and per
+`componentId`. Half of the claim is met: it is a different key, it is unlinkable
+to the identity keys, and abandoning it touches nothing else.
+
+Rotation is the half that is not. §5.5 above makes it destructive in the absence
+of a re-binding proof, so all three sections are amended to state rotation as a
+profile decision with a disclosed cost rather than a property of the seat.
 
 The spirit is not fully met, and the profile should say so rather than claim it
 is. Because the root is shared, **"lost access key" and "lost identity" are one
@@ -774,10 +834,13 @@ executable content of [UI-Backup.md](UI-Backup.md) §18.
    private keys are absent from the *plaintext* archive.
 10. **Proof of possession.** An upload signature cannot be replayed as an erase
     signature, into another chunk index, or after the freshness window.
-11. **Entitlement.** Forged issuer, mutated field, expired window, wrong
-    `audience`, wrong `subject`, and revoked id are each refused. Canonical-byte
-    fixtures are **byte-identical** across the broker, the operator, and the
-    client.
+11. **Entitlement and canonical bytes.** Forged issuer, mutated field, expired
+    window, wrong `audience`, wrong `subject`, and revoked id are each refused.
+    Canonical-byte fixtures are **byte-identical** across the broker, the
+    operator, and the client, and include at least one document whose keys
+    distinguish UTF-8 byte order from case-insensitive and Unicode-scalar order
+    — an uppercase-initial key and a key above U+FFFF. The real documents cannot
+    distinguish them (§6.3), which is exactly why the fixture must.
 12. **Payment loop.** `402` at preflight, entitlement obtained, retry with the
     same operation id and the same bytes, `retained`.
 13. **Export while unpaid.** A holder with zero entitlements exports successfully.
@@ -785,15 +848,18 @@ executable content of [UI-Backup.md](UI-Backup.md) §18.
     reassigns a snapshot's holder.
 15. **Receipts.** An erasure receipt with an empty `excludedScope` is rejected as
     malformed.
-16. **Unknown.** A lost response is reconciled through `queryOutcome` and never
+16. **Metadata declaration.** Every record class in §15's table appears in the
+    operator's declared `metadataRetention`, asserted against the running
+    operator's own storage rather than against its prose.
+17. **Unknown.** A lost response is reconciled through `queryOutcome` and never
     rendered as `retained` or `erased`.
-17. **Migration.** Export from one operator, upload to a second, restore — with no
+18. **Migration.** Export from one operator, upload to a second, restore — with no
     re-sealing and no digest change.
 
 ## 19. Acceptance criteria
 
 This profile is complete when a client and an operator built independently from
-this document alone can perform §18.17 — export from one, import to the other,
+this document alone can perform §18.18 — export from one, import to the other,
 restore on a third device holding only a recovery phrase — with byte-identical
 references throughout, and when every fixture in §18 passes on both.
 

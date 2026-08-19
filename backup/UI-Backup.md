@@ -454,8 +454,13 @@ A restore is authorized by possession, proven on the recovering device:
 ```
 
 The access key is held by the person, not by the operator, and is separate
-from the identity signing key so a backup credential can be rotated or
-abandoned without touching the identity. The operator verifies the proof and
+from the identity signing key, so abandoning a backup credential touches
+nothing else. Whether it can also be *rotated* is a profile decision with real
+costs on both sides — a rotation that changes how an operator recognises a
+holder strands every snapshot retained under the previous credential unless the
+profile also defines a re-binding proof — and a profile that omits rotation, or
+makes it destructive, must say so at enrolment rather than imply the property
+(§14.4). The operator verifies the proof and
 serves bytes. It cannot issue, reset, escrow, or recover the access key, and it
 cannot open the snapshot with anything it holds — a failed restore is a lost
 history, which is the honest price of the previous sentence and must be
@@ -536,8 +541,9 @@ A conforming frontend and application layer must:
    before uploading under new terms;
 9. keep plaintext state, keys, contact labels, filenames, group secrets, and
    identity credentials out of backup requests, metadata, and logs;
-10. hold the backup access key locally, offer its rotation and export, and
-    explain that no operator can recover it;
+10. hold the backup access key locally, explain that no operator can recover
+    it, and — where the selected profile defines rotation — offer it, and state
+    what it does to snapshots already retained under the previous credential;
 11. verify a complete snapshot reference before replacing any local state, and
     never merge a partial or unverified snapshot;
 12. treat locators, receipts, retention dates, and operator descriptors as
