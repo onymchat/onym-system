@@ -330,8 +330,12 @@ to the operator:
     "afterGrace": "<erase-or-declared-cold-state>"
   },
   "metadataRetention": {
-    "accessLogs": "<declared-duration>",
-    "sizeAndTiming": "<declared-duration>"
+    "accessLogs": "<declared-duration-or-none>",
+    "sizeAndTiming": "<declared-duration>",
+    "holderIdentifiers": "<declared-duration>",
+    "operationOutcomes": "<declared-duration>",
+    "erasureReceipts": "<declared-duration>",
+    "entitlementRecords": "<declared-duration>"
   },
   "signature": "<operator-signature>"
 }
@@ -427,7 +431,9 @@ Valid outcome classes include:
   terms;
 - `already_retained`: the same reference was already held;
 - `rejected`: the operator explicitly refused;
-- `erased`: the operator confirmed erasure within its declared scope;
+- `erased`: the operator acknowledged erasure within its declared scope, and
+  the deadline it committed to has passed without contradiction — an
+  acknowledgement alone is not this state;
 - `unreachable`: no meaningful operator response was obtained; and
 - `unknown`: the request may have succeeded, but its result is inconclusive.
 
@@ -528,8 +534,9 @@ A conforming frontend and application layer must:
    the declared terms before the first upload;
 3. display retention period, erasure deadlines and scope, jurisdictions,
    sub-processors, lawful-access practice, breach-notice period, export
-   availability, price, and end-of-payment behaviour on the consent surface —
-   before enrolment, not on first failure;
+   availability, the shutdown-notice window, metadata retention, price, and
+   end-of-payment behaviour on the consent surface — before enrolment, not on
+   first failure;
 4. state plainly that a snapshot extends how long this history exists for
    every participant in it, including people who did not choose the operator;
 5. bound the eligible set to what the person included, and exclude seed
@@ -737,7 +744,7 @@ prove retention.
 | `digest_mismatch` | Adapter | Discard bytes, flag the operator, do not restore |
 | `incomplete_snapshot` | Adapter | Refuse restore; never merge partial state |
 | `retention_expired` | Operator | Report the gap; re-upload a fresh snapshot |
-| `erasure_unconfirmed` | Operator | Preserve uncertainty; do not claim destruction |
+| `erasure_unconfirmed` | Client verification | Preserve uncertainty; do not claim destruction |
 | `outcome_unknown` | Network/operator | Reconcile by reference before resubmitting |
 | `export_withheld` | Operator | Report non-conformance; retain local evidence |
 

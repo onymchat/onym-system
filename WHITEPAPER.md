@@ -1283,13 +1283,13 @@ metadata.
   "type": "SeatEntitlement",
   "issuer": "onym:key:<billing-broker>",
   "audience": "onym:component:<relay-id>",
-  "subject": "onym:seat-key:<scoped-public-key>",
+  "subject": "onym:seat-key:<64 lowercase hex>",
   "offerId": "relay-monthly-v1",
   "entitlementId": "<random-nonreusable-id>",
   "notBefore": "2026-08-01T00:00:00Z",
   "expiresAt": "2026-09-01T00:00:00Z",
   "quota": null,
-  "status": "<privacy-limited-revocation-endpoint-or-epoch>",
+  "status": "<broker-signed-revocation-epoch-url>",
   "signature": "<broker-signature>"
 }
 ```
@@ -1571,8 +1571,8 @@ Their implementations remain proposed.
   with retention, erasure, jurisdiction, sub-processor, export, and
   end-of-payment terms pinned at acceptance and binding forward only, no
   operator key or reset path, and the third-party retention cost disclosed
-  before enrolment ([backup/UI-Backup.md](backup/UI-Backup.md)). No
-  implementation profile exists yet.
+  before enrolment ([backup/UI-Backup.md](backup/UI-Backup.md)), with a drafted
+  [object-HTTP profile](backup/UI-Backup-Object-HTTP.md).
 - A non-custodial payment capability profile and additional financial-services
   application profiles.
 - Group-state migration between notary deployments.
@@ -1615,7 +1615,10 @@ Their implementations remain proposed.
 ### Phase 3 — incentives
 
 - Specify `ServiceManifest`, `SeatOffer`, `ChannelOffer`, `PaymentRequired`, and
-  `SeatEntitlement` canonical formats.
+  `SeatEntitlement` canonical formats. `ChannelOffer` is drafted in
+  [settlement/ChannelOffer.md](settlement/ChannelOffer.md); `PaymentRequired`
+  and the `SeatEntitlement` verification rules are drafted for the backup seat
+  in [backup/UI-Backup-Object-HTTP.md](backup/UI-Backup-Object-HTTP.md) §10.
 - Implement NIP-42 relay authentication with `payment-required:` handling and
   relay-scoped pseudonymous keys.
 - Implement an Apple billing broker with StoreKit transaction validation,

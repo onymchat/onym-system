@@ -311,8 +311,17 @@ Unicode-scalar sorting. The trap is that **every document this profile defines
 today sorts identically under all four**, because their keys are all lowercase
 ASCII — so an implementation can choose the wrong rule, pass every test it has,
 and break the first time a field arrives with an uppercase initial (`Z` precedes
-`a` by byte order and follows it case-insensitively) or a non-ASCII character
-(where UTF-8 byte order and Unicode scalar order diverge above U+FFFF).
+`a` by byte order and follows it case-insensitively) or a character above
+U+FFFF (where UTF-8 byte order and **UTF-16 code-unit** order diverge, because
+the surrogate code units `0xD800`–`0xDBFF` sort below `0xE000`–`0xFFFF` while
+the scalars they encode are the largest — so a runtime whose default string
+comparison is UTF-16, such as Java or JavaScript, sorts U+1D400 *before*
+U+FED6, which both UTF-8 byte order and codepoint order put the other way).
+
+UTF-8 byte order and codepoint order never diverge: UTF-8 was designed so
+byte-wise comparison reproduces scalar comparison exactly. The rule could
+therefore be stated either way; it is stated as byte order because that is what
+an implementation actually does to the serialized document.
 
 The rule is therefore pinned now, before anything depends on it, and the
 conformance fixtures must include a document whose keys actually distinguish the
@@ -351,7 +360,7 @@ Every `/v1/` request carries:
 
 | Header | Value |
 |---|---|
-| `X-Onym-Holder` | `onym:key:<64 lowercase hex>`, the access signing public key |
+| `X-Onym-Holder` | `onym:seat-key:<64 lowercase hex>`, the access signing public key |
 | `X-Onym-Timestamp` | RFC 3339, UTC, second precision, no fractional seconds |
 | `X-Onym-Nonce` | 16 random bytes, lowercase hex |
 | `X-Onym-Signature` | base64 Ed25519 over the bytes below |
@@ -370,6 +379,14 @@ request body, or the digest of the empty string for a body-less request.
 Length prefixing is not decoration: without it, a signature over concatenated
 fields can be reinterpreted by shifting a boundary between two adjacent
 attacker-influenced fields.
+
+The `onym:seat-key:` prefix is deliberate and must be carried verbatim. Every
+other identifier in this profile — issuer, operator, component — uses
+`onym:key:` or `onym:component:`, and the holder's is the one place the wire
+says *this key is seat-scoped and is not an identity key*, which is §5.2's
+anti-correlation rule made visible rather than merely intended. It is also the
+byte-for-byte value a `SeatEntitlement`'s `subject` must equal (§10.4), so the
+two documents share one spelling of one key.
 
 ### 8.2 Verification
 
@@ -440,18 +457,23 @@ Checked in this order, each failing closed:
    with `currentTermsId`. The client stops and re-presents consent.
 2. entitlement required and absent, expired, or revoked → `402 payment_required`
    (§10).
-3. `sealedByteSize` exceeds `maximumSealedSnapshotBytes` → `413 snapshot_too_large`.
-4. digest already retained for this holder → `200` with an `already_retained`
-   outcome. This precedes the quota check deliberately: re-preflighting a digest
-   the operator already holds adds no bytes, so a holder at quota reconciling a
-   lost response must get `already_retained` rather than `quota_exceeded`.
-   Idempotent reconciliation has to keep working at the limit, which is where it
-   is most likely to be needed.
+3. digest already retained for this holder → `200` with an `already_retained`
+   outcome.
+4. `sealedByteSize` exceeds `maximumSealedSnapshotBytes` → `413 snapshot_too_large`.
 5. retained count or bytes would exceed the declared limits → `409 quota_exceeded`,
    reporting the limit and current usage. The operator **must not** silently drop
    an older snapshot to make room.
 6. otherwise → `200 {"uploadId": …, "chunkBytes": 8388608, "chunkCount": …,
    "expiresAt": …}`.
+
+The general rule behind that ordering: **every check that only matters when new
+bytes would be accepted runs after the digest lookup.** Both limits — size and
+quota — bound acceptance, and a re-preflight for a digest the operator already
+holds accepts nothing, so neither may refuse it. Idempotent reconciliation has to
+keep working *at* the limit, which is exactly where a client will need it, and
+`maximumSealedSnapshotBytes` is a manifest-level declaration an operator can
+lower without any `terms_changed` to warn the holder — so a snapshot accepted
+under an older, higher limit must still be reconcilable afterwards.
 
 **Preflight is the entire point of the payment mapping.** A `402` must cost one
 small request, not a completed multi-hundred-megabyte upload. An operator that
@@ -597,7 +619,10 @@ The operator verifies a presented `SeatEntitlement`
 2. verify the Ed25519 signature against an issuer pinned at boot and published in
    the manifest's `entitlementIssuers` — never against a key from the response;
 3. `audience` equals the operator's own `componentId`;
-4. `subject` equals the presenting `X-Onym-Holder`;
+4. `subject` equals the presenting `X-Onym-Holder` — **as an exact string,
+   prefix included**. Both are `onym:seat-key:<64 lowercase hex>`; there is no
+   normalization step, and an implementation that needs one has a spelling
+   mismatch to fix rather than a comparison to loosen;
 5. `notBefore <= now <= expiresAt`;
 6. `entitlementId` is absent from the cached revocation epoch.
 
@@ -655,6 +680,8 @@ A `tar` archive, no compression:
 manifest.json
 snapshots/<digest-hex>.seal
 receipts/<receiptId>.json
+terms/<termsId-hex>.json
+terms/<termsId-hex>.json.sig
 ```
 
 `manifest.json`:
@@ -669,9 +696,17 @@ receipts/<receiptId>.json
      "termsUrl": "https://…/terms/<termsId>.json", "retainedAt": "…",
      "file": "snapshots/<digest-hex>.seal"}
   ],
-  "receipts": ["receipts/<receiptId>.json"]
+  "receipts": ["receipts/<receiptId>.json"],
+  "terms": [
+    {"termsId": "sha256:…", "file": "terms/<termsId-hex>.json",
+     "signature": "terms/<termsId-hex>.json.sig"}
+  ]
 }
 ```
+
+**The terms bytes travel with the container, not just their digest.** One entry
+per distinct `acceptedTermsId` referenced by any exported snapshot, with the
+operator's detached signature beside it.
 
 The `.seal` files are the sealed bytes verbatim — byte-identical to what was
 uploaded, digest unchanged. Migration to another conforming operator is therefore
@@ -679,11 +714,20 @@ an upload of the same bytes under the same reference, with **no re-sealing and n
 cooperation from the operator being left**, which is
 [UI-Backup.md](UI-Backup.md) §18.3.
 
-The container carries no operator-specific field, no locator, and no credential.
-It carries `termsUrl` as a convenience, and a holder who exports should be told
-that the URL stops resolving when the operator does — the pinned `acceptedTermsId`
-remains checkable against a copy of the terms the holder keeps, which is why §4.1
-requires historical terms to stay served while the operator exists.
+This closes what would otherwise be a hole in the one scenario the export path
+exists for. §4.1 obliges an operator to serve every historical terms document
+forever — but only for as long as the operator exists, and §16.3 concedes that a
+shut-down operator serves nothing. A container carrying `termsUrl` and a digest
+would leave a holder, after shutdown, with sealed bytes they can verify and a
+`termsId` whose preimage is gone: no way to check what retention, what
+jurisdiction, or what erasure scope the snapshot was actually accepted under.
+Pinning would survive as an unresolvable reference, which is not pinning. Since
+the whole point of `shutdownNotice` is that export outlives the operator, the
+export has to carry everything the pin needs.
+
+Beyond that, the container carries no operator-specific field, no locator, and no
+credential. `termsUrl` remains as a convenience for as long as it resolves; the
+bytes beside it are what make the pin checkable afterwards.
 
 ## 13. Limits
 
@@ -697,23 +741,53 @@ upload expiry. This profile pins only the shapes:
 | Chunk body | exactly the granted `chunkBytes`, or the remainder for the last |
 | Upload lifetime | declared; expiry discards the partial upload |
 | Redirects | a client follows none, on any operation |
-| Response size | a client bounds every non-`snapshots`/`exports` body |
+| Response size | a client bounds **every** response body |
+| Sealed streams | `/v1/snapshots/{digest}` and `/v1/exports/{digest}` are bounded by the declared `maximumSealedSnapshotBytes`, not by a fixed cap |
+| List and manifest bodies | `/v1/snapshots` and `/v1/exports` are bounded by `maximumRetainedSnapshots` × a per-entry ceiling, with a hard client maximum above which the response is discarded as `operator_unavailable` |
+
+The three rows are separate because the paths are four categorically different
+things, and one prefix would have exempted all of them. Exempting the two byte
+streams from a fixed cap is right — `maximumSealedSnapshotBytes` is signed policy
+the holder verified at enrolment, and a profile-level number would only get in
+the way. Exempting the two JSON bodies is not: their only soft bound is
+`maximumRetainedSnapshots`, an operator-supplied figure with no per-response
+signature behind it, so an operator declaring ten thousand and returning a
+billion fabricated entries would meet a client with no cap at all.
 
 A client treats every locator, retention date, receipt field, and diagnostic as
-untrusted input ([UI-Backup.md](UI-Backup.md) §7.12).
+untrusted input ([UI-Backup.md](UI-Backup.md) §7.12) — which is precisely why the
+size of the envelope carrying them cannot be left to the sender.
 
 ## 14. Error mapping
 
 ```json
-{"error": "<code>", "message": "<safe, bounded diagnostic>"}
+{"error": "<code>", "message": "<safe, bounded diagnostic>", "...": "<per-code fields>"}
 ```
+
+`error` and `message` are always present. Some codes carry additional
+**top-level** fields, and their names are pinned here rather than left to each
+operator — §9.2's re-consent flow depends on a client reliably reading
+`currentTermsId` out of a refusal, and three conforming operators putting it in
+three different places (top level, nested under `details`, interpolated into
+`message`) would leave clients unable to parse a response the protocol requires
+them to act on.
+
+| Code | Additional top-level fields |
+|---|---|
+| `terms_changed` | `currentTermsId` |
+| `payment_required` | `paymentRequired` (§10.1) |
+| `snapshot_too_large` | `maximumSealedSnapshotBytes` |
+| `quota_exceeded` | `retainedSnapshots`, `maximumRetainedSnapshots`, `retainedBytes`, `limitBytes` |
+| `invalid_entitlement` | `entitlementIssuers` |
+
+Every other code carries `error` and `message` only. A client ignores unknown
+top-level fields rather than refusing the response.
 
 | Code | HTTP | Abstract error | Meaning |
 |---|---|---|---|
 | `unsupported_profile` | 400 | `unsupported_profile` | The client asked for a profile this operator does not implement |
 | `invalid_reference` | 400 | `invalid_reference` | Reference syntax, algorithm, or byte count is malformed |
 | `terms_changed` | 409 | `terms_changed` | `acceptedTermsId` is not current |
-| `terms_regression` | 409 | `terms_regression` | Terms offered are weaker than those a retained snapshot pinned |
 | `signature_invalid` | 401 | — | Proof of possession failed, stale, or replayed |
 | `payment_required` | 402 | `payment_required` | No valid entitlement (§10) |
 | `invalid_entitlement` | 401 | `invalid_entitlement` | Entitlement malformed, wrong audience/subject, expired, or revoked |
@@ -724,11 +798,20 @@ untrusted input ([UI-Backup.md](UI-Backup.md) §7.12).
 | `snapshot_not_found` | 404 | — | No such snapshot for this holder |
 | `retention_expired` | 410 | `retention_expired` | Retained once; no longer held |
 | `export_withheld` | 403 | `export_withheld` | **Non-conforming.** A client records it as an operator violation |
-| `operator_unavailable` | 503 | `counterparty_unavailable` | Try later; nothing was decided |
+| `operator_unavailable` | 503 | `unreachable` | Try later; nothing was decided |
 
 `export_withheld` exists in the table so a client can name what happened, not
 because an operator may return it. A client that receives it must preserve its
 local evidence and must not soften the wording it shows.
+
+**`terms_regression` is not in the table, because the operator cannot compute
+it.** A regression is a comparison against the terms
+*this holder's retained snapshots pinned* — state the operator may not even have,
+since after a §12 migration the snapshots were accepted by someone else
+entirely. The operator's honest response to changed terms is `terms_changed`,
+which is in the table; the client then fetches the new document and runs
+`regresses(against:)` over its own pinned set. An operator returning
+`terms_regression` is reporting a conclusion it is not positioned to draw.
 
 **`erasure_unconfirmed` is not in the table, because it is not an operator
 response.** Erase returns `200` with a signed receipt (§9.6), and that receipt is
@@ -759,13 +842,21 @@ has changed what it is.
 **Records** are the state the profile's own operations require, and they must be
 declared rather than wished away:
 
-| Record | Why it must exist | Bound |
-|---|---|---|
-| Holder handle | the only identity this seat has | while any snapshot or receipt is held |
-| `sealedByteSize`, `retainedAt`, `acceptedTermsId`, `supersedes` per snapshot | `listSnapshots`, quota, lapse, and terms pinning | while the snapshot is retained |
-| Outcome per `operationId` | §9.8 exists so a lost response is reconciled rather than relabelled | a declared window past the operation, then discarded |
-| Issued erasure receipts | §12 exports them, and a holder may need to re-present one | a declared window, disclosed as outliving the erased snapshot |
-| Live entitlement records | §10.4 | to `expiresAt` plus one revocation-epoch interval |
+| Record | Declared as | Why it must exist | Bound |
+|---|---|---|---|
+| Holder handle | `holderIdentifiers` | the only identity this seat has | while any snapshot or receipt is held |
+| `sealedByteSize`, `retainedAt`, `acceptedTermsId`, `supersedes` per snapshot | `sizeAndTiming` | `listSnapshots`, quota, lapse, and terms pinning | while the snapshot is retained |
+| Outcome per `operationId` | `operationOutcomes` | §9.8 exists so a lost response is reconciled rather than relabelled | a declared window past the operation, then discarded |
+| Issued erasure receipts | `erasureReceipts` | §12 exports them, and a holder may need to re-present one | a declared window, disclosed as outliving the erased snapshot |
+| Live entitlement records | `entitlementRecords` | §10.4 | to `expiresAt` plus one revocation-epoch interval |
+
+Those are the field names of `metadataRetention` in
+[UI-Backup.md](UI-Backup.md) §5.4, which this profile extends from two fields to
+six so the declaration can actually say what an operator holds. `accessLogs` is
+the sixth, and under this profile its only conforming value is `none` — which is
+why the field is worth keeping rather than dropping: a signed, content-addressed
+`none` is a checkable claim that the table of §8.3 does not exist, where silence
+would be indistinguishable from an operator that simply never mentioned it.
 
 The outcome record is the awkward one, and it is worth naming rather than
 hiding: keeping an operation id long enough to answer §9.8 is precisely the
@@ -882,8 +973,9 @@ executable content of [UI-Backup.md](UI-Backup.md) §18.
     window, wrong `audience`, wrong `subject`, and revoked id are each refused.
     Canonical-byte fixtures are **byte-identical** across the broker, the
     operator, and the client, and include at least one document whose keys
-    distinguish UTF-8 byte order from case-insensitive and Unicode-scalar order
-    — an uppercase-initial key and a key above U+FFFF. The real documents cannot
+    distinguish UTF-8 byte order from case-insensitive and **UTF-16 code-unit**
+    order — an uppercase-initial key, and a key above U+FFFF to catch a
+    UTF-16-sorting runtime. The real documents cannot
     distinguish them (§6.3), which is exactly why the fixture must.
 12. **Payment loop.** `402` at preflight, entitlement obtained, retry with the
     same operation id and the same bytes, `retained`.
