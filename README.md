@@ -53,6 +53,7 @@ governing rule for every seat:
 | [recruitment/](recruitment/Recruitment.md) | Openings and candidate-consented introductions for every seat, without candidate ownership |
 | [moderation/](moderation/Moderation.md) | Consent-bound moderation authorities whose signed verdicts interfaces execute as device marks ([DeviceCheck](moderation/Moderation-DeviceCheck.md), [device recall](moderation/Moderation-Device-Recall.md) profiles) |
 | [backup/](backup/UI-Backup.md) | Device backup boundary — sealed snapshots retained under terms pinned at acceptance, with no operator key and no reset path, with a drafted [object-HTTP profile](backup/UI-Backup-Object-HTTP.md) |
+| [settlement/](settlement/ChannelOffer.md) | The signed commercial agreement between a seat operator and the frontend that sells its offer — share basis, statements, payouts, and anchoring |
 
 In review, not yet merged: a **bank seat** (accounts, custody classes, and
 payments against vault-held keys, with a Stellar profile) and an
