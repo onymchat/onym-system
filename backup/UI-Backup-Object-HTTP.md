@@ -102,6 +102,7 @@ profile requirement, not a deployment detail.
 | `incrementModel` | `whole-snapshot-transfer-chunked-v1` |
 | `authentication` | `holder-scoped-capability/ed25519-request-bound-v1` |
 | `receiptSchema` | `per-operation-backup-outcome-v1` |
+| `erasureReceiptSchema` | `onym-backup-erasure-receipt-v1` (§11) |
 | `errorSchema` | `onym-backup-errors-v1` |
 | `paymentRefusal` | `onym-payment-required-v1` |
 
@@ -374,8 +375,16 @@ attacker-influenced fields.
 The operator recomputes the byte string from the request it actually received —
 never from a client-supplied copy — verifies the signature against the key in
 `X-Onym-Holder`, requires `|now - timestamp| <= 300s`, and requires that the
-signature has not been seen before. Seen signatures are retained for at least the
-freshness window and swept afterwards.
+signature has not been seen before.
+
+**Seen signatures are retained for at least twice the freshness window — 600s —
+not once.** The window is two-sided to tolerate a client clock running fast, so a
+signature timestamped 300s ahead of the operator's clock is accepted now and
+stays acceptable until `now + 300s`: it is live for up to 600s from first sight.
+A cache swept at 300s would drop it while it is still valid and reopen exactly
+the replay this check exists to close. The alternative — refusing any
+future-dated timestamp — closes it too, at the cost of failing every client whose
+clock is a few seconds fast, which is most of them.
 
 Because `path` and `sha256(body)` are inside the signature, a chunk PUT cannot be
 replayed into a different chunk index, a different upload, or a different
@@ -431,11 +440,15 @@ Checked in this order, each failing closed:
 2. entitlement required and absent, expired, or revoked → `402 payment_required`
    (§10).
 3. `sealedByteSize` exceeds `maximumSealedSnapshotBytes` → `413 snapshot_too_large`.
-4. retained count or bytes would exceed the declared limits → `409 quota_exceeded`,
+4. digest already retained for this holder → `200` with an `already_retained`
+   outcome. This precedes the quota check deliberately: re-preflighting a digest
+   the operator already holds adds no bytes, so a holder at quota reconciling a
+   lost response must get `already_retained` rather than `quota_exceeded`.
+   Idempotent reconciliation has to keep working at the limit, which is where it
+   is most likely to be needed.
+5. retained count or bytes would exceed the declared limits → `409 quota_exceeded`,
    reporting the limit and current usage. The operator **must not** silently drop
    an older snapshot to make room.
-5. digest already retained for this holder → `200` with an
-   `already_retained` outcome.
 6. otherwise → `200 {"uploadId": …, "chunkBytes": 8388608, "chunkCount": …,
    "expiresAt": …}`.
 
@@ -551,12 +564,28 @@ the **same** sealed bytes and the **same** reference. Re-sealing would mint a ne
 Lapse is derived from entitlement expiry. It is never derived from a failed
 charge, because the operator has no charge to fail — it is not the seller.
 
-On lapse the operator applies the `endOfPayment` clause of the terms pinned by
-the holder's **oldest retained snapshot**, which under forward-only binding
-(§10.2 of the abstract) is the strictest set the holder is owed. During grace,
-`download`, `export`, and `erase` continue to work; only `preflight` and upload
-refuse. This must be an explicit allowlist in the authorization path, not an
-emergent property of which routes happen to check an entitlement.
+On lapse, **each retained snapshot is governed by the `endOfPayment` clause of
+its own pinned terms.** Its notice, its grace, and its post-grace fate come from
+the terms it was accepted under, and from nothing else.
+
+There is no single account-wide clause to apply, and reaching for one gets the
+direction wrong. Forward-only binding means a client refuses to upload under
+terms weaker than those a retained snapshot already pins, so across a holder's
+retained snapshots the terms **strengthen** with age: the oldest snapshot pins
+the *least* protective set, not the strictest. An operator applying the oldest
+snapshot's clause account-wide would hand every newer snapshot a shorter notice
+and a shorter grace than the person consented to.
+
+The one thing that must be decided holder-wide is which operations stay
+available, because a route is either open or closed. It is the **union** across
+retained snapshots: an operation any snapshot's `duringGrace` promises stays
+available while that snapshot is in grace. Refusing wholesale what the holder is
+owed on one snapshot is the same under-delivery in another form. `preflight` and
+upload refuse for the whole holder, because a lapsed holder is not owed new
+retention by any snapshot's terms.
+
+This must be an explicit allowlist in the authorization path, not an emergent
+property of which routes happen to check an entitlement.
 
 ### 10.4 Entitlement verification
 
@@ -583,6 +612,10 @@ interval plus the broker's epoch interval. That number, not the entitlement TTL,
 is what belongs in the channel agreement.
 
 ## 11. Erasure receipts
+
+Schema identifier `onym-backup-erasure-receipt-v1`, pinned in §3 beside the
+outcome schema — the two are different documents and were previously covered by
+one name.
 
 ```json
 {
@@ -689,13 +722,23 @@ untrusted input ([UI-Backup.md](UI-Backup.md) §7.12).
 | `digest_mismatch` | 409 | `incomplete_snapshot` | Commit recomputation disagreed with the reference |
 | `snapshot_not_found` | 404 | — | No such snapshot for this holder |
 | `retention_expired` | 410 | `retention_expired` | Retained once; no longer held |
-| `erasure_unconfirmed` | 202 | `erasure_unconfirmed` | Acknowledged; completion pending |
 | `export_withheld` | 403 | `export_withheld` | **Non-conforming.** A client records it as an operator violation |
 | `operator_unavailable` | 503 | `counterparty_unavailable` | Try later; nothing was decided |
 
 `export_withheld` exists in the table so a client can name what happened, not
 because an operator may return it. A client that receives it must preserve its
 local evidence and must not soften the wording it shows.
+
+**`erasure_unconfirmed` is not in the table, because it is not an operator
+response.** Erase returns `200` with a signed receipt (§9.6), and that receipt is
+*always* an acknowledgment rather than proof of destruction — there is no second,
+worse kind of acknowledgment for the operator to signal. `erasure_unconfirmed` is
+a **client-side state**, derived from the receipt by comparing
+`completionCommittedBy` against the clock: until that deadline passes the client
+shows "acknowledged, not proven destroyed", and it never shows "erased". An
+operator that misses its own committed deadline has violated the terms it signed,
+which the client detects from the receipt it already holds rather than from a
+status code the operator would have to volunteer against its own interest.
 
 A timeout or transport failure is `unknown`, reconciled through §9.8. It is never
 `retained` and never `erased`.
