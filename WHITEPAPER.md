@@ -1118,6 +1118,12 @@ agree on a signed `ChannelOffer` containing:
 - entitlement issuer key and relay verification method; and
 - validity period and signatures of both commercial parties.
 
+[settlement/ChannelOffer.md](settlement/ChannelOffer.md) pins these into a
+signed, content-addressed document and defines the statement and payout cycle
+that measures performance against it. Its load-bearing rule is that the share
+base is what the platform actually remits to the publisher, never the storefront
+price (§17.6).
+
 The seat defines the service model. The frontend decides whether it can offer
 that model through its distribution channel. Neither can unilaterally alter the
 signed commercial terms.
@@ -1277,22 +1283,30 @@ metadata.
   "type": "SeatEntitlement",
   "issuer": "onym:key:<billing-broker>",
   "audience": "onym:component:<relay-id>",
-  "subject": "onym:seat-key:<scoped-public-key>",
+  "subject": "onym:seat-key:<64 lowercase hex>",
   "offerId": "relay-monthly-v1",
   "entitlementId": "<random-nonreusable-id>",
   "notBefore": "2026-08-01T00:00:00Z",
   "expiresAt": "2026-09-01T00:00:00Z",
   "quota": null,
-  "status": "<privacy-limited-revocation-endpoint-or-epoch>",
+  "status": "<broker-signed-revocation-epoch-url>",
   "signature": "<broker-signature>"
 }
 ```
 
 For a consumable, `quota` states the purchased unit and the relay keeps a
 replay-protected balance keyed by `entitlementId`. For a subscription, expiry
-and renewal state control access. Credentials should be short-lived enough to
-bound refund and revocation delay but not so short-lived that the billing broker
-can observe every relay connection.
+and renewal state control access.
+
+`status` is a **revocation-epoch document**: a broker-signed, publicly fetchable,
+unauthenticated list of the `entitlementId` values revoked and not yet expired,
+republished on a declared interval. A per-entitlement status endpoint is the
+obvious alternative and is prohibited, because a seat that checks it learns
+nothing the epoch document does not carry, while the broker learns every
+seat-to-holder session — which is exactly what §17.8 forbids. The epoch document
+also decouples revocation latency from credential lifetime: credentials can live
+long enough that the broker is contacted twice a week rather than per connection,
+while a refund still bites within one publication interval.
 
 The access key must be unique to the seat. Reusing the long-lived Nostr,
 Stellar, BLS, or association identity key would let providers correlate the
@@ -1557,8 +1571,8 @@ Their implementations remain proposed.
   with retention, erasure, jurisdiction, sub-processor, export, and
   end-of-payment terms pinned at acceptance and binding forward only, no
   operator key or reset path, and the third-party retention cost disclosed
-  before enrolment ([backup/UI-Backup.md](backup/UI-Backup.md)). No
-  implementation profile exists yet.
+  before enrolment ([backup/UI-Backup.md](backup/UI-Backup.md)), with a drafted
+  [object-HTTP profile](backup/UI-Backup-Object-HTTP.md).
 - A non-custodial payment capability profile and additional financial-services
   application profiles.
 - Group-state migration between notary deployments.
@@ -1601,7 +1615,10 @@ Their implementations remain proposed.
 ### Phase 3 — incentives
 
 - Specify `ServiceManifest`, `SeatOffer`, `ChannelOffer`, `PaymentRequired`, and
-  `SeatEntitlement` canonical formats.
+  `SeatEntitlement` canonical formats. `ChannelOffer` is drafted in
+  [settlement/ChannelOffer.md](settlement/ChannelOffer.md); `PaymentRequired`
+  and the `SeatEntitlement` verification rules are drafted for the backup seat
+  in [backup/UI-Backup-Object-HTTP.md](backup/UI-Backup-Object-HTTP.md) §10.
 - Implement NIP-42 relay authentication with `payment-required:` handling and
   relay-scoped pseudonymous keys.
 - Implement an Apple billing broker with StoreKit transaction validation,
