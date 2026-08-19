@@ -181,7 +181,8 @@ The **signing** key is what this profile authenticates with (§8). The
 **agreement** key is not used against the operator at all — it is the key a
 billing broker seals a `SeatEntitlement` to, so a purchased credential travels to
 one seat and is readable by one device
-([../WHITEPAPER.md](../WHITEPAPER.md) §17.5). It is derived
+([../WHITEPAPER.md](../WHITEPAPER.md) §17.5,
+[../settlement/ChannelOffer.md](../settlement/ChannelOffer.md) §9). It is derived
 here, beside its sibling, because both are seat-scoped and both must survive a
 restore from the recovery phrase alone; an operator never sees it. A free
 operator's holder derives it and never uses it, which is correct rather than

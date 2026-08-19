@@ -1118,6 +1118,12 @@ agree on a signed `ChannelOffer` containing:
 - entitlement issuer key and relay verification method; and
 - validity period and signatures of both commercial parties.
 
+[settlement/ChannelOffer.md](settlement/ChannelOffer.md) pins these into a
+signed, content-addressed document and defines the statement and payout cycle
+that measures performance against it. Its load-bearing rule is that the share
+base is what the platform actually remits to the publisher, never the storefront
+price (§17.6).
+
 The seat defines the service model. The frontend decides whether it can offer
 that model through its distribution channel. Neither can unilaterally alter the
 signed commercial terms.
@@ -1290,9 +1296,17 @@ metadata.
 
 For a consumable, `quota` states the purchased unit and the relay keeps a
 replay-protected balance keyed by `entitlementId`. For a subscription, expiry
-and renewal state control access. Credentials should be short-lived enough to
-bound refund and revocation delay but not so short-lived that the billing broker
-can observe every relay connection.
+and renewal state control access.
+
+`status` is a **revocation-epoch document**: a broker-signed, publicly fetchable,
+unauthenticated list of the `entitlementId` values revoked and not yet expired,
+republished on a declared interval. A per-entitlement status endpoint is the
+obvious alternative and is prohibited, because a seat that checks it learns
+nothing the epoch document does not carry, while the broker learns every
+seat-to-holder session — which is exactly what §17.8 forbids. The epoch document
+also decouples revocation latency from credential lifetime: credentials can live
+long enough that the broker is contacted twice a week rather than per connection,
+while a refund still bites within one publication interval.
 
 The access key must be unique to the seat. Reusing the long-lived Nostr,
 Stellar, BLS, or association identity key would let providers correlate the
