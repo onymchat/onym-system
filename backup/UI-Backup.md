@@ -335,7 +335,8 @@ to the operator:
     "holderIdentifiers": "<declared-duration>",
     "operationOutcomes": "<declared-duration>",
     "erasureReceipts": "<declared-duration>",
-    "entitlementRecords": "<declared-duration>"
+    "entitlementRecords": "<declared-duration>",
+    "uploadGrants": "<declared-duration>"
   },
   "signature": "<operator-signature>"
 }

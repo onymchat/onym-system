@@ -460,8 +460,8 @@ Checked in this order, each failing closed:
 3. digest already retained for this holder → `200` with an `already_retained`
    outcome.
 4. a live grant already exists for this `(holder, digest)` → `200` returning
-   **that** grant, not a second one. The operator may mint a new `uploadId`
-   only once the existing grant has expired.
+   **that** grant unchanged, including its original `expiresAt`. The operator
+   may mint a new `uploadId` only once the existing grant has expired.
 5. `sealedByteSize` exceeds `maximumSealedSnapshotBytes` → `413 snapshot_too_large`.
 6. retained count or bytes would exceed the declared limits → `409 quota_exceeded`,
    reporting the limit and current usage. The operator **must not** silently drop
@@ -470,6 +470,19 @@ Checked in this order, each failing closed:
    that has not moved and commit past it.
 7. otherwise → `200 {"uploadId": …, "chunkBytes": 8388608, "chunkCount": …,
    "expiresAt": …}`.
+
+The returned `expiresAt` is the original, not an extension. A client that lost
+the grant response has already burned part of its window, so an unextended
+deadline can expire mid-retry — and that is the bounded outcome: the grant
+lapses, the partial bytes are discarded, and the next preflight mints a fresh
+grant with a full window. Permitting extension instead would make the sentence
+above unbounded, since a holder could hold quota headroom indefinitely by
+re-preflighting, which is the abuse step 6 exists to prevent.
+
+§9.8 does not cover this case, despite also existing for lost responses: it
+returns a recorded *outcome*, and a grant that was issued and never committed
+has no outcome to record. What the client needs back is a resumable grant, and
+only preflight can return one.
 
 Step 4 is the same reconciliation as step 3, one stage earlier. A grant whose
 response was lost is an upload the holder cannot finish and cannot abandon; if a
@@ -502,6 +515,8 @@ interrupted upload resumes, and so an operator can bound a single request body.
 
 `POST /v1/uploads/{uploadId}/commit` with an empty body. The operator:
 
+0. asserts the grant has not expired — `409 upload_expired`, and the partial
+   upload is discarded;
 1. asserts every index received — a gap is `409 upload_incomplete`, carrying
    `missingChunks` and `chunkCount`, and **the grant survives**;
 2. asserts the total byte count equals `sealedByteSize`;
@@ -518,10 +533,21 @@ disagrees at step 3 is not recoverable by sending more — every index is alread
 present — so those bytes are discarded rather than left occupying disk that no
 retry can use.
 
-An upload whose grant has expired accepts no further chunks and cannot be
-committed: `409 upload_expired`. This is distinct from `upload_not_found`,
-which a client would reasonably answer by re-preflighting a snapshot it has
-already transferred. An upload that expires uncommitted is discarded.
+Expiry is step 0 rather than a note beside the list because the answers
+conflict: a commit on an expired grant that is also missing a chunk could
+otherwise conform by returning either code, and they tell the client opposite
+things — `upload_incomplete` promises the grant survives and the gap is worth
+sending, while `upload_expired` means the bytes are gone. Expiry decides first.
+
+`upload_expired` and `upload_not_found` are recovered the same way: the partial
+bytes are discarded either way, so the client re-preflights and re-transfers.
+The distinction is diagnostic rather than procedural — it lets a client tell a
+correct id that went stale from an id that was never right, which is the
+difference between a slow upload and a bug. An operator whose grant record has
+already been discarded (§15 bounds it at `expiresAt`) answers
+`upload_not_found`, and that is conforming: the profile does not require
+retaining expired grants in order to name them, because retaining them would
+mean keeping a list of digests a holder started and abandoned.
 
 A crash between step 4's move and its record leaves an orphan, which a startup
 reconciliation sweep resolves — deleting bytes with no record, and marking a
@@ -846,8 +872,28 @@ them to act on.
 | `terms_changed` | `currentTermsId` |
 | `payment_required` | `paymentRequired` (§10.1) |
 | `snapshot_too_large` | `maximumSealedSnapshotBytes` |
-| `quota_exceeded` | `retainedSnapshots`, `maximumRetainedSnapshots`, `retainedBytes`, `limitBytes` |
+| `quota_exceeded` | `retainedSnapshots`, `maximumRetainedSnapshots`, `retainedBytes`, `limitBytes`, `openGrants` |
+| `upload_incomplete` | `missingChunks`, `chunkCount` |
 | `invalid_entitlement` | `entitlementIssuers` |
+
+`openGrants` is on `quota_exceeded` because §9.2 step 6 counts issued grants
+against the limit. Without it a client sees `retainedSnapshots` below
+`maximumRetainedSnapshots` and a `409` beside it, with nothing in the body
+naming what consumed the headroom. The refusal must be legible from the
+refusal: the operator compares `retainedSnapshots + openGrants` against
+`maximumRetainedSnapshots`, and reports both terms.
+
+`missingChunks` is an array of **inclusive `[first, last]` index ranges**, not
+an array of indices. A 5 GiB snapshot at 8 MiB chunks is 640 indices, and a
+client that has sent nothing would otherwise receive all of them — so an
+operator would be tempted to truncate, and a truncated gap list cannot be acted
+on in one round trip. Ranges are compact for the common case (one interrupted
+run) and complete in every case, so no truncation rule is needed:
+
+```json
+{"error": "upload_incomplete", "message": "…",
+ "missingChunks": [[4, 4], [11, 27]], "chunkCount": 640}
+```
 
 Every other code carries `error` and `message` only. A client ignores unknown
 top-level fields rather than refusing the response.
@@ -867,6 +913,7 @@ top-level fields rather than refusing the response.
 | `upload_expired` | 409 | — | The grant's `expiresAt` has passed; the upload accepts nothing further |
 | `digest_mismatch` | 409 | `incomplete_snapshot` | Commit recomputation disagreed with the reference |
 | `snapshot_not_found` | 404 | — | No such snapshot for this holder |
+| `upload_not_found` | 404 | — | No such `uploadId` for this holder, or it was never issued |
 | `retention_expired` | 410 | `retention_expired` | Retained once; no longer held |
 | `export_withheld` | 403 | `export_withheld` | **Non-conforming.** A client records it as an operator violation |
 | `operator_unavailable` | 503 | `unreachable` | Try later; nothing was decided |
@@ -920,12 +967,25 @@ declared rather than wished away:
 | Outcome per `operationId` | `operationOutcomes` | §9.8 exists so a lost response is reconciled rather than relabelled | a declared window past the operation, then discarded |
 | Issued erasure receipts | `erasureReceipts` | §12 exports them, and a holder may need to re-present one | a declared window, disclosed as outliving the erased snapshot |
 | Live entitlement records | `entitlementRecords` | §10.4 | to `expiresAt` plus one revocation-epoch interval |
+| Upload grant per `uploadId`: holder, digest, `expiresAt`, indices received | `uploadGrants` | §9.2 step 4 resumes it, step 6 counts it against the quota, and §9.3 refuses chunks after `expiresAt` | to `expiresAt`, then discarded with the partial bytes |
 
 Those are the field names of `metadataRetention` in
 [UI-Backup.md](UI-Backup.md) §5.4, which this profile extends from two fields to
-six so the declaration can actually say what an operator holds. `accessLogs` is
-the sixth, and under this profile its only conforming value is `none` — which is
-why the field is worth keeping rather than dropping: a signed, content-addressed
+seven so the declaration can actually say what an operator holds.
+
+`uploadGrants` is the newest of them, and it is here because §9.2 promoted grant
+state from transient to required: a grant that can be resumed and that consumes
+quota is a record the operator holds *about a holder*, whatever its lifetime,
+and §15's rule is that such records are declared rather than wished away. Its
+bound is the tightest in the table — an expired grant is discarded along with
+its partial bytes, so the operator does not retain a list of digests a holder
+started uploading and abandoned. An operator that kept expired grants to
+distinguish "expired" from "never issued" would be keeping exactly that list;
+it must answer `upload_not_found` instead once the record is gone.
+
+`accessLogs` is the one field with no row in the table above, and under this
+profile its only conforming value is `none` — which is why it is worth keeping
+rather than dropping: a signed, content-addressed
 `none` is a checkable claim that the table of §8.3 does not exist, where silence
 would be indistinguishable from an operator that simply never mentioned it.
 
