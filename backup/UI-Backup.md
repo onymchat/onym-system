@@ -336,11 +336,20 @@ to the operator:
     "operationOutcomes": "<declared-duration>",
     "erasureReceipts": "<declared-duration>",
     "entitlementRecords": "<declared-duration>",
-    "uploadGrants": "<declared-duration>"
+    "uploadGrants": "<declared-duration>",
+    "erasedReferences": "<declared-duration>"
   },
   "signature": "<operator-signature>"
 }
 ```
+
+`erasedReferences` bounds what an operator remembers about a snapshot *after*
+its bytes are gone: the reference, and when it was erased. Something must
+outlive the bytes or an erasure becomes indistinguishable from a snapshot that
+was never stored — which is what lets an operator answer "you erased this"
+rather than falling silent. It is bounded for the same reason it exists: kept
+without limit it is a permanent list of everything a holder has ever erased,
+which is a more complete history than the backups themselves.
 
 `uploadGrants` bounds a record this document does not otherwise name: a
 **grant** is an operator's promise to accept the bytes of one snapshot, issued
@@ -493,6 +502,12 @@ disclosed at enrolment (§11).
 }
 ```
 
+A receipt names the terms it was measured against. Without `termsId` the
+one-receipt-per-terms rule below is unimplementable from this document alone:
+a holder holding two receipts for one scope could not tell which promise each
+one makes, and `coveredScope` and `excludedScope` — both copied from the pinned
+terms — would have no identifiable source.
+
 An erasure yields **one receipt per distinct set of pinned terms in scope**, and
 a scope whose snapshots were all accepted under one terms document — which is
 every scope until an operator publishes new terms — yields exactly one. A
@@ -505,6 +520,7 @@ erasure carries the same `acknowledgedAt`.
   "receiptVersion": 1,
   "scope": "<echoed-scope>",
   "snapshots": ["<references-this-receipt-covers>"],
+  "termsId": "<digest-of-the-terms-this-receipt-is-measured-against>",
   "acknowledgedAt": "2026-08-11T00:00:05Z",
   "completionCommittedBy": "<deadline-from-pinned-terms>",
   "coveredScope": "<primary-plus-declared-replicas-and-operator-backups>",

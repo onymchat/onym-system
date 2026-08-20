@@ -473,10 +473,10 @@ Registering is idempotent by `entitlementId`.
 
 Checked in this order, each failing closed:
 
-1. a live grant already exists for this `(holder, digest)` **and** the request's
-   `acceptedTermsId` equals the grant's → `200` returning **that** grant, with
-   its original `expiresAt` and a `missingChunks` list in the ranges of §14. The
-   operator may mint a new `uploadId` only once the existing grant has expired.
+1. a live grant already exists for this `(holder, digest)` → `200` returning
+   **that** grant, with its original `expiresAt`, its own `acceptedTermsId`, and
+   a `missingChunks` list in the ranges of §14. The operator may mint a new
+   `uploadId` only once the existing grant has expired.
 2. `acceptedTermsId` is not the operator's current terms → `409 terms_changed`,
    with `currentTermsId`. The client stops and re-presents consent.
 3. entitlement required and absent, expired, or revoked → `402 payment_required`
@@ -491,7 +491,8 @@ Checked in this order, each failing closed:
    limit, or a client could preflight repeatedly against a count that has not
    moved and commit past it.
 7. otherwise → `200 {"uploadId": …, "chunkBytes": 8388608, "chunkCount": …,
-   "expiresAt": …, "missingChunks": [[0, <chunkCount - 1>]]}`.
+   "expiresAt": …, "acceptedTermsId": "sha256:…",
+   "missingChunks": [[0, <chunkCount - 1>]]}`.
 
 **Resume runs before the payment check too**, and for a related reason. A grant
 is an obligation the operator already accepted: the entitlement was checked when
@@ -506,27 +507,34 @@ It cannot become a way to store snapshots unpaid, because the grant's own
 what was in flight and gets no further grant. The next preflight for anything
 new reaches step 3 and is refused.
 
-**Resume runs before the terms check, not after.** A holder halfway through an
-upload when the operator publishes new terms would otherwise be refused at the
-terms step and never reach resume: their grant strands against the quota until
-it expires, which is precisely the harm resume exists to prevent, arriving by
-the one route that cannot be retried out of. The grant is itself the record of
-consent to the terms it was minted under, and §5.4 binds terms forward — a
-snapshot accepted under `T1` keeps `T1` — so finishing that upload under `T1` is
-what the pinning already promises. The condition is what keeps this narrow: the
-request must carry the *grant's* `acceptedTermsId`, so this is a resumption of
-an agreed upload and never a route around consent. A re-preflight carrying stale
-terms for a digest with no live grant is `terms_changed` as before.
+**Resume runs before the terms check, not after,** and it fires on any live
+grant rather than only on one whose terms match the request. A holder halfway
+through an upload when the operator publishes new terms would otherwise be
+refused at the terms step and never reach resume: their grant strands against
+the quota until it expires, which is precisely the harm resume exists to
+prevent, arriving by the one route that cannot be retried out of.
 
-**A client that was already told `terms_changed` must retry under the grant's
-terms to reach step 1.** Step 2 tells it to stop and re-present consent, so it
-now holds `T2` and would naturally re-preflight with `T2` — which skips step 1,
-reaches step 6, and is refused `quota_exceeded` by its own orphaned grant. That
-is the harm resume exists to prevent, reached by following this document, so the
-recovery has to be stated rather than inferred: a client holding an unfinished
-upload re-preflights it under the `acceptedTermsId` that upload was started with,
-even after consenting to newer terms. Consenting to `T2` governs what it uploads
-*next*; it does not retract the agreement the operator already acted on.
+**Any** live grant, because a condition on matching terms is not a narrowing —
+it is a hole. A client that re-preflights with current terms for a digest whose
+grant was minted under older ones would fall past step 1, pass every remaining
+check, and be issued a *second* `uploadId` for the same reference: two grants
+against one digest, both counting against the quota, contradicting the sentence
+in step 1 that only expiry releases the first.
+
+Nothing is bypassed by resuming unconditionally. A grant exists only because the
+operator issued it, under terms the holder had accepted at the time, and §5.4
+binds terms forward — a snapshot accepted under `T1` keeps `T1` — so finishing
+that upload under `T1` is what the pinning already promises. The response says
+which terms it is: the returned grant carries its own `acceptedTermsId`, so a
+client that wanted `T2` can see that this upload will pin `T1` and choose to
+abandon it and wait for expiry rather than finish it. What is ruled out is the
+operator silently swapping the grant's terms for the request's — the committed
+snapshot would pin something no accepted request asked for, which is the same
+rule `supersedes` follows below.
+
+A re-preflight carrying stale terms for a digest with *no* live grant is
+`terms_changed` as before: there is no agreed upload to resume, so the terms
+check is the whole of it.
 
 The concurrency limit shares step 6 with the retention limit rather than taking
 a step of its own, because a holder at either ceiling is refused for the same
@@ -751,8 +759,17 @@ silence §9.4 avoids by reporting `erased` rather than omitting the row.
 
 Receipts age out on the `erasureReceipts` window of §15, and idempotency ends
 with them: once the last receipt for a scope has been discarded, a re-erase of
-that scope is `410 receipt_expired`. It is not `404`, because the snapshot rows
-still record the erasure and the operator has no business pretending otherwise.
+that scope is `410 receipt_expired` **for as long as the erased reference of
+§15 survives**. It is not `404` while that record exists, because the operator
+does still know the erasure happened and has no business pretending otherwise.
+
+Past the `erasedReferences` window it *is* `404`, and that is not the operator
+lying — it is the operator having genuinely forgotten. The alternative is a
+record kept solely so a refusal can be more informative, which is the diary §15
+exists to prevent: a permanent list of every digest a holder ever erased,
+retained for the benefit of an error code. `erasedReferences` is declared and
+bounded like everything else, and every promise that rides on it — including
+§9.4 reporting `erased` rather than omitting the row — ends when it does.
 
 A distinct code rather than `retention_expired`, which §14 maps to the abstract
 `retention_expired` state: a client reusing that mapping would render "retained
@@ -1025,8 +1042,16 @@ terms/<termsId-hex>.json.sig
 ```
 
 **The terms bytes travel with the container, not just their digest.** One entry
-per distinct `acceptedTermsId` referenced by any exported snapshot, with the
-operator's detached signature beside it.
+per distinct `acceptedTermsId` referenced by any exported snapshot **or by any
+exported receipt**, with the operator's detached signature beside it.
+
+The union matters, and collecting from snapshots alone is the mistake it is
+there to prevent: a receipt pins the terms of a snapshot that is *gone*, so a
+holder who erased everything under superseded terms would export a receipt whose
+`termsId` has no preimage in the container — the unresolvable pin §12 exists to
+avoid, arriving by the one member nobody was looking at. §9.7's route table
+resolves a snapshot's terms through its manifest entry; a receipt's are found
+the same way, from the same set.
 
 The `.seal` files are the sealed bytes verbatim — byte-identical to what was
 uploaded, digest unchanged. Migration to another conforming operator is therefore
@@ -1226,22 +1251,29 @@ declared rather than wished away:
 
 | Record | Declared as | Why it must exist | Bound |
 |---|---|---|---|
-| Holder handle | `holderIdentifiers` | the only identity this seat has | while any snapshot or receipt is held |
+| Holder handle | `holderIdentifiers` | the only identity this seat has | while any snapshot, receipt, erased reference, or live grant is held |
 | `sealedByteSize`, `retainedAt`, `acceptedTermsId`, `supersedes` per snapshot | `sizeAndTiming` | `listSnapshots`, quota, lapse, and terms pinning | while the snapshot is retained |
+| Erased reference: digest and `erasedAt`, after the bytes are gone | `erasedReferences` | §9.4 reports `erased` as a distinct status, and §9.6 distinguishes an erasure whose receipts aged out from a digest never held | a declared window past the erasure, then discarded |
 | Upload outcome per `operationId` | `operationOutcomes` | §9.8 exists so a lost response is reconciled rather than relabelled | a declared window past the operation, then discarded |
 | Erase outcome per `operationId`, with its `receiptIds` | `operationOutcomes` | as above, and §9.8 names the receipts a lost erase response would otherwise cost the holder | **`erasureReceipts`**, not `operationOutcomes` — it must not outlive the receipts it names, nor predecease them |
 | Issued erasure receipts | `erasureReceipts` | §12 exports them, and a holder may need to re-present one | a declared window, disclosed as outliving the erased snapshot |
 | Live entitlement records | `entitlementRecords` | §10.4 | to `expiresAt` plus one revocation-epoch interval |
-| Upload grant per `uploadId`: holder, digest, `expiresAt`, indices received | `uploadGrants` | §9.2 step 1 resumes it, step 6 counts it against the quota, and §9.3 refuses chunks after `expiresAt` | the declared duration **past `expiresAt`**, after which §9.3 answers `upload_not_found`; the partial bytes are never retained past `expiresAt` at all |
+| Upload grant per `uploadId`: holder, digest, `sealedByteSize`, `chunkBytes`, `chunkCount`, indices received, `operationId`, `acceptedTermsId`, `supersedes`, `expiresAt` | `uploadGrants` | §9.2 step 1 resumes it, step 6 counts it against the quota, and §9.3 refuses chunks after `expiresAt` | the declared duration **past `expiresAt`**, after which §9.3 answers `upload_not_found`; the partial bytes are never retained past `expiresAt` at all |
 
 Those are the field names of `metadataRetention` in
 [UI-Backup.md](UI-Backup.md) §5.4, which this profile extends from two fields to
-seven so the declaration can actually say what an operator holds.
+eight so the declaration can actually say what an operator holds.
 
 `uploadGrants` is the newest of them, and it is here because §9.2 promoted grant
 state from transient to required: a grant that can be resumed and that consumes
 quota is a record the operator holds *about a holder*, whatever its lifetime,
 and §15's rule is that such records are declared rather than wished away.
+
+The row lists everything a grant holds because §9.2 and §9.3 need all of it:
+resume returns the chunk shape and `acceptedTermsId`, commit checks
+`sealedByteSize` and writes `supersedes` and `operationId` through to the
+snapshot. A declaration naming only the holder and the digest would understate
+what is kept about a transfer that never completed.
 
 It bounds two things on different clocks, and the declared duration is **the
 second one**: `uploadGrants` is how long the *record* outlives `expiresAt`, not
