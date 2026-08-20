@@ -342,6 +342,15 @@ to the operator:
 }
 ```
 
+`uploadGrants` bounds a record this document does not otherwise name: a
+**grant** is an operator's promise to accept the bytes of one snapshot, issued
+before the transfer and resolved when the snapshot is retained or the promise
+expires. Whether a profile has such a thing is a transport question — a
+single-request upload has no grant to retain — but the declaration is uniform,
+so an operator that issues them says how long it keeps them, and one that does
+not declares `none`. What is held is per-holder: which reference was promised,
+when the promise lapses, and how much has arrived.
+
 Terms bind forward, never backward. An operator may publish new terms at any
 time; the new digest applies to snapshots accepted after the holder consents to
 it. Snapshots already retained keep the terms they were accepted under, and no

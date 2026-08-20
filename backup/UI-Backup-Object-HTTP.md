@@ -30,11 +30,17 @@ The document distinguishes:
 - **rationale**, which explains a choice that is not forced; and
 - **gaps**, where the profile knowingly stops short.
 
-**Nothing in this profile is implemented yet.** There is no conforming adapter,
-no conforming operator, and no fixture suite. Unlike
-[UI-Blob-Blossom.md](../blob/UI-Blob-Blossom.md), this profile has no
-"implemented behavior" column to report, and no sentence here is a claim about
-running code.
+**A conforming operator exists; a conforming client does not.**
+[onym-backup](https://github.com/onymchat/onym-backup) implements §9's routes,
+§11's receipts and §12's container, and every amendment in this document since
+draft 0.1 came from building it. The iOS client of
+[UI-Backup.md](UI-Backup.md) §5 is not yet wired to a live operator, and §18's
+fixtures are not written. Where this document describes behaviour neither side
+has exercised — the payment mapping of §10 above all — it is still a design,
+and is marked as such. Unlike
+[UI-Blob-Blossom.md](../blob/UI-Blob-Blossom.md), this profile does not yet
+carry an "implemented behavior" column, so which side has exercised a given
+sentence has to be read from §18 rather than from the sentence.
 
 ## 1. Conformance declaration
 
@@ -132,6 +138,12 @@ A conforming operator serves, over HTTPS, without authentication:
 
 `termsId` is `sha256:<hex>` over the canonical bytes of the terms document with
 `termsId` and `signature` omitted (§6.3 defines canonical bytes).
+
+**The path carries the bare hex, not the prefixed form**: a `termsId` of
+`sha256:1b78…` is served at `/terms/1b78….json`. The prefix names the algorithm
+and the algorithm is already pinned by §6.1, so repeating it in a path segment
+buys nothing and costs an escaping question. §12's container paths use the same
+bare hex, so a container member's name is its URL's last segment.
 
 **Every terms document the operator has ever accepted a snapshot under must
 remain served, forever, at its content-addressed path.** Retained snapshots pin
@@ -460,8 +472,9 @@ Checked in this order, each failing closed:
 3. digest already retained for this holder → `200` with an `already_retained`
    outcome.
 4. a live grant already exists for this `(holder, digest)` → `200` returning
-   **that** grant unchanged, including its original `expiresAt`. The operator
-   may mint a new `uploadId` only once the existing grant has expired.
+   **that** grant, with its original `expiresAt` and a `missingChunks` list in
+   the ranges of §14. The operator may mint a new `uploadId` only once the
+   existing grant has expired.
 5. `sealedByteSize` exceeds `maximumSealedSnapshotBytes` → `413 snapshot_too_large`.
 6. retained count or bytes would exceed the declared limits → `409 quota_exceeded`,
    reporting the limit and current usage. The operator **must not** silently drop
@@ -470,6 +483,24 @@ Checked in this order, each failing closed:
    that has not moved and commit past it.
 7. otherwise → `200 {"uploadId": …, "chunkBytes": 8388608, "chunkCount": …,
    "expiresAt": …}`.
+
+The resumed grant carries `missingChunks` because otherwise the only way to
+learn what arrived is to send a commit expecting it to fail. That works, and an
+implementation would converge on it, which is the problem: a protocol whose
+progress query is a deliberately failing write is one every implementer
+discovers separately and none writes down. Preflight already knows the answer.
+A fresh grant carries every index as one range, so the field is present on both
+paths and a client needs no special case.
+
+**The grant's own values stand.** A re-preflight whose `sealedByteSize`
+disagrees with the live grant's is `400 invalid_reference` — the digest is over
+the sealed bytes, so two byte counts for one digest is a contradiction, and
+guessing which is right is not the operator's job. A re-preflight whose
+`supersedes` differs is *not* refused: the grant keeps what it was minted with,
+because refusing would strand the holder until expiry with quota headroom they
+cannot release. A client that needs different `supersedes` waits out the grant.
+Silently taking the new value is the one option ruled out — the committed
+snapshot would pin something no accepted request asked for.
 
 The returned `expiresAt` is the original, not an extension. A client that lost
 the grant response has already burned part of its window, so an unextended
@@ -509,6 +540,11 @@ declines to implement preflight does not conform to this profile.
 exactly `chunkBytes`; the last is the remainder. Chunks may be sent in any order
 and retried idempotently; a chunk already received with a matching body digest is
 a `200`, and one with a differing digest is `409 chunk_mismatch`.
+
+A chunk sent after the grant's `expiresAt` is `409 upload_expired`, the same as
+at commit. This route will meet expiry far more often than commit does — it is
+the one a long upload spends its time in — so leaving it to be inferred from the
+commit ordering would leave the common case unstated.
 
 Transfer chunking is independent of the AEAD chunking of §5.4. It exists so an
 interrupted upload resumes, and so an operator can bound a single request body.
@@ -595,6 +631,15 @@ returns the receipts already issued for that scope, not `404`. A holder whose
 response was lost is retrying, and answering "no such snapshot" is the same
 silence §9.4 avoids by reporting `erased` rather than omitting the row.
 
+Receipts age out on the `erasureReceipts` window of §15, and idempotency ends
+with them: once the last receipt for a scope has been discarded, a re-erase of
+that scope is `410 retention_expired` — held once, no longer held, said of the
+receipt rather than the snapshot. It is not `404`, because the snapshot rows
+still record the erasure and the operator has no business pretending otherwise.
+A holder past that window has their own copy: the receipt was handed to them in
+the response and exported in the §12 container, and the operator's copy exists
+to re-serve it, not to be its only instance.
+
 ### 9.7 Export — `GET /v1/exports`, `GET /v1/exports/{digest}`
 
 `/v1/exports` returns the manifest of the portable container (§12);
@@ -609,8 +654,12 @@ manifest describes a container nobody can build:
 |---|---|
 | `snapshots/<digest-hex>.seal` | `GET /v1/exports/{digest}` |
 | `receipts/<receiptId>.json` | `GET /v1/exports/receipts/{receiptId}` |
-| `terms/<termsId-hex>.json` | the snapshot entry's `termsUrl` (§4.1) |
+| `terms/<termsId-hex>.json` | the manifest snapshot entry's `termsUrl` (§12) |
 | `terms/<termsId-hex>.json.sig` | `termsUrl` with `.sig` appended |
+
+`termsUrl` is a field of §12's export manifest, not of §9.4's list — which
+returns `acceptedTermsId` and leaves the client to construct the path. Both
+forms name the same document.
 
 The receipt route is not only a container member. Without it a holder whose
 erase response was lost could never obtain the receipt they earned, and a
@@ -872,16 +921,18 @@ them to act on.
 | `terms_changed` | `currentTermsId` |
 | `payment_required` | `paymentRequired` (§10.1) |
 | `snapshot_too_large` | `maximumSealedSnapshotBytes` |
-| `quota_exceeded` | `retainedSnapshots`, `maximumRetainedSnapshots`, `retainedBytes`, `limitBytes`, `openGrants` |
+| `quota_exceeded` | `retainedSnapshots`, `maximumRetainedSnapshots`, `retainedBytes`, `limitBytes`, `openGrants`, `openGrantBytes` |
 | `upload_incomplete` | `missingChunks`, `chunkCount` |
 | `invalid_entitlement` | `entitlementIssuers` |
 
-`openGrants` is on `quota_exceeded` because §9.2 step 6 counts issued grants
-against the limit. Without it a client sees `retainedSnapshots` below
-`maximumRetainedSnapshots` and a `409` beside it, with nothing in the body
-naming what consumed the headroom. The refusal must be legible from the
-refusal: the operator compares `retainedSnapshots + openGrants` against
-`maximumRetainedSnapshots`, and reports both terms.
+`openGrants` and `openGrantBytes` are on `quota_exceeded` because §9.2 step 6
+counts issued grants against the limit — and against *both* limits, so both need
+a term. Without them a client sees `retainedSnapshots` below
+`maximumRetainedSnapshots`, or `retainedBytes` below `limitBytes`, with a `409`
+beside it and nothing in the body naming what consumed the headroom. The refusal
+must be legible from the refusal: the operator compares
+`retainedSnapshots + openGrants` and `retainedBytes + openGrantBytes` against
+their limits, and reports every term it compared.
 
 `missingChunks` is an array of **inclusive `[first, last]` index ranges**, not
 an array of indices. A 5 GiB snapshot at 8 MiB chunks is 640 indices, and a
@@ -894,6 +945,12 @@ run) and complete in every case, so no truncation rule is needed:
 {"error": "upload_incomplete", "message": "…",
  "missingChunks": [[4, 4], [11, 27]], "chunkCount": 640}
 ```
+
+Ranges are **ascending, non-overlapping, and non-adjacent**: `[[4, 4], [5, 9]]`
+is not conforming and must be written `[[4, 9]]`. Without that the "acted on in
+one round trip" argument does not hold — a client would have to sort and merge
+before it could tell whether the list it received was complete or a partial view
+of the same gap described twice.
 
 Every other code carries `error` and `message` only. A client ignores unknown
 top-level fields rather than refusing the response.
@@ -914,6 +971,7 @@ top-level fields rather than refusing the response.
 | `digest_mismatch` | 409 | `incomplete_snapshot` | Commit recomputation disagreed with the reference |
 | `snapshot_not_found` | 404 | — | No such snapshot for this holder |
 | `upload_not_found` | 404 | — | No such `uploadId` for this holder, or it was never issued |
+| `receipt_not_found` | 404 | — | No such `receiptId` for this holder, or it aged past `erasureReceipts` |
 | `retention_expired` | 410 | `retention_expired` | Retained once; no longer held |
 | `export_withheld` | 403 | `export_withheld` | **Non-conforming.** A client records it as an operator violation |
 | `operator_unavailable` | 503 | `unreachable` | Try later; nothing was decided |
@@ -1069,8 +1127,11 @@ on the consent surface alongside retention and grace.
    claim that is a *good* pattern, only an honest one. [UI-Backup.md](UI-Backup.md)
    §17 lists finding a pattern that is honest without being unusable as open work,
    and it remains open.
-5. **No fixtures exist yet.** Until §18 is implemented on both sides, conformance
-   is a claim rather than a result.
+5. **The fixtures of §18 are not written.** An operator implements the routes
+   and tests them against itself; that is not the same as two independently
+   built sides agreeing, which is what §19 asks for and what only a shared
+   fixture suite can show. Until then conformance is a claim rather than a
+   result.
 
 ## 18. Conformance tests
 
@@ -1122,6 +1183,35 @@ executable content of [UI-Backup.md](UI-Backup.md) §18.
     rendered as `retained` or `erased`.
 18. **Migration.** Export from one operator, upload to a second, restore — with no
     re-sealing and no digest change.
+
+19. **Grant resume.** Preflight, receive a grant, discard the response, send
+    some chunks, preflight the same reference again: the same `uploadId` comes
+    back with the original `expiresAt` and a `missingChunks` list naming exactly
+    what has not arrived. Re-preflighting with a different `sealedByteSize` is
+    `invalid_reference`; with a different `supersedes`, the grant's own value
+    survives to the committed snapshot.
+20. **A gap survives its commit.** Send every chunk but one, commit, and assert
+    `upload_incomplete` naming the gap as ascending non-adjacent ranges — then
+    send the missing chunk on the same grant and commit successfully. The bytes
+    already sent are never re-transmitted.
+21. **Erasure is idempotent.** Erase a scope twice: both calls return `200` with
+    the same `receiptId` and the same signature. Erase with a fresh
+    `operationId` and reconcile *that* id through §9.8. After the
+    `erasureReceipts` window, the third call is `retention_expired` rather than
+    `404`.
+22. **Receipts outlive their response.** Fetch an issued receipt by id from
+    §9.7's route; assert another holder gets `receipt_not_found` for the same
+    id; assert every path named by the export manifest — snapshots, receipts and
+    terms — resolves, including the terms of a snapshot that has been erased.
+23. **Re-upload after erasure.** Erase a snapshot, upload the same sealed bytes
+    under the same reference, and download them. `retained` must mean readable:
+    an operator whose erased row silently swallows the re-upload reports success
+    and stores nothing. This is §12's migration path pointed at the operator it
+    started from.
+24. **Declared records match held records.** For each row of §15's table,
+    including `uploadGrants`, assert the operator holds nothing the declaration
+    does not name and nothing past the bound it declares — an issued grant
+    disappears at `expiresAt` along with its partial bytes.
 
 ## 19. Acceptance criteria
 
