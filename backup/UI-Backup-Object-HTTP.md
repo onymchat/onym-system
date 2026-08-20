@@ -474,9 +474,9 @@ Registering is idempotent by `entitlementId`.
 Checked in this order, each failing closed:
 
 1. a live grant already exists for this `(holder, digest)` → `200` returning
-   **that** grant, with its original `expiresAt`, its own `acceptedTermsId`, and
-   a `missingChunks` list in the ranges of §14. The operator may mint a new
-   `uploadId` only once the existing grant has expired.
+   **that** grant, with its original `expiresAt`, its own `acceptedTermsId`
+   and `operationId`, and a `missingChunks` list in the ranges of §14. The
+   operator may mint a new `uploadId` only once the existing grant has expired.
 2. `acceptedTermsId` is not the operator's current terms → `409 terms_changed`,
    with `currentTermsId`. The client stops and re-presents consent.
 3. entitlement required and absent, expired, or revoked → `402 payment_required`
@@ -484,22 +484,23 @@ Checked in this order, each failing closed:
 4. digest already retained for this holder → `200` with an `already_retained`
    outcome.
 5. `sealedByteSize` exceeds `maximumSealedSnapshotBytes` → `413 snapshot_too_large`.
-6. retained count or bytes would exceed the declared limits, or the declared
-   concurrent-upload limit would be exceeded → `409 quota_exceeded`, reporting
+6. retained count or bytes would exceed the declared limits, or open grants
+   would exceed `maximumConcurrentUploads` → `409 quota_exceeded`, reporting
    the limit and current usage. The operator **must not** silently drop an older
    snapshot to make room. Grants issued and not yet committed count against the
    limit, or a client could preflight repeatedly against a count that has not
    moved and commit past it.
 7. otherwise → `200 {"uploadId": …, "chunkBytes": 8388608, "chunkCount": …,
-   "expiresAt": …, "acceptedTermsId": "sha256:…",
+   "expiresAt": …, "acceptedTermsId": "sha256:…", "operationId": "…",
    "missingChunks": [[0, <chunkCount - 1>]]}`.
 
 **Resume runs before the payment check too**, and for a related reason. A grant
 is an obligation the operator already accepted: the entitlement was checked when
 it was minted, and some of the bytes are already on the operator's disk. A
 holder whose seat lapses mid-upload would otherwise hold a grant they can
-neither finish nor abandon, consuming quota until it expires, while §14.15's
-guarantees — download, export, erase — keep working around it. Finishing an
+neither finish nor abandon, consuming quota until it expires, while
+[UI-Backup.md](UI-Backup.md) §14.14's guarantees — download, export and
+erase — keep working around it. Finishing an
 upload the operator agreed to take is the smaller commitment.
 
 It cannot become a way to store snapshots unpaid, because the grant's own
@@ -522,9 +523,10 @@ against one digest, both counting against the quota, contradicting the sentence
 in step 1 that only expiry releases the first.
 
 Nothing is bypassed by resuming unconditionally. A grant exists only because the
-operator issued it, under terms the holder had accepted at the time, and §5.4
-binds terms forward — a snapshot accepted under `T1` keeps `T1` — so finishing
-that upload under `T1` is what the pinning already promises. The response says
+operator issued it, under terms the holder had accepted at the time, and
+[UI-Backup.md](UI-Backup.md) §5.4 binds terms forward — a snapshot accepted
+under `T1` keeps `T1` — so finishing that upload under `T1` is what the pinning
+already promises. The response says
 which terms it is: the returned grant carries its own `acceptedTermsId`, so a
 client that wanted `T2` can see that this upload will pin `T1` and choose to
 abandon it and wait for expiry rather than finish it. What is ruled out is the
@@ -558,6 +560,14 @@ A fresh grant carries every index as one range — literally `[[0, chunkCount-1]
 in step 7's body — so the field is present on both paths and a client needs no
 special case. It obeys the ordering invariant of §14 on a `200` exactly as it
 does in an `upload_incomplete` body; the shape is one shape.
+
+**The grant keeps its `operationId`, and says so.** A client that lost the grant
+response and retries with a fresh id would otherwise commit under an id it does
+not hold: the snapshot is filed against the id the grant was minted with, and
+§9.8 answers `404` for the one the client is asking about — the lost-response
+failure §9.8 exists to prevent, reintroduced by the route added to prevent it.
+The operator does not adopt the new id, because the outcome must stay keyed to
+one operation; it returns the original so the client can reconcile with it.
 
 **The grant's own values stand.** A re-preflight whose `sealedByteSize`
 disagrees with the live grant's is `400 invalid_reference` — the digest is over
@@ -625,11 +635,17 @@ interrupted upload resumes, and so an operator can bound a single request body.
    upload is discarded;
 1. asserts every index received — a gap is `409 upload_incomplete`, carrying
    `missingChunks` and `chunkCount`, and **the grant survives**;
-2. asserts the total byte count equals `sealedByteSize`;
+2. asserts the total byte count equals `sealedByteSize` — a mismatch with every
+   index present is `409 digest_mismatch`, and the partial upload is discarded;
 3. recomputes SHA-256 over the concatenation in index order and compares to
    `digest` — mismatch is `409 digest_mismatch` and the partial upload is
    discarded;
 4. only then moves the bytes into place and records the snapshot.
+
+Step 2 shares step 3's code rather than taking its own, and the recovery is the
+same: every index arrived, the bytes are wrong, and no retry of the same grant
+can fix it. It is a separate step only because it is cheap — a byte count
+compared before hashing hundreds of megabytes to reach the same conclusion.
 
 Steps 1 and 3 fail differently on purpose. A commit sent one chunk early is an
 ordinary consequence of a lost chunk response, and discarding what has arrived
@@ -645,15 +661,8 @@ otherwise conform by returning either code, and they tell the client opposite
 things — `upload_incomplete` promises the grant survives and the gap is worth
 sending, while `upload_expired` means the bytes are gone. Expiry decides first.
 
-`upload_expired` and `upload_not_found` are recovered the same way: the partial
-bytes are discarded either way, so the client re-preflights and re-transfers.
-The distinction is diagnostic rather than procedural — it lets a client tell a
-correct id that went stale from an id that was never right, which is the
-difference between a slow upload and a bug. An operator whose grant record has
-already been discarded (§15 bounds it at `expiresAt`) answers
-`upload_not_found`, and that is conforming: the profile does not require
-retaining expired grants in order to name them, because retaining them would
-mean keeping a list of digests a holder started and abandoned.
+The same `upload_expired` / `upload_not_found` split applies here as on the
+chunk route above, on the same terms and for the same reason.
 
 A crash between step 4's move and its record leaves an orphan, which a startup
 reconciliation sweep resolves — deleting bytes with no record, and marking a
@@ -665,6 +674,16 @@ record with no bytes as unavailable.
 `200` with an array of `{snapshotReference, acceptedTermsId, retainedAt,
 retainedUntil, supersedes, status}`. Scoped to the presenting holder; there is no
 parameter that widens it.
+
+A row whose `status` is not `retained` carries **only**
+`{snapshotReference, acceptedTermsId, removedAt, reason, status}`. The others
+are absent because the record behind them is: §15 keeps `sizeAndTiming` while
+the snapshot *is retained*, and a removed reference keeps the digest, the terms
+it was accepted under, and when and why it went. Filling `retainedUntil` or
+`supersedes` for a row the operator no longer holds would mean retaining more
+than the declaration allows, and leaving two operators to guess differently is
+how a field becomes unusable — so the shape is pinned rather than the absence
+being left to taste.
 
 ### 9.5 Download — `GET /v1/snapshots/{digest-hex}`
 
@@ -733,6 +752,17 @@ nothing live returns the receipts already issued for it, not `404` — and where
 that scope has been erased more than once, **the most recent set**: those
 sharing the latest `acknowledgedAt`.
 
+**An operator serialises erasures per holder**, and this is what makes one
+erasure a thing that can produce one receipt set at all. Two `scope: "all"`
+requests arriving together — an ordinary client timeout and retry — would
+otherwise both find live targets, both take the ordinary path, and mint two
+receipt sets with different `receiptId`s and different `acknowledgedAt`s for
+what the holder performed once. The holder would then hold two signed
+commitments about overlapping bytes, and the replay rule below could return
+either. Erasure is rare, and its work is an unlink per chunk rather than a hash
+of every byte, so serialising it costs little; the alternative is a receipt
+count that records concurrency rather than erasures.
+
 **Every receipt produced by one erasure carries the same `acknowledgedAt`**,
 which is what makes that a grouping key rather than a coincidence. An operator
 stamping each receipt as it signs it would split one erasure across two
@@ -763,13 +793,29 @@ that scope is `410 receipt_expired` **for as long as the erased reference of
 §15 survives**. It is not `404` while that record exists, because the operator
 does still know the erasure happened and has no business pretending otherwise.
 
-Past the `erasedReferences` window it *is* `404`, and that is not the operator
+Past the `removedReferences` window it *is* `404`, and that is not the operator
 lying — it is the operator having genuinely forgotten. The alternative is a
 record kept solely so a refusal can be more informative, which is the diary §15
 exists to prevent: a permanent list of every digest a holder ever erased,
-retained for the benefit of an error code. `erasedReferences` is declared and
+retained for the benefit of an error code. `removedReferences` is declared and
 bounded like everything else, and every promise that rides on it — including
 §9.4 reporting `erased` rather than omitting the row — ends when it does.
+
+**`removedReferences` must be declared no shorter than `erasureReceipts`.** The
+two are ordered for the same reason the erase outcome is: a receipt that outlives
+the record of what it was about leaves a holder holding a signed commitment for
+a digest the operator answers `404` for. `receipt_expired` is reachable only
+where the record survives its receipts, so the ordering is what makes that code
+exist at all rather than being dead in a conforming deployment.
+
+The record covers **retention expiry as well as erasure**, which is why it is
+not called `erasedReferences`. A snapshot dropped because its retention ran out
+is gone for a different reason than one the holder asked to erase, and the four
+answers of §9.6 turn on telling them apart — but the state kept is identical, so
+one record with a `reason` serves both. An operator that expires snapshots on
+retention and keeps no such record cannot answer `410 retention_expired`
+honestly and must not: to that operator a naturally expired scope is
+indistinguishable from one never held, and `404` is the true answer.
 
 A distinct code rather than `retention_expired`, which §14 maps to the abstract
 `retention_expired` state: a client reusing that mapping would render "retained
@@ -830,14 +876,30 @@ record.
 
 An erase outcome carries `receiptIds` — the receipts that erasure produced — and
 its subject is the erased `scope` rather than a `digest`, which may be the
-string `"all"`. Both matter: §9.6 justifies the client-chosen `operationId` by
+string `"all"`. Its status is **`erasure_acknowledged`**, never `erased`.
+
+That distinction is the whole of §11 restated on a different route.
+[UI-Backup.md](UI-Backup.md) §5.7 defines `erased` as the deadline having passed
+without contradiction and says an acknowledgement alone is not that state — so
+an operator reporting `erased` the moment it accepts the request would be
+asserting a destruction guarantee it has not reached, on the one route a client
+polls precisely because it lost the answer. The operator cannot make that
+determination about itself in any case: "without contradiction" is a judgement
+from the receipt plus the clock, which is the client's to make and which §14's
+`erasure_unconfirmed` note already assigns to it.
+
+`listSnapshots` reporting a snapshot as `erased` (§9.4) is a different claim in a
+different vocabulary: it says this operator no longer holds those bytes, which
+is true at once and is about the operator's own holding rather than about
+destruction anywhere. Both matter: §9.6 justifies the client-chosen `operationId` by
 saying a lost erase response must not cost the holder their receipt, and that is
 only true if reconciling by `operationId` yields something §9.7 can be asked
 for. Without `receiptIds` the holder would recover the *fact* of the erasure and
 still have no way to name the receipt.
 
 ```json
-{"outcome": {"componentId": "…", "operationId": "…", "status": "erased",
+{"outcome": {"componentId": "…", "operationId": "…",
+             "status": "erasure_acknowledged",
              "scope": "all", "receiptIds": ["…"], "recordedAt": "…"}}
 ```
 
@@ -1033,7 +1095,8 @@ terms/<termsId-hex>.json.sig
      "termsUrl": "https://…/terms/<termsId-hex>.json", "retainedAt": "…",
      "file": "snapshots/<digest-hex>.seal"}
   ],
-  "receipts": ["receipts/<receiptId>.json"],
+  "receipts": [{"receiptId": "…", "termsId": "sha256:…",
+                "file": "receipts/<receiptId>.json"}],
   "terms": [
     {"termsId": "sha256:…", "file": "terms/<termsId-hex>.json",
      "signature": "terms/<termsId-hex>.json.sig"}
@@ -1044,6 +1107,11 @@ terms/<termsId-hex>.json.sig
 **The terms bytes travel with the container, not just their digest.** One entry
 per distinct `acceptedTermsId` referenced by any exported snapshot **or by any
 exported receipt**, with the operator's detached signature beside it.
+
+Each receipt entry carries its `termsId` inline so the union is checkable from
+`manifest.json` alone. As bare paths they were not: confirming that the terms
+list covers every exported receipt meant opening each receipt file, which is a
+verification a client would skip and an operator could quietly fail.
 
 The union matters, and collecting from snapshots alone is the mistake it is
 there to prevent: a receipt pins the terms of a snapshot that is *gone*, so a
@@ -1077,7 +1145,7 @@ bytes beside it are what make the pin checkable afterwards.
 ## 13. Limits
 
 An operator declares, in its manifest: `maximumSealedSnapshotBytes`,
-`maximumRetainedSnapshots`, concurrent uploads per holder, request rate, and
+`maximumRetainedSnapshots`, `maximumConcurrentUploads`, request rate, and
 upload expiry. This profile pins only the shapes:
 
 | Limit | Requirement |
@@ -1085,7 +1153,7 @@ upload expiry. This profile pins only the shapes:
 | JSON request body | at most 256 KiB; exceeded is `413` |
 | Chunk body | exactly the granted `chunkBytes`, or the remainder for the last |
 | Upload lifetime | declared; expiry discards the partial upload |
-| Concurrent uploads per holder | declared; exceeded is `409 quota_exceeded`, with `openGrants` naming the cause |
+| Concurrent uploads per holder | `maximumConcurrentUploads`; exceeded is `409 quota_exceeded`, which reports it beside `openGrants` |
 | Redirects | a client follows none, on any operation |
 | Response size | a client bounds **every** response body |
 | Sealed streams | `/v1/snapshots/{digest-hex}` and `/v1/exports/{digest-hex}` are bounded by the declared `maximumSealedSnapshotBytes`, not by a fixed cap |
@@ -1097,6 +1165,14 @@ quota: a holder at either ceiling is refused for the same reason — an issued
 grant is outstanding capacity — and `openGrants` is the term that says so. Two
 codes for one cause would make a client branch on a distinction the operator
 does not have.
+
+It is a limit in its own right, not a shadow of `maximumRetainedSnapshots`. A
+holder with nothing retained could otherwise open grants up to the retention
+ceiling in one burst — each reserving a multi-gigabyte upload the operator has
+promised to accept — so the ceiling on *concurrent transfers* has to be
+declarable separately and lower. And a refusal that cited `openGrants` with no
+threshold beside it would be exactly the illegible refusal the paragraph above
+argues against: a number with nothing to compare it to.
 
 The three rows are separate because the paths are four categorically different
 things, and one prefix would have exempted all of them. Exempting the two byte
@@ -1130,7 +1206,7 @@ them to act on.
 | `terms_changed` | `currentTermsId` |
 | `payment_required` | `paymentRequired` (§10.1) |
 | `snapshot_too_large` | `maximumSealedSnapshotBytes` |
-| `quota_exceeded` | `retainedSnapshots`, `maximumRetainedSnapshots`, `retainedBytes`, `limitBytes`, `openGrants`, `openGrantBytes` |
+| `quota_exceeded` | `retainedSnapshots`, `maximumRetainedSnapshots`, `retainedBytes`, `limitBytes`, `openGrants`, `openGrantBytes`, `maximumConcurrentUploads` |
 | `upload_incomplete` | `missingChunks`, `chunkCount` |
 | `invalid_entitlement` | `entitlementIssuers` |
 
@@ -1251,14 +1327,14 @@ declared rather than wished away:
 
 | Record | Declared as | Why it must exist | Bound |
 |---|---|---|---|
-| Holder handle | `holderIdentifiers` | the only identity this seat has | while any snapshot, receipt, erased reference, or live grant is held |
+| Holder handle | `holderIdentifiers` | the only identity this seat has | while any snapshot, receipt, removed reference, live grant, outcome record, or entitlement record is held — every row below is keyed by it |
 | `sealedByteSize`, `retainedAt`, `acceptedTermsId`, `supersedes` per snapshot | `sizeAndTiming` | `listSnapshots`, quota, lapse, and terms pinning | while the snapshot is retained |
-| Erased reference: digest and `erasedAt`, after the bytes are gone | `erasedReferences` | §9.4 reports `erased` as a distinct status, and §9.6 distinguishes an erasure whose receipts aged out from a digest never held | a declared window past the erasure, then discarded |
+| Removed reference: digest, algorithm, `acceptedTermsId`, `removedAt`, `reason` (`erased` or `retention-expired`), after the bytes are gone | `removedReferences` | §9.4 reports the row's fate as a distinct status, and §9.6 tells an erasure whose receipts aged out from a snapshot that expired from one never held | a declared window past removal, **at least `erasureReceipts`**, then discarded |
 | Upload outcome per `operationId` | `operationOutcomes` | §9.8 exists so a lost response is reconciled rather than relabelled | a declared window past the operation, then discarded |
 | Erase outcome per `operationId`, with its `receiptIds` | `operationOutcomes` | as above, and §9.8 names the receipts a lost erase response would otherwise cost the holder | **`erasureReceipts`**, not `operationOutcomes` — it must not outlive the receipts it names, nor predecease them |
 | Issued erasure receipts | `erasureReceipts` | §12 exports them, and a holder may need to re-present one | a declared window, disclosed as outliving the erased snapshot |
 | Live entitlement records | `entitlementRecords` | §10.4 | to `expiresAt` plus one revocation-epoch interval |
-| Upload grant per `uploadId`: holder, digest, `sealedByteSize`, `chunkBytes`, `chunkCount`, indices received, `operationId`, `acceptedTermsId`, `supersedes`, `expiresAt` | `uploadGrants` | §9.2 step 1 resumes it, step 6 counts it against the quota, and §9.3 refuses chunks after `expiresAt` | the declared duration **past `expiresAt`**, after which §9.3 answers `upload_not_found`; the partial bytes are never retained past `expiresAt` at all |
+| Upload grant per `uploadId`: holder, digest, `sealedByteSize`, `chunkBytes`, indices received, `operationId`, `acceptedTermsId`, `supersedes`, `expiresAt` | `uploadGrants` | §9.2 step 1 resumes it, step 6 counts it against the quota, and §9.3 refuses chunks after `expiresAt` | the declared duration **past `expiresAt`**, after which §9.3 answers `upload_not_found`; the partial bytes are never retained past `expiresAt` at all |
 
 Those are the field names of `metadataRetention` in
 [UI-Backup.md](UI-Backup.md) §5.4, which this profile extends from two fields to
@@ -1268,6 +1344,10 @@ eight so the declaration can actually say what an operator holds.
 state from transient to required: a grant that can be resumed and that consumes
 quota is a record the operator holds *about a holder*, whatever its lifetime,
 and §15's rule is that such records are declared rather than wished away.
+
+`chunkCount` is not in the row: it is `ceil(sealedByteSize / chunkBytes)`, both
+of which are, and a stored copy of a derived value is a second thing to keep
+consistent for no gain.
 
 The row lists everything a grant holds because §9.2 and §9.3 need all of it:
 resume returns the chunk shape and `acceptedTermsId`, commit checks

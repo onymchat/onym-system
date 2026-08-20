@@ -337,19 +337,24 @@ to the operator:
     "erasureReceipts": "<declared-duration>",
     "entitlementRecords": "<declared-duration>",
     "uploadGrants": "<declared-duration>",
-    "erasedReferences": "<declared-duration>"
+    "removedReferences": "<declared-duration>"
   },
   "signature": "<operator-signature>"
 }
 ```
 
-`erasedReferences` bounds what an operator remembers about a snapshot *after*
-its bytes are gone: the reference, and when it was erased. Something must
-outlive the bytes or an erasure becomes indistinguishable from a snapshot that
-was never stored — which is what lets an operator answer "you erased this"
-rather than falling silent. It is bounded for the same reason it exists: kept
-without limit it is a permanent list of everything a holder has ever erased,
-which is a more complete history than the backups themselves.
+`removedReferences` bounds what an operator remembers about a snapshot *after*
+its bytes are gone: the reference, the terms it was accepted under, when it
+went, and whether it went because the holder erased it or because its retention
+ran out. Something must outlive the bytes or a snapshot that was removed becomes
+indistinguishable from one never stored — which is what lets an operator answer
+"you erased this" or "this expired" rather than falling silent.
+
+It is bounded for the same reason it exists: kept without limit it is a
+permanent list of everything a holder has ever stored and lost, which is a more
+complete history than the backups themselves. It is declared no shorter than
+`erasureReceipts`, so that a receipt never outlives the record of what it was
+about.
 
 `uploadGrants` bounds a record this document does not otherwise name: a
 **grant** is an operator's promise to accept the bytes of one snapshot, issued
