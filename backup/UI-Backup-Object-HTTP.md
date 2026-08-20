@@ -543,16 +543,57 @@ mismatching download is `incomplete_snapshot` locally — never a partial restor
 ### 9.6 Erase — `POST /v1/erasures`
 
 ```json
-{"version": 1, "scope": "sha256:…"}          // one snapshot
-{"version": 1, "scope": "all"}               // every snapshot under this holder
+{"version": 1, "operationId": "<random 128-bit, lowercase hex>",
+ "scope": "sha256:…"}                        // one snapshot
+{"version": 1, "operationId": "…", "scope": "all"}   // every snapshot under this holder
 ```
 
-`200` with the signed receipt of §11.
+`200` with a JSON **array** of the signed receipts of §11 — one per distinct
+`acceptedTermsId` in scope.
+
+An array rather than a single receipt because §11's receipt carries one
+`termsId`, and a `scope: "all"` spanning snapshots accepted under different
+terms cannot honestly be one document. Citing whichever terms happen to be
+current would sign a promise the holder never accepted, and citing one of
+several would misdescribe the rest. The erasure always covers the whole scope;
+only the number of receipts varies. A single-digest scope therefore yields an
+array of exactly one.
+
+`operationId` is client-chosen, like every other operation's. §9.8
+reconciliation is keyed on an id the *client* knows: an operator-invented one
+cannot be asked about, so a lost erase response would leave the holder unable
+to discover whether the erasure happened — and unable to obtain the receipt.
+
+**Erasure is idempotent.** Re-erasing a scope whose snapshots are already gone
+returns the receipts already issued for that scope, not `404`. A holder whose
+response was lost is retrying, and answering "no such snapshot" is the same
+silence §9.4 avoids by reporting `erased` rather than omitting the row.
 
 ### 9.7 Export — `GET /v1/exports`, `GET /v1/exports/{digest}`
 
 `/v1/exports` returns the manifest of the portable container (§12);
-`/v1/exports/{digest}` streams one snapshot's sealed bytes in portable form.
+`/v1/exports/{digest}` streams one snapshot's sealed bytes in portable form;
+`/v1/exports/receipts/{receiptId}` returns one issued erasure receipt.
+
+**The operator serves the members; the client assembles the container.** Every
+path `manifest.json` names must be fetchable while the operator lives, or the
+manifest describes a container nobody can build:
+
+| Container path | Served at |
+|---|---|
+| `snapshots/<digest-hex>.seal` | `GET /v1/exports/{digest}` |
+| `receipts/<receiptId>.json` | `GET /v1/exports/receipts/{receiptId}` |
+| `terms/<termsId-hex>.json` | the snapshot entry's `termsUrl` (§4.1) |
+| `terms/<termsId-hex>.json.sig` | `termsUrl` with `.sig` appended |
+
+The receipt route is not only a container member. Without it a holder whose
+erase response was lost could never obtain the receipt they earned, and a
+receipt is the only evidence they hold that the erasure was acknowledged at
+all.
+
+That terms are served from `/terms/` rather than from under `/v1/exports/` does
+not contradict §12: the container is assembled while the operator is alive, and
+it is the container — not the route — that has to outlive it.
 
 **These two routes must not consult entitlements at all.** Not "consult and
 allow" — not consult. [UI-Backup.md](UI-Backup.md) §14.15 makes export
@@ -684,7 +725,10 @@ one name.
 ```
 
 `completionCommittedBy` is `acknowledgedAt` plus the pinned terms' completion
-deadline. `coveredScope` and `excludedScope` are copied from the pinned terms of
+deadline. Terms that declare no completion deadline are a malformed document,
+not a licence to choose a period and sign it: a defaulted deadline is a
+commitment the holder never accepted, signed by the operator, and afterwards
+indistinguishable from one they did. `coveredScope` and `excludedScope` are copied from the pinned terms of
 the erased snapshot — not from current terms, and not composed at request time.
 
 **`excludedScope` must be non-empty**, and a receipt with an empty one is
