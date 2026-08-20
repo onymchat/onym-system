@@ -335,11 +335,35 @@ to the operator:
     "holderIdentifiers": "<declared-duration>",
     "operationOutcomes": "<declared-duration>",
     "erasureReceipts": "<declared-duration>",
-    "entitlementRecords": "<declared-duration>"
+    "entitlementRecords": "<declared-duration>",
+    "uploadGrants": "<declared-duration>",
+    "removedReferences": "<declared-duration>"
   },
   "signature": "<operator-signature>"
 }
 ```
+
+`removedReferences` bounds what an operator remembers about a snapshot *after*
+its bytes are gone: the reference, the terms it was accepted under, when it
+went, and whether it went because the holder erased it or because its retention
+ran out. Something must outlive the bytes or a snapshot that was removed becomes
+indistinguishable from one never stored — which is what lets an operator answer
+"you erased this" or "this expired" rather than falling silent.
+
+It is bounded for the same reason it exists: kept without limit it is a
+permanent list of everything a holder has ever stored and lost, which is a more
+complete history than the backups themselves. It is declared no shorter than
+`erasureReceipts`, so that a receipt never outlives the record of what it was
+about.
+
+`uploadGrants` bounds a record this document does not otherwise name: a
+**grant** is an operator's promise to accept the bytes of one snapshot, issued
+before the transfer and resolved when the snapshot is retained or the promise
+expires. Whether a profile has such a thing is a transport question — a
+single-request upload has no grant to retain — but the declaration is uniform,
+so an operator that issues them says how long it keeps them, and one that does
+not declares `none`. What is held is per-holder: which reference was promised,
+when the promise lapses, and how much has arrived.
 
 Terms bind forward, never backward. An operator may publish new terms at any
 time; the new digest applies to snapshots accepted after the holder consents to
@@ -483,10 +507,25 @@ disclosed at enrolment (§11).
 }
 ```
 
+A receipt names the terms it was measured against. Without `termsId` the
+one-receipt-per-terms rule below is unimplementable from this document alone:
+a holder holding two receipts for one scope could not tell which promise each
+one makes, and `coveredScope` and `excludedScope` — both copied from the pinned
+terms — would have no identifiable source.
+
+An erasure yields **one receipt per distinct set of pinned terms in scope**, and
+a scope whose snapshots were all accepted under one terms document — which is
+every scope until an operator publishes new terms — yields exactly one. A
+receipt pins the terms it was measured against, so a scope spanning two terms
+documents cannot honestly be described by one receipt. Every receipt from one
+erasure carries the same `acknowledgedAt`.
+
 ```json
 {
   "receiptVersion": 1,
   "scope": "<echoed-scope>",
+  "snapshots": ["<references-this-receipt-covers>"],
+  "termsId": "<digest-of-the-terms-this-receipt-is-measured-against>",
   "acknowledgedAt": "2026-08-11T00:00:05Z",
   "completionCommittedBy": "<deadline-from-pinned-terms>",
   "coveredScope": "<primary-plus-declared-replicas-and-operator-backups>",
@@ -516,7 +555,7 @@ retention into leverage over a person's own history and does not conform.
 | `uploadSnapshot` | Sealed snapshot and pinned terms | Verified outcome and receipt |
 | `listSnapshots` | Access proof | References, sizes, dates, pinned terms per snapshot |
 | `downloadSnapshot` | Reference, access proof, destination | Verified sealed bytes or explicit failure |
-| `eraseSnapshot` | Scope and access proof | Signed erasure receipt with declared scope |
+| `eraseSnapshot` | Scope and access proof | One or more signed erasure receipts, each with declared scope |
 | `exportSnapshots` | Access proof | Portable sealed forms with references and receipts |
 | `queryOutcome` | Operation or reference | Outcome when supported |
 
@@ -939,7 +978,7 @@ The UI ↔ backup boundary is successfully separated when:
    implementation could offer is provably absent;
 7. a snapshot's pinned terms are checkable after the fact, and an attempt to
    apply weaker terms to it is refused by fixtures rather than by trust;
-8. erasure produces a signed receipt whose excluded scope is explicit, and an
+8. erasure produces signed receipts whose excluded scope is explicit, and an
    unconfirmed erasure is never displayed as destruction;
 9. lapse, grace, export, and post-grace behaviour follow the pinned terms
    under test, including while unpaid;
