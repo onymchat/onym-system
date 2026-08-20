@@ -493,10 +493,18 @@ disclosed at enrolment (§11).
 }
 ```
 
+An erasure yields **one receipt per distinct set of pinned terms in scope**, and
+a scope whose snapshots were all accepted under one terms document — which is
+every scope until an operator publishes new terms — yields exactly one. A
+receipt pins the terms it was measured against, so a scope spanning two terms
+documents cannot honestly be described by one receipt. Every receipt from one
+erasure carries the same `acknowledgedAt`.
+
 ```json
 {
   "receiptVersion": 1,
   "scope": "<echoed-scope>",
+  "snapshots": ["<references-this-receipt-covers>"],
   "acknowledgedAt": "2026-08-11T00:00:05Z",
   "completionCommittedBy": "<deadline-from-pinned-terms>",
   "coveredScope": "<primary-plus-declared-replicas-and-operator-backups>",
