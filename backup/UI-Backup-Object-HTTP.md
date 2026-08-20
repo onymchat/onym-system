@@ -676,7 +676,16 @@ an old deadline for newly erased bytes would misdate the commitment.
 Replay is therefore the *empty-scope* case specifically: re-erasing a scope with
 nothing live returns the receipts already issued for it, not `404` — and where
 that scope has been erased more than once, **the most recent set**: those
-sharing the latest `acknowledgedAt`. Not every receipt ever issued for the
+sharing the latest `acknowledgedAt`.
+
+**Matching is by coverage, not by scope string.** A receipt minted for
+`scope: "all"` covers references a later single-digest retry names directly, and
+one minted for a digest is part of what a later `"all"` retry asks about — so an
+operator comparing scope strings would find nothing and report the receipt
+expired while it sat fetchable by `receiptId`. `snapshots` is what relates a
+receipt to the bytes it commits about, and it is what an empty-scope retry
+searches: the receipts covering the erased references in scope. Only when no
+live receipt covers any of them is `receipt_expired` honest. Not every receipt ever issued for the
 string, which would grow without bound and mix commitments about different
 bytes made on different days. Earlier sets remain fetchable by `receiptId`
 through §9.7 and are listed in the §12 container; nothing is lost by not
