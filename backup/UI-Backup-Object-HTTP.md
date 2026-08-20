@@ -1333,12 +1333,28 @@ declared rather than wished away:
 | Upload outcome per `operationId` | `operationOutcomes` | §9.8 exists so a lost response is reconciled rather than relabelled | a declared window past the operation, then discarded |
 | Erase outcome per `operationId`, with its `receiptIds` | `operationOutcomes` | as above, and §9.8 names the receipts a lost erase response would otherwise cost the holder | **`erasureReceipts`**, not `operationOutcomes` — it must not outlive the receipts it names, nor predecease them |
 | Issued erasure receipts | `erasureReceipts` | §12 exports them, and a holder may need to re-present one | a declared window, disclosed as outliving the erased snapshot |
-| Live entitlement records | `entitlementRecords` | §10.4 | to `expiresAt` plus one revocation-epoch interval |
+| Live entitlement records | `entitlementRecords` | §10.4, and lapse and its grace in §10.3 | to `expiresAt`, plus the longest `notice` plus `grace` this operator has ever published, plus one revocation-epoch interval |
 | Upload grant per `uploadId`: holder, digest, `sealedByteSize`, `chunkBytes`, indices received, `operationId`, `acceptedTermsId`, `supersedes`, `expiresAt` | `uploadGrants` | §9.2 step 1 resumes it, step 6 counts it against the quota, and §9.3 refuses chunks after `expiresAt` | the declared duration **past `expiresAt`**, after which §9.3 answers `upload_not_found`; the partial bytes are never retained past `expiresAt` at all |
 
 Those are the field names of `metadataRetention` in
 [UI-Backup.md](UI-Backup.md) §5.4, which this profile extends from two fields to
 eight so the declaration can actually say what an operator holds.
+
+`entitlementRecords`' bound widened from `expiresAt` plus one revocation-epoch
+interval to include the longest published `notice` plus `grace` as well, because
+the row is not a payment log — it is what §10.3's lapse, grace, and post-grace
+expiry are all derived from. `evaluate` reads its `expiresAt` to decide whether a
+holder is in grace, and the same field tells the operator when a retained
+snapshot's own window has closed. A record discarded at the shorter bound takes
+both derivations with it: the holder reads as `Unpaid` rather than `Grace`,
+closing a window the terms still promised, and post-grace expiry has nothing left
+to compute a due date from, so the snapshot's bytes are retained forever instead
+of on schedule — the opposite of what a retention bound is for. The
+revocation-epoch term stays in addition, for the entitlement revoked just before
+it would have expired naturally. One record class rather than two: the
+alternative is a second, cheaper-looking row holding a per-holder payment flag
+that only exists to cache what this one already says, and that can disagree with
+it.
 
 `uploadGrants` is the newest of them, and it is here because §9.2 promoted grant
 state from transient to required: a grant that can be resumed and that consumes
