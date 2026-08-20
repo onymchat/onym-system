@@ -459,12 +459,23 @@ Checked in this order, each failing closed:
    (§10).
 3. digest already retained for this holder → `200` with an `already_retained`
    outcome.
-4. `sealedByteSize` exceeds `maximumSealedSnapshotBytes` → `413 snapshot_too_large`.
-5. retained count or bytes would exceed the declared limits → `409 quota_exceeded`,
+4. a live grant already exists for this `(holder, digest)` → `200` returning
+   **that** grant, not a second one. The operator may mint a new `uploadId`
+   only once the existing grant has expired.
+5. `sealedByteSize` exceeds `maximumSealedSnapshotBytes` → `413 snapshot_too_large`.
+6. retained count or bytes would exceed the declared limits → `409 quota_exceeded`,
    reporting the limit and current usage. The operator **must not** silently drop
-   an older snapshot to make room.
-6. otherwise → `200 {"uploadId": …, "chunkBytes": 8388608, "chunkCount": …,
+   an older snapshot to make room. Grants issued and not yet committed count
+   against the limit, or a client could preflight repeatedly against a count
+   that has not moved and commit past it.
+7. otherwise → `200 {"uploadId": …, "chunkBytes": 8388608, "chunkCount": …,
    "expiresAt": …}`.
+
+Step 4 is the same reconciliation as step 3, one stage earlier. A grant whose
+response was lost is an upload the holder cannot finish and cannot abandon; if a
+re-preflight minted a second grant, the orphan would count against the quota
+until it expired, and the holder would be refused on the strength of a response
+they never received.
 
 The general rule behind that ordering: **every check that only matters when new
 bytes would be accepted runs after the digest lookup.** Both limits — size and
@@ -491,16 +502,30 @@ interrupted upload resumes, and so an operator can bound a single request body.
 
 `POST /v1/uploads/{uploadId}/commit` with an empty body. The operator:
 
-1. asserts every index received;
+1. asserts every index received — a gap is `409 upload_incomplete`, carrying
+   `missingChunks` and `chunkCount`, and **the grant survives**;
 2. asserts the total byte count equals `sealedByteSize`;
 3. recomputes SHA-256 over the concatenation in index order and compares to
    `digest` — mismatch is `409 digest_mismatch` and the partial upload is
    discarded;
 4. only then moves the bytes into place and records the snapshot.
 
-An upload that expires uncommitted is discarded. A crash between step 4's move
-and its record leaves an orphan, which a startup reconciliation sweep resolves —
-deleting bytes with no record, and marking a record with no bytes as unavailable.
+Steps 1 and 3 fail differently on purpose. A commit sent one chunk early is an
+ordinary consequence of a lost chunk response, and discarding what has arrived
+would make one missing chunk cost a re-upload of the whole snapshot; the
+operator names the gap and the client sends what is missing. A digest that
+disagrees at step 3 is not recoverable by sending more — every index is already
+present — so those bytes are discarded rather than left occupying disk that no
+retry can use.
+
+An upload whose grant has expired accepts no further chunks and cannot be
+committed: `409 upload_expired`. This is distinct from `upload_not_found`,
+which a client would reasonably answer by re-preflighting a snapshot it has
+already transferred. An upload that expires uncommitted is discarded.
+
+A crash between step 4's move and its record leaves an orphan, which a startup
+reconciliation sweep resolves — deleting bytes with no record, and marking a
+record with no bytes as unavailable.
 **A record whose bytes are missing is never reported as `retained`.**
 
 ### 9.4 List — `GET /v1/snapshots`
@@ -794,6 +819,8 @@ top-level fields rather than refusing the response.
 | `snapshot_too_large` | 413 | `snapshot_too_large` | Exceeds the declared maximum |
 | `quota_exceeded` | 409 | `quota_exceeded` | Retained count or bytes limit reached |
 | `chunk_mismatch` | 409 | — | A chunk index was re-sent with different bytes |
+| `upload_incomplete` | 409 | — | Commit arrived before every index did; the grant survives and `missingChunks` names the gap |
+| `upload_expired` | 409 | — | The grant's `expiresAt` has passed; the upload accepts nothing further |
 | `digest_mismatch` | 409 | `incomplete_snapshot` | Commit recomputation disagreed with the reference |
 | `snapshot_not_found` | 404 | — | No such snapshot for this holder |
 | `retention_expired` | 410 | `retention_expired` | Retained once; no longer held |
