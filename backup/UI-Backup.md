@@ -526,7 +526,7 @@ retention into leverage over a person's own history and does not conform.
 | `uploadSnapshot` | Sealed snapshot and pinned terms | Verified outcome and receipt |
 | `listSnapshots` | Access proof | References, sizes, dates, pinned terms per snapshot |
 | `downloadSnapshot` | Reference, access proof, destination | Verified sealed bytes or explicit failure |
-| `eraseSnapshot` | Scope and access proof | Signed erasure receipt with declared scope |
+| `eraseSnapshot` | Scope and access proof | One or more signed erasure receipts, each with declared scope |
 | `exportSnapshots` | Access proof | Portable sealed forms with references and receipts |
 | `queryOutcome` | Operation or reference | Outcome when supported |
 
@@ -949,7 +949,7 @@ The UI ↔ backup boundary is successfully separated when:
    implementation could offer is provably absent;
 7. a snapshot's pinned terms are checkable after the fact, and an attempt to
    apply weaker terms to it is refused by fixtures rather than by trust;
-8. erasure produces a signed receipt whose excluded scope is explicit, and an
+8. erasure produces signed receipts whose excluded scope is explicit, and an
    unconfirmed erasure is never displayed as destruction;
 9. lapse, grace, export, and post-grace behaviour follow the pinned terms
    under test, including while unpaid;
