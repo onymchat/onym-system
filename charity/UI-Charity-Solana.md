@@ -274,26 +274,88 @@ DonationAnchor  ["cha", "don",      receipt_digest]
 FundFlowAnchor  ["cha", "flow",     campaign_id, period_digest]
 ```
 
+`epoch_index_le` is the **only little-endian value in this profile**: it
+is an 8-byte `u64` in Rust's native byte order, because that is what a
+seed derived from a program integer is in every Anchor codebase, and a
+big-endian exception there would be a portability trap rather than a
+consistency win. Every 32-byte field element and digest stays big-endian
+per the typing convention above. The seed fixture (§14.1,
+`fix-pda-seed-vectors`) pins the exact byte sequence of each scheme so
+this is decided by a vector rather than by a reader's assumption.
+
 Every seed is either a program constant, a public campaign-scoped value, or
 an already-public claim value. **No seed may be derived from
 credential-linked data**: a PDA address is permanent, indexable public
 state, and a credential-derived seed would make the address the
 cross-campaign identifier §6 is built to avoid.
 
+Account state, normative. The `Deployment` PDA is the deployment-wide
+record and it exists so that "the deployment authority" is a field a
+client can read rather than a phrase this document assumes:
+
+```text
+Deployment {
+    authority:  Pubkey,   // signs deployment-wide writes; see below
+    restricted: bool,     // the §4 emergency stop
+    bump:       u8,
+}
+
+Campaign {
+    campaign_id:        [u8; 32],
+    revision:           u32,
+    revision_commitment:[u8; 32],
+    status:             u8,
+    epoch_start:        i64,
+    epoch_seconds:      u32,
+    admin:              Pubkey,   // signs this campaign's operator writes
+    sas_credential:     Pubkey,   // authority over this campaign's roots
+    sas_schema:         Pubkey,   // the policy schema those roots answer to
+    bump:               u8,
+}
+
+Policy {
+    campaign_id:   [u8; 32],
+    policy_digest: [u8; 32],
+    policy_root:   [u8; 32],   // all-zero until a SAS signer sets it (§12)
+    root_set_at:   i64,        // 0 while unset
+    bump:          u8,
+}
+```
+
+The **deployment authority** is the pubkey stored in `Deployment.authority`,
+established once at `initialize` and never afterward: it is the party that
+stood the deployment up, it is *not* the program's upgrade authority (which
+§3.2 requires to be `None`), and it is *not* a campaign admin. Its powers
+are exactly two — registering campaigns and operating the emergency stop —
+and both are declared in the manifest (§13). It cannot anchor, cannot claim,
+cannot set a root, and cannot close anything.
+
 Instructions, normative for a conforming implementation:
 
 ```text
+// ---- deployment-wide writes: the deployment authority must sign ----
+
+initialize(authority)
+    Creates the Deployment PDA, restricted = false. Callable once; a second
+    call fails DeploymentExists. The signer becomes `Deployment.authority`
+    — after this instruction the field is immutable, so rotating the
+    authority is a new deployment under §3's identity rules, exactly as
+    rotating a campaign admin is a new campaign.
+
 // ---- operator-attested writes: the campaign admin must sign ----
 
 register_campaign(campaign_id, revision_commitment, epoch_start,
-                  epoch_seconds, admin, sas_credential)
+                  epoch_seconds, admin, sas_credential, sas_schema)
     Creates the Campaign PDA at revision 1, active. `epoch_seconds` MUST be
     nonzero (InvalidEpochSchedule); `epoch_start` MAY be in the future —
     claims before it fail CampaignNotStarted. Registration IS the abstract
     machine's draft→active edge. `admin` is the pubkey whose signature the
-    operator-attested instructions below require; `sas_credential` is the
-    SAS Credential account whose authorized signers may update this
-    campaign's eligibility roots (§12). Signed by the deployment authority.
+    operator-attested instructions below require; `sas_credential` and
+    `sas_schema` are the SAS accounts whose authorized signers and whose
+    schema state govern this campaign's eligibility roots (§12). **Signed by
+    the deployment authority**, which is the one operator-attested
+    instruction that is not signed by a campaign admin — there is no admin
+    yet when a campaign is being created.
 
 advance_campaign_revision(campaign_id, new_revision, revision_commitment)
     Revisions MUST increase by exactly one. Permitted while active or
@@ -303,12 +365,17 @@ set_campaign_status(campaign_id, status)
     0 = active, 1 = paused, 2 = closed, 3 = revoked. No exit from closed or
     revoked, and no status byte above 3 (InvalidStatusTransition).
 
-register_eligibility_policy(campaign_id, policy_digest, policy_root)
-    Creates the Policy PDA binding a policy's canonical digest to its
-    family-specific public parameter. `policy_root` feeds the public-input
-    vector from account state, so it MUST be a BN254 field element and MUST
-    be rejected with ValueNotInField here — an unchecked root surfaces later
-    as opaque InvalidProof for every honest prover.
+register_eligibility_policy(campaign_id, policy_digest)
+    Creates the Policy PDA binding a policy's canonical digest to this
+    campaign, with `policy_root` all-zero and `root_set_at` 0. It takes NO
+    root: binding a policy to a campaign is an operator act, but supplying
+    the root that eligibility is proved against is an issuer act, and a
+    campaign admin who could do both would be an issuer in everything but
+    name — able, after every authorized signer had been removed, to
+    register a fresh policy digest with a root of their own and honour
+    claims against it. So the admin declares *which* policy; only an
+    authorized SAS signer can put a root under it, and a claim against a
+    rootless policy fails PolicyRootUnset before the verifier runs.
 
 anchor_donation_receipt(campaign_id, campaign_revision, receipt_digest)
     Creates the DonationAnchor PDA. Re-anchoring identical values is an
@@ -324,22 +391,37 @@ anchor_disbursement(claim_digest, disbursement_receipt_digest)
 anchor_fund_flow_report(campaign_id, period_digest, source_commitment)
     Creates the FundFlowAnchor PDA.
 
+// ---- deployment-wide write: the deployment authority must sign ----
+
 set_restricted_mode(enabled)
-    Deployment-wide emergency stop (Charity.md §14). Gates EXACTLY ONE
-    instruction — anchor_aid_claim, which fails RestrictedMode while
-    enabled, before the idempotence precheck. Operator-attested writes and
-    all reads are unaffected: the audit trail records through the stop. MUST
-    be declared in the operator manifest (§13).
+    Deployment-wide emergency stop (Charity.md §14), signed by
+    `Deployment.authority` — it is deployment-wide, so no single campaign's
+    admin may operate it. Gates EXACTLY ONE instruction — anchor_aid_claim,
+    which fails RestrictedMode while enabled, before the idempotence
+    precheck. Operator-attested writes and all reads are unaffected: the
+    audit trail records through the stop. MUST be declared in the operator
+    manifest (§13).
 
-// ---- root update: authorized against SAS, not against the admin ----
+// ---- root writes: authorized against SAS, never against an admin ----
 
-update_eligibility_root(campaign_id, policy_digest, new_policy_root)
-    Replaces the Policy PDA's root. Authorized by checking the signer
-    against the campaign's SAS credential's current authorized signers
-    (§12), NOT against the campaign admin. Fails SasSignerUnauthorized if
-    the signer is absent from the credential, SasCredentialMismatch if the
-    supplied credential account is not the campaign's registered one, and
-    SasCredentialPaused if the referenced schema is paused.
+set_eligibility_root(campaign_id, policy_digest, policy_root,
+                     sas_credential, sas_schema)
+    Sets the Policy PDA's root, whether or not one is already there — the
+    first root and every replacement take the same path, because there is
+    no weaker moment in a policy's life that deserves a weaker check.
+    `policy_root` feeds the public-input vector from account state, so it
+    MUST be a BN254 field element and MUST be rejected with ValueNotInField
+    here; an unchecked root surfaces later as opaque InvalidProof for every
+    honest prover.
+
+    Authorized by resolving BOTH supplied SAS accounts against the ones the
+    campaign registered and checking the transaction signer against the
+    credential's CURRENT authorized signers (§12) — never against the
+    campaign admin, who has no root authority at any point. Fails
+    SasAccountMismatch if either supplied account is not the campaign's
+    registered one, SasSignerUnauthorized if the signer is absent from the
+    credential's signer set (including the case where it was removed), and
+    SasSchemaPaused if the registered schema is paused.
 
 // ---- proof-authorized write: signer-agnostic ----
 
@@ -367,8 +449,8 @@ change, each carrying the campaign or claim key:
 CampaignRegistered(campaign_id, revision_commitment, epoch_start, epoch_seconds)
 CampaignRevisionAdvanced(campaign_id, revision, revision_commitment)
 CampaignStatusChanged(campaign_id, status)
-EligibilityPolicyRegistered(campaign_id, policy_digest, policy_root)
-EligibilityRootUpdated(campaign_id, policy_digest, policy_root, signer)
+EligibilityPolicyRegistered(campaign_id, policy_digest)
+EligibilityRootSet(campaign_id, policy_digest, policy_root, signer)
 DonationReceiptAnchored(campaign_id, campaign_revision, receipt_digest)
 AidClaimAnchored(campaign_id, campaign_revision, claim_digest, epoch_index,
                  nullifier, recipient_commitment)
@@ -407,10 +489,13 @@ class is decided **from the chain**, not from a relayer's classification.
 | `InvalidProof` | refuse-as-defect | The verifier rejected the proof against the program-derived public inputs. Maps to `PROOF_INVALID`; diagnostics stay private. |
 | `AnchorConflict` | security event | A value differing from the stored one was submitted under an already-anchored key. Never retried, never overwritten; record evidence and raise the incident path. Re-anchoring identical values is an idempotent success. |
 | `ClaimNotAnchored` | refuse-as-defect | Disbursement anchor for a claim this program never saw. |
-| `OperatorOnly` | refuse-as-defect | Operator-attested write without the campaign admin's signature. |
-| `SasCredentialMismatch` | refuse-as-defect | The supplied SAS credential account is not the one registered for this campaign. |
+| `OperatorOnly` | refuse-as-defect | An operator-attested write without the campaign admin's signature. |
+| `DeploymentAuthorityOnly` | refuse-as-defect | A deployment-wide write (`register_campaign`, `set_restricted_mode`) without `Deployment.authority`'s signature. Distinct from `OperatorOnly` because the two authorities are distinct: a campaign admin cannot create campaigns or operate the emergency stop, and the deployment authority cannot anchor. |
+| `DeploymentExists` | refuse-as-defect | A second `initialize`. The authority is set once; changing it is a new deployment. |
+| `PolicyRootUnset` | terminal for this policy state | A claim against a policy whose root no authorized SAS signer has set. Decided before the verifier runs. Not a client defect and not retryable by the claimant: the issuer has bound a policy but not yet published what eligibility is proved against. |
+| `SasAccountMismatch` | refuse-as-defect | A supplied SAS credential or schema account is not the one registered for this campaign. |
 | `SasSignerUnauthorized` | terminal scoped refusal | The signer is not among the credential's current authorized signers — including the case where it *was* and was removed. This is what revocation looks like at the instruction boundary (§12). |
-| `SasCredentialPaused` | retry-after-reopen | The referenced schema is paused; roots cannot be extended until it resumes. |
+| `SasSchemaPaused` | retry-after-reopen | The campaign's registered schema is paused; no root may be set until it resumes. |
 | `RestrictedMode` | retry-after-reopen | `anchor_aid_claim` while the deployment's emergency stop is enabled. No client action clears it; the client waits for `RestrictedModeChanged(false)` and reconciles prior submissions via reads. Never a payment or compliance gate. |
 | `AccountNotDerived` | refuse-as-defect | A supplied account address does not re-derive from its declared seeds (§4). |
 
@@ -441,7 +526,7 @@ presented as one:
 | `PAYMENT_REQUIRED` / `COMPLIANCE_REQUIRED` | Relayer-layer refusal before submission, under the manifest's declared offers — never `RestrictedMode` |
 | `SUBMISSION_UNKNOWN` | Signature unresolvable, blockhash expired, transaction dropped; reconcile by operation ID (§11) |
 | `FINALITY_PENDING` | Executed at `confirmed` but not yet `finalized` |
-| `AUTHORIZATION_INVALID` | `OperatorOnly`, `SasSignerUnauthorized`; also local vault refusal before submission |
+| `AUTHORIZATION_INVALID` | `OperatorOnly`, `DeploymentAuthorityOnly`, `SasSignerUnauthorized`, `SasAccountMismatch`; also local vault refusal before submission |
 | `PROFILE_UNSUPPORTED` | Unknown profile ID, proof system, or verifier anchors |
 
 ### 4.3 Canonical wire-operation mapping
@@ -476,10 +561,15 @@ a proof-bound field element, letting evidence bound to one authorize a
 record under the other. Two encoding rules replace it, identical to the BNB
 sibling's:
 
-1. **Freely chosen identifiers are drawn in-field** by rejection sampling,
-   and the program rejects out-of-range values with `ValueNotInField` at the
-   entry point — `campaign_id` at registration, `nullifier` at claim
-   anchoring, `policy_root` at policy registration and root update.
+1. **Freely chosen identifiers are drawn in-field** by rejection sampling:
+   `campaign_id`, and any other freely random identifier a caller picks.
+   The `nullifier` and the `policy_root` are *not* in this class — the
+   first is a Poseidon output and the second an accumulator root, both
+   in-field by construction — but the program range-checks all three at
+   their entry points and rejects with `ValueNotInField`. For
+   `campaign_id` that check enforces the drawing rule; for the other two
+   it is defensive, catching a malformed generator at the door instead of
+   letting every honest prover fail later as opaque `InvalidProof`.
 2. **Digests are limb-split, never reduced or ground**: keccak-256 digests
    enter the public-input vector as two 128-bit big-endian limbs
    (`hi = digest[0..16]`, `lo = digest[16..32]`), split by the program
@@ -585,8 +675,9 @@ open a time-of-check/time-of-use window. The normative order is:
    stored anchor was proof-authorized when written, and re-verification buys
    nothing. If it exists with any differing field, `AnchorConflict`.
 4. **Field-range checks** (§5), then **campaign status**, **revision**,
-   **policy registration**, and **epoch** — each with its own named error,
-   all decided before the expensive verification.
+   **policy registration** (`UnknownPolicy`), **policy root present**
+   (`PolicyRootUnset`), and **epoch** — each with its own named error, all
+   decided before the expensive verification.
 5. **Nullifier check** — if the Nullifier PDA exists, `NullifierUsed`.
 6. **Proof verification** against the program-derived public-input vector
    (§10), else `InvalidProof`.
@@ -662,8 +753,8 @@ The initial family is `membership-set-v1`
 (`onym:charity-eligibility:membership-set-groth16-bn254-v1`): the claimant
 proves knowledge of `credentialSecret` such that a commitment derived from
 it is a member of an issuer-published accumulator (Merkle set over Poseidon)
-whose root the operator registered for the policy (`policy_root`); that the
-nullifier is correctly derived (§6); and — the deviation from the BNB
+whose root an authorized SAS signer set for the policy (`policy_root`, §12);
+that the nullifier is correctly derived (§6); and — the deviation from the BNB
 sibling — that the committed **leaf expiry** is later than the campaign's
 current epoch boundary.
 
@@ -737,11 +828,18 @@ Therefore, normatively:
   the corresponding upstream figure — plain against plain, BSB22 against
   BSB22 — measured under the same methodology so the two are comparable.
   Comparing against the flattering path is a reporting defect.
-- The **requested compute-unit limit is fixed by the profile**, not chosen
-  per client: a `ComputeBudget` instruction with the profile's declared
-  limit precedes `anchor_aid_claim` in the transaction. Clients MUST NOT
-  guess, and the relayer MUST NOT silently raise it — a raised limit is a
-  profile revision, because it changes what a claim costs to submit.
+- The **requested compute-unit limit is fixed by the profile release**,
+  not chosen per client: a `ComputeBudget` instruction with that limit
+  precedes `anchor_aid_claim` in the transaction. Clients MUST NOT guess,
+  and the relayer MUST NOT silently raise it — a raised limit is a profile
+  revision, because it changes what a claim costs to submit. The manifest
+  (§13) **echoes** the value rather than setting it: the release is
+  authoritative, the manifest entry exists so a client can detect a
+  deployment running against a different release, and a client that finds
+  the two disagreeing MUST refuse the deployment as `PROFILE_UNSUPPORTED`
+  rather than pick a winner. The number itself is unset in this draft and
+  lands with `fix-cu-benchmark`; a profile release that names no limit is
+  incomplete, not permissive.
 - The measurement is a **release gate** (§17 item 5): until
   `fix-cu-benchmark` (§14.1) exists and reports a figure with its path, the
   verifier half of this profile is unpinned and no deployment may be
@@ -804,7 +902,7 @@ stops:
 | Abstract object | SAS carrier | What this profile still supplies |
 |---|---|---|
 | `OrganizationCredential` (Charity.md §6.2) | A Credential account naming the issuing organization and its authorized signers; a Schema account fixing the attested shape | The canonical signed object and its digest. SAS proves an issuer is registered; it does not carry Onym's canonical bytes |
-| `EligibilityPolicy` (§6.7) | A Schema account, versioned, referenced by campaign state | The predicate, its circuit, its public-input layout, and the nullifier derivation. SAS names a policy; it does not verify one |
+| `EligibilityPolicy` (§6.7) | A Schema account, versioned; its pubkey is stored in `Campaign.sas_schema` at registration, so the program reaches it as a supplied account it can check against registered state rather than by trusting a caller-named account | The predicate, its circuit, its public-input layout, and the nullifier derivation. SAS names a policy; it does not verify one |
 | `TrustPolicy` (§6.1) | **Nothing** — it stays local to the user's application | The client check that the campaign's SAS credential is one the user pinned. "Registered in SAS" is not "accepted by this user", and issuer trust is never transitive |
 | Per-beneficiary eligibility attestation | **Deliberately nothing** | The issuer-signed beneficiary leaf, delivered to the device over the Onym transport, and its membership proof |
 
@@ -831,19 +929,40 @@ disclosure rather than only here:
    UI MUST surface the resulting `StaleCampaignRevision`/`InvalidProof`
    outcomes as a rebuild, never as a refusal of eligibility.
 
+**What the campaign admin can and cannot do to a root.** Registration binds
+a policy digest to a campaign; it carries no root, and `set_eligibility_root`
+is the only instruction that writes one (§4). So the residual admin power is
+bounded and worth stating exactly, because an earlier draft of this document
+left a hole here: an admin may bind a new policy digest at any time, and may
+pause, close, or revoke a campaign — but a policy they bind is inert until an
+authorized SAS signer sets its root, and after every signer has been removed
+there is no path by which an admin-chosen root can reach account state or a
+proof against it can verify. `neg-admin-cannot-set-a-root` (§14.2) is the
+fixture that holds this, and it runs the removed-signer case specifically,
+because that is the moment the incentive to route around SAS is highest.
+
+The schema is checked as well as the credential, and both are resolved
+against `Campaign` state rather than taken from the caller: a signer set
+tells you *who* may speak for the issuer, and a paused schema says the
+issuer has stopped the policy speaking at all. Supplying either account for
+some other credential or schema fails `SasAccountMismatch`.
+
 The authority chain the program enforces:
 
 1. A SAS Credential names the organization and carries its authorized signer
-   set; a SAS Schema fixes the policy and its scope.
+   set; a SAS Schema fixes the policy and its scope. Both pubkeys are
+   recorded in the Campaign PDA at registration and neither is caller-named
+   afterward.
 2. The issuer signs a beneficiary commitment **off-chain**, under an
    authorized signer key of that credential, and delivers it to the device
    over the Onym transport.
 3. An authorized signer posts the resulting eligibility root through
-   `update_eligibility_root`.
+   `set_eligibility_root` — the first root and every replacement by the
+   same instruction and the same check.
 4. The program authorizes that write by reading the campaign's registered
-   SAS credential account and checking the transaction signer against its
-   **current** authorized signers, so an on-chain root is only ever as
-   trusted as the SAS-registered issuer behind it.
+   SAS credential and schema accounts and checking the transaction signer
+   against the credential's **current** authorized signers, so an on-chain
+   root is only ever as trusted as the SAS-registered issuer behind it.
 
 Step 4's consequence for clients is the honest cost of composing with a
 mutable external account, and it MUST be carried rather than hidden:
@@ -865,6 +984,9 @@ statement of what is declared) gains:
   program ID, program-data hash, the assertion that the upgrade authority is
   `None`, the verifying-key anchors with their ceremony identity, and the
   profile ID;
+- the **deployment authority** pubkey (§4) beside the admin, since they are
+  different parties with different powers and a manifest that named only one
+  would leave the other unverifiable;
 - `solana` network entries binding the ed25519 operator identity to the
   **fee-payer accounts** that pay for submission and fund rent, and to the
   **admin account** whose signature the operator-attested instructions
@@ -873,10 +995,10 @@ statement of what is declared) gains:
   conflate them: the manifest identity and an on-chain fee payer are
   different capabilities that happen to share a signature scheme, and a
   deployment that reuses one key for both MUST say so;
-- the **SAS credential account** each campaign's root authority resolves to
-  (§12);
-- the declared **compute-unit limit** (§10) and **who funds nullifier rent**
-  (§7);
+- the **SAS credential and schema accounts** each campaign's root authority
+  resolves to (§12);
+- the **compute-unit limit** echoed from the profile release (§10), and
+  **who funds nullifier rent** (§7);
 - the restricted-mode power (§4); and
 - a privacy profile declaring what the operator observes (IP, timing, proof
   size, submitted values), the public exposure of the chain itself, and —
@@ -885,25 +1007,28 @@ statement of what is declared) gains:
   so a claimant who can pay fees or find another submitter is never locked
   out by one relayer's refusal.
 
-Client verification MUST compare the manifest's declared admin against the
-`Campaign` PDA's stored admin, the declared program-data hash against the
-chain, the upgrade authority against `None`, and the declared SAS credential
-against the one the campaign actually registered. Without those four
+Client verification MUST compare the manifest's declared campaign admin
+against the `Campaign` PDA's stored admin, the declared deployment authority
+against `Deployment.authority`, the declared program-data hash against the
+chain, the upgrade authority against `None`, the declared SAS credential and
+schema against the ones the campaign actually registered, and the declared
+compute-unit limit against the profile release's. Without those
 comparisons, declared powers are not checkable against program-enforced
 reality. A deployment absent from the manifest does not exist for clients,
 whatever is on the chain.
 
 The governing invariant:
 
-> The operator's keys can pay for, submit, gate, and *attest* — campaign
-> records, receipt anchors, report anchors, all visibly under the campaign
-> admin — and can **pause claim intake deployment-wide** through the
+> A campaign admin can submit and *attest* — campaign records, receipt
+> anchors, report anchors, all visibly under its own key — and can bind a
+> policy digest to a campaign. The deployment authority can register
+> campaigns and **pause claim intake deployment-wide** through the
 > restricted-mode emergency stop, a declared, auditable power equivalent to
-> pausing every campaign at once. An authorized SAS signer can extend or
-> replace an eligibility root. Neither can make an ineligible claimant
-> eligible, consume or un-consume a nullifier, close a nullifier account,
-> alter an anchored digest, or convert an anchor into proof that money moved
-> or aid arrived.
+> pausing every campaign at once. An authorized SAS signer, and only an
+> authorized SAS signer, can set or replace an eligibility root. None of
+> them can make an ineligible claimant eligible, consume or un-consume a
+> nullifier, close a nullifier account, alter an anchored digest, or convert
+> an anchor into proof that money moved or aid arrived.
 
 ## 14. Conformance fixtures
 
@@ -960,9 +1085,16 @@ the profile's value is what it refuses.
   signature; assert the original signature resolves to nothing,
   `GET /operations/:operationId` returns both, and the final result
   reconciles under the operation ID at `finalized`.
-- `fix-sas-root-update` — an authorized SAS signer updates the eligibility
-  root; assert the event, the new root in the Policy PDA, and that a
-  presentation against the new root verifies.
+- `fix-sas-root-lifecycle` — the admin registers a policy (assert the
+  Policy PDA exists with an all-zero root and that a claim against it fails
+  `PolicyRootUnset` before the verifier runs); an authorized SAS signer
+  sets the first root; a presentation against it verifies; the same signer
+  replaces the root; a presentation against the new one verifies. First
+  root and replacement take the same instruction and the same check.
+- `fix-pda-seed-vectors` — the exact seed byte sequences for all seven PDA
+  schemes of §4, pinning the big-endian field elements and the one
+  little-endian `epoch_index_le`, with each derived address recomputed
+  independently of the program.
 - `fix-canonicalization-vectors` — the §2.1 byte-level vectors, asserted to
   be **identical to the BNB profile's** for signing inputs and canonical
   bytes, and *deliberately different* for anchor digests because the anchor
@@ -996,12 +1128,21 @@ the profile's value is what it refuses.
   `InvalidProof`, never anchored. Until a BLS12-381 sibling profile exists,
   the vector is generated from this profile's own circuit re-instantiated
   over BLS12-381 and ships marked "sibling-encoding pending".
+- `neg-cross-curve-bn254-under-bls` — the converse of the fixture above,
+  shipped with this profile and executed against each BLS12-381 charity
+  binding as that binding arrives. Until the first one exists it is a
+  published vector carrying an explicit "counterpart unimplemented"
+  marker, not a silently omitted one; the marker is retired only for the
+  sibling actually run against.
 - `neg-cross-system-plonk-under-groth16` — a valid **BN254 PLONK** proof
   built for the BNB sibling's `membership-set-v1` statement, submitted here:
   rejected. This fixture is the one the curve check cannot supply, because
-  the curve is shared with that sibling; it is required in both directions
-  once the BNB circuits exist, and ships one-directional with a
-  "counterpart unimplemented" marker until then.
+  the curve is shared with that sibling. Its counterpart on the BNB side is
+  `neg-cross-system-groth16-under-plonk`
+  ([UI-Charity-BNB.md §13.2](UI-Charity-BNB.md)), and each ships
+  one-directional with a "counterpart unimplemented" marker until both
+  circuit sets exist — neither profile's vector is evidence about the other
+  direction.
 - `neg-foreign-statement` — a valid BN254 proof for a different statement
   family of the *same* proof system (the notary `sep-*` circuits are the
   natural donor): `InvalidProof`, because the statement tag constant
@@ -1037,9 +1178,27 @@ the profile's value is what it refuses.
   half that matters for honesty: **leaves inside the previously posted root
   remain claimable**, because removal stops extension and does not
   un-publish a root (§12).
-- `neg-sas-credential-mismatch` — a root update supplying a credential
-  account other than the campaign's registered one:
-  `SasCredentialMismatch`.
+- `neg-admin-cannot-set-a-root` — the fixture the authority model rests
+  on. With every authorized signer removed from the SAS credential, the
+  campaign admin: (a) calls `set_eligibility_root` directly —
+  `SasSignerUnauthorized`; (b) registers a *fresh* `policy_digest` and
+  tries to give it a root the same way — refused identically, because
+  registration carries no root and the root path has one gate; and (c)
+  leaves that fresh policy in place, whereupon a claim naming it fails
+  `PolicyRootUnset`. Assert no root reached account state by any route.
+- `neg-sas-account-mismatch` — a root write supplying a credential or a
+  schema account other than the campaign's registered ones, each
+  separately: `SasAccountMismatch`.
+- `neg-sas-schema-paused` — the campaign's registered schema is paused; an
+  otherwise authorized signer attempts a root write: `SasSchemaPaused`,
+  and the fixture asserts the class is retry-after-reopen rather than a
+  defect, since the issuer can resume.
+- `neg-deployment-authority-gate` — `register_campaign` and
+  `set_restricted_mode` from a campaign admin and from an arbitrary
+  signer: `DeploymentAuthorityOnly` each time; and a campaign-admin
+  instruction from the deployment authority: `OperatorOnly`. The two
+  authorities are asserted to be non-overlapping in both directions, and a
+  second `initialize` asserts `DeploymentExists`.
 - `neg-expired-leaf` — a beneficiary leaf whose committed expiry precedes
   the campaign's current epoch boundary: the proof fails to satisfy the
   predicate, and the claim fails `InvalidProof`. This is the fixture that
@@ -1146,8 +1305,8 @@ Each is genuinely undecided; the criteria state what settles it.
    before circuits are compiled — a verifying key whose origin nobody can
    audit is a forgery surface for claims on real aid, and §3.4 requires the
    ceremony identity in `verifierAnchors`.
-5. **Root-update authority resolution cost.** §12 requires the client to
-   verify the SAS credential in addition to the program. Whether a mobile
+5. **Root authority resolution cost.** §12 requires the client to verify
+   the SAS credential and schema in addition to the program. Whether a mobile
    client can afford that round-trip on every campaign resolution, or
    whether the manifest may carry a signed snapshot with a declared
    staleness bound, is undecided. Decide by: measured client latency against
@@ -1207,7 +1366,9 @@ Everything below is unbuilt; this list is the work plan, not a polish list:
 - **Measurements**: neither gating measurement exists — no Poseidon
   differential test, no compute-unit benchmark of a compiled circuit (§10).
 - **SAS integration**: no credential, no schema, no issuer, and no client
-  code that resolves either.
+  code that resolves any of them — including the deployment-verification
+  step §13 requires, which is what makes the root authority checkable at
+  all.
 - **Clients**: no charity module implements the UI-Charity.md port.
 - **Fixtures**: none of §14 exists in any repository.
 
@@ -1219,10 +1380,14 @@ This profile is satisfied when:
    program-data hash, and an upgrade authority of `None`, with verifying-key
    anchors and ceremony identity, and a client verifies all of it — plus the
    campaign's SAS credential — against the signed manifest before first use;
-2. the write-authority classes are program-enforced: operator-attested
-   instructions refuse absent the campaign admin's signature, root updates
-   refuse signers absent from the SAS credential, and claim anchoring
-   succeeds from an arbitrary fee payer on proof validity alone;
+2. the three write-authority classes are program-enforced and
+   non-overlapping: deployment-wide instructions refuse absent
+   `Deployment.authority`, campaign instructions refuse absent that
+   campaign's admin, **every** root write — first root and replacement
+   alike — refuses signers absent from the campaign's registered SAS
+   credential, and claim anchoring succeeds from an arbitrary fee payer on
+   proof validity alone. In particular no admin route reaches a root, which
+   `neg-admin-cannot-set-a-root` holds;
 3. one credential yields exactly one anchored claim per campaign per epoch,
    across campaign revisions, proven by the §14.2 scope fixtures — and no
    authority can close a nullifier account to undo that;
@@ -1233,8 +1398,11 @@ This profile is satisfied when:
    passes, and `fix-cu-benchmark` reports this circuit's cost with its
    verifier path against the corresponding upstream figure (§10);
 6. cross-curve, cross-proof-system, and cross-statement proofs are rejected
-   in fixtures — the middle one on its own terms, since the curve check
-   cannot separate this profile from its BN254 sibling;
+   in fixtures, both directions of each pair shipped — with
+   "counterpart unimplemented" markers where the sibling circuits do not
+   exist yet, never with a missing vector — and the cross-proof-system pair
+   is required on its own terms, since the curve check cannot separate this
+   profile from its BN254 sibling;
 7. the §14.2 PII fixture passes at all three layers across all five
    surfaces, with no PDA seed derived from credential-linked data and no
    memo instruction present;

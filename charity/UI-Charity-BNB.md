@@ -859,7 +859,7 @@ than the positive set: the profile's value is what it refuses.
 and live in §13.1 as `fix-cross-campaign-derivation` and
 `fix-cross-epoch-derivation`.)
 
-**Curve and statement separation**
+**Curve, proof-system, and statement separation**
 
 - `neg-cross-curve-bls-under-bn254` — a well-formed BLS12-381 eligibility
   proof submitted to `anchorAidClaim`: rejected — by length/decode where
