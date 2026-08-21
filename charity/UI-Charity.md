@@ -23,11 +23,15 @@ bind this UI to Soroban contracts on Stellar, another ledger, a regulated
 payment provider, bank rails, or several adapters. Every concrete financial,
 proof, or notary implementation must publish its own profile and conformance
 vectors. Ledger-specific values do not leak into the common charity UI port.
-A BNB/EVM notary-and-eligibility binding is drafted in
-[UI-Charity-BNB.md](UI-Charity-BNB.md). Two further notary-and-eligibility
-bindings are planned and neither has a profile document yet: Stellar/Soroban,
-and Cardano (eUTXO, Plutus, at protocol version 11 or later). No financial
-binding is profiled anywhere yet. Bindings do not gate one another; a
+Two notary-and-eligibility bindings are drafted:
+[UI-Charity-BNB.md](UI-Charity-BNB.md) (BNB/EVM, PLONK over BN254) and
+[UI-Charity-Solana.md](UI-Charity-Solana.md) (Solana, Groth16 over BN254,
+composing with the Solana Attestation Service for the issuer and policy
+layer). Two further bindings are planned and neither has a profile document
+yet: Stellar/Soroban, and Cardano (eUTXO, Plutus, at protocol version 11 or
+later). No financial binding is profiled anywhere yet — the Solana profile
+reserves an identifier for one and states the preconditions it must meet,
+which is the closest any binding comes. Bindings do not gate one another; a
 deployment declares the ones it uses and nothing else.
 
 The status of this document is **proposed**. It describes the boundary that an
