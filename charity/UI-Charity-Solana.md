@@ -165,26 +165,34 @@ onym:charity-eligibility:membership-set-groth16-bn254-v1
 ```
 
 The first identifies this notary/eligibility binding; the second identifies
-the initial eligibility predicate family (§9). The `-groth16-bn254-`
-segment is a **two-part discriminator** and both parts are load-bearing: a
-BLS12-381 proof is not valid evidence under this profile, and — unlike the
-curve check alone — the proof-system segment separates this profile from the
-BNB sibling, which shares the curve and uses PLONK. Fixtures MUST prove both
-rejections (§14, `neg-cross-curve-*`, `neg-cross-system-*`).
+the initial eligibility predicate family (§9). The `-groth16-bn254-` segment
+is a two-part discriminator — a BLS12-381 proof is not valid evidence under
+this profile, and neither is a BN254 PLONK proof built for the BNB
+sibling — and fixtures MUST prove both rejections (§14,
+`neg-cross-curve-*`, `neg-cross-system-*`).
 
-Curve and system separation are still not sufficient. Per UI-Charity.md
-§8.3, every profile in this family carries a separation that holds
-independently of the proof system, and this profile satisfies it through the
-**statement-tag constant** bound into the proven statement (§5). The
-fixture that exercises it is §14's `neg-foreign-statement`.
+Both are weak checks, and it is worth being precise about how weak, because
+an identifier segment performs no check at all by itself. A foreign-curve or
+foreign-system proof is rejected **structurally**, at decode: the verifier
+cannot parse bytes in another encoding, exactly as it cannot parse
+corruption. What that demonstrates is that the encodings do not collide —
+not that this profile can tell *which statement* a well-formed proof is
+about. The separation that does that work is the **statement-tag constant**
+bound into the proven statement (§5, with the tag→field mapping pinned in
+§6), which is what UI-Charity.md §8.3 requires of every profile in this
+family and what `neg-foreign-statement` exercises. The ID segments are
+labels on that separation; they are not it.
 
 ### 2.1 Canonical bytes and digests
 
 Charity.md §6 requires deterministic canonicalization with a stable digest
 and assigns the concrete scheme to the profile (Charity.md §5.1). This
-profile pins the **same scheme as the BNB sibling**, deliberately and
-without variation, so that one canonicalization fixture set serves both and
-a campaign object digests identically whichever ledger anchors it:
+profile pins the **same scheme as the BNB sibling** for canonical bytes and
+signing inputs, deliberately and without variation, so that one
+canonicalization fixture set serves both and a signed object's bytes and
+signature verify identically whichever ledger anchors it. Anchor digests are
+the deliberate exception and differ per ledger — consequence 2 below says
+why:
 
 - **Canonical bytes** of a boundary object are its RFC 8785 (JCS)
   serialization.
@@ -270,9 +278,28 @@ Campaign        ["cha", "campaign", campaign_id]
 Policy          ["cha", "policy",   campaign_id, policy_digest]
 ClaimAnchor     ["cha", "claim",    claim_digest]
 Nullifier       ["cha", "null",     campaign_id, epoch_index_le, nullifier]
-DonationAnchor  ["cha", "don",      receipt_digest]
+DonationAnchor  ["cha", "don",      campaign_id, receipt_digest]
 FundFlowAnchor  ["cha", "flow",     campaign_id, period_digest]
 ```
+
+Every campaign-scoped account is campaign-scoped **in its seeds**, and the
+one exception is deliberate. A deployment holds many campaigns under one
+program, so an address derived from a digest alone lives in a
+deployment-wide namespace where one campaign's admin can occupy an address
+another campaign's admin needs — and since a mismatched write under an
+occupied key is `AnchorConflict`, which §4.1 classifies as a **security
+event**, that is a cross-campaign denial-of-service dressed as an incident.
+`DonationAnchor` therefore carries `campaign_id` in its seeds, as
+`FundFlowAnchor` and `Policy` already did.
+
+`ClaimAnchor` keeps `claim_digest` alone, and the asymmetry is safe for a
+reason worth stating rather than leaving to inference: no operator can
+create one. The account is created only by `anchor_aid_claim`, which
+requires a proof against the campaign's own registered root, so occupying a
+claim address means forging eligibility first — and the digest commits to
+the campaign anyway. Keying it on the digest alone is also what lets
+`anchor_disbursement` and every reconciling client find a claim from the
+`claimDigest` join without first knowing which campaign it belonged to.
 
 `epoch_index_le` is the **only little-endian value in this profile**: it
 is an 8-byte `u64` in Rust's native byte order, because that is what a
@@ -320,7 +347,53 @@ Policy {
     root_set_at:   i64,        // 0 while unset
     bump:          u8,
 }
+
+ClaimAnchor {
+    campaign_id:                [u8; 32],
+    campaign_revision:          u32,
+    policy_digest:              [u8; 32],
+    epoch_index:                u64,
+    nullifier:                  [u8; 32],
+    claim_digest:               [u8; 32],
+    recipient_commitment:       [u8; 32],
+    disbursement_receipt_digest:[u8; 32],  // all-zero until anchored
+    anchored_at:                i64,
+    bump:                       u8,
+}
+
+Nullifier {
+    campaign_id: [u8; 32],
+    epoch_index: u64,
+    nullifier:   [u8; 32],
+    consumed_at: i64,
+    bump:        u8,
+}
+
+DonationAnchor {
+    campaign_id:       [u8; 32],
+    campaign_revision: u32,
+    receipt_digest:    [u8; 32],
+    anchored_at:       i64,
+    bump:              u8,
+}
+
+FundFlowAnchor {
+    campaign_id:       [u8; 32],
+    period_digest:     [u8; 32],
+    source_commitment: [u8; 32],
+    anchored_at:       i64,
+    bump:              u8,
+}
 ```
+
+`ClaimAnchor` storing every field of the anchoring call except the proof is
+what makes two rules implementable rather than aspirational: §7's
+idempotence precheck compares byte-for-byte over a *defined* field set, and
+`anchor_disbursement` — which takes only a `claim_digest` — resolves the
+campaign from `ClaimAnchor.campaign_id` and requires **that** campaign's
+admin to sign. Without the field there is no answer to which admin may
+anchor a disbursement in a multi-campaign deployment, and the instruction
+would be gated on nothing in particular.
 
 The **deployment authority** is the pubkey stored in `Deployment.authority`,
 established once at `initialize` and never afterward: it is the party that
@@ -335,12 +408,15 @@ Instructions, normative for a conforming implementation:
 ```text
 // ---- deployment-wide writes: the deployment authority must sign ----
 
-initialize(authority)
-    Creates the Deployment PDA, restricted = false. Callable once; a second
-    call fails DeploymentExists. The signer becomes `Deployment.authority`
-    — after this instruction the field is immutable, so rotating the
-    authority is a new deployment under §3's identity rules, exactly as
-    rotating a campaign admin is a new campaign.
+initialize()
+    Creates the Deployment PDA, restricted = false. Takes no authority
+    argument: `Deployment.authority` is set to the **signer**, so the
+    account cannot be initialized to a key the caller does not control and
+    there is no gap between "who called this" and "who holds the power it
+    grants". Callable once; a second call fails DeploymentExists. The field
+    is immutable afterward, so rotating the authority is a new deployment
+    under §3's identity rules, exactly as rotating a campaign admin is a new
+    campaign.
 
 // ---- operator-attested writes: the campaign admin must sign ----
 
@@ -410,8 +486,8 @@ set_eligibility_root(campaign_id, policy_digest, policy_root,
     first root and every replacement take the same path, because there is
     no weaker moment in a policy's life that deserves a weaker check.
     `policy_root` feeds the public-input vector from account state, so it
-    MUST be a BN254 field element and MUST be rejected with ValueNotInField
-    here; an unchecked root surfaces later as opaque InvalidProof for every
+    MUST be a BN254 field element and MUST be rejected with
+    PolicyRootNotInField here; an unchecked root surfaces later as opaque InvalidProof for every
     honest prover.
 
     Authorized by resolving BOTH supplied SAS accounts against the ones the
@@ -481,10 +557,11 @@ class is decided **from the chain**, not from a relayer's classification.
 | `InvalidEpochSchedule` | refuse-as-defect | `epoch_seconds == 0` at registration, so the epoch division is total for every registered campaign. |
 | `CampaignNotStarted` | retry-after-start | A claim before `epoch_start`. Pre-registration of future campaigns is legal; claiming against one is not yet. |
 | `RevisionNotSequential` | refuse-as-defect | Revision skip or rewind. |
-| `StaleCampaignRevision` | refresh-and-rebuild / refuse-as-defect | Carries current and supplied. `supplied < current`: re-resolve, re-consent, rebuild, resubmit. `supplied > current`: generator defect; MUST NOT be retried. |
+| `CampaignRevisionStale` | refresh-and-rebuild | The presentation was built against a superseded revision. Re-resolve the campaign, re-obtain consent for the new revision (UI-Charity.md §5.6), rebuild, resubmit. |
+| `CampaignRevisionFromFuture` | refuse-as-defect | A revision ahead of the campaign's own. A generator defect; rebuilding cannot help and it MUST NOT be attempted in a retry loop. |
 | `EpochNotCurrent` | refresh-and-rebuild | The window rolled over between preparation and inclusion. Rebuilding derives a new nullifier, so the retry cannot collide with the stale attempt. |
 | `UnknownPolicy` | refuse-as-defect | The presentation references a policy this campaign never registered. |
-| `ValueNotInField` | refuse-as-defect | A value that must be a BN254 field element (§5) is out of range. Carries the zero-based argument index within the failing instruction. |
+| `CampaignIdNotInField`, `NullifierNotInField`, `PolicyRootNotInField` | refuse-as-defect | A value that must be a BN254 field element (§5) is out of range. One code per value rather than one code carrying an index, for the reason given below. A generator bug in the caller, never a transient condition. |
 | `NullifierUsed` | terminal scoped refusal | The entitlement was already claimed in this campaign and epoch by a *different* claim: the Nullifier PDA exists. Maps to `NULLIFIER_USED`; the UI shows a scoped duplicate refusal and MUST NOT expose a person identifier or retry. The program MUST test existence explicitly and return this code — allowing the runtime's account-already-initialized failure to surface instead would give clients an undecodable error for the single most user-visible refusal in the design. |
 | `InvalidProof` | refuse-as-defect | The verifier rejected the proof against the program-derived public inputs. Maps to `PROOF_INVALID`; diagnostics stay private. |
 | `AnchorConflict` | security event | A value differing from the stored one was submitted under an already-anchored key. Never retried, never overwritten; record evidence and raise the incident path. Re-anchoring identical values is an idempotent success. |
@@ -498,6 +575,23 @@ class is decided **from the chain**, not from a relayer's classification.
 | `SasSchemaPaused` | retry-after-reopen | The campaign's registered schema is paused; no root may be set until it resumes. |
 | `RestrictedMode` | retry-after-reopen | `anchor_aid_claim` while the deployment's emergency stop is enabled. No client action clears it; the client waits for `RestrictedModeChanged(false)` and reconciles prior submissions via reads. Never a payment or compliance gate. |
 | `AccountNotDerived` | refuse-as-defect | A supplied account address does not re-derive from its declared seeds (§4). |
+
+**Codes carry no payload, and the taxonomy is built for that.** An Anchor
+custom error is a bare `u32`; there is no equivalent of the EVM sibling's
+ABI-encoded error parameters, and §4's log discipline forbids `msg!`ing the
+values a client would otherwise read out of the failure. So every condition
+whose *retry class differs* gets its own code rather than one code plus a
+discriminating field — which is why the revision split above is two codes
+and the range check is three. Where a client needs a value rather than a
+class, it reads account state: `Campaign.revision` for the current revision,
+and the epoch from `Campaign.epoch_start`/`epoch_seconds` by the §6 formula.
+Both are public, both are one read the client is already making to rebuild,
+and neither is a place where the chain has to describe itself in a log line.
+
+The rule for anyone extending this interface: a new failure condition needs
+a new code exactly when a client would do something different about it. A
+condition that only refines the *explanation* of an existing class does not
+get one, and does not get a log line either.
 
 Three failure conditions are **not program errors** and MUST NOT be
 presented as one:
@@ -520,7 +614,7 @@ presented as one:
 |---|---|
 | `DEPLOYMENT_INVALID` | Identity mismatch on any of the four parts of §3, a non-`None` upgrade authority, or `CampaignNotFound` for a signed campaign |
 | `CAMPAIGN_NOT_ACTIVE` | `CampaignNotActive` |
-| `TERMS_CHANGED` | `StaleCampaignRevision` after re-resolve shows changed terms |
+| `TERMS_CHANGED` | `CampaignRevisionStale` after re-resolve shows changed terms |
 | `PROOF_INVALID` | `InvalidProof` |
 | `NULLIFIER_USED` | `NullifierUsed` |
 | `PAYMENT_REQUIRED` / `COMPLIANCE_REQUIRED` | Relayer-layer refusal before submission, under the manifest's declared offers — never `RestrictedMode` |
@@ -566,7 +660,8 @@ sibling's:
    The `nullifier` and the `policy_root` are *not* in this class — the
    first is a Poseidon output and the second an accumulator root, both
    in-field by construction — but the program range-checks all three at
-   their entry points and rejects with `ValueNotInField`. For
+   their entry points and rejects with the value's own out-of-field code
+   (§4.1). For
    `campaign_id` that check enforces the drawing rule; for the other two
    it is defensive, catching a malformed generator at the door instead of
    letting every honest prover fail later as opaque `InvalidProof`.
@@ -605,7 +700,9 @@ nullifier = H(T_n, credentialSecret, campaignId, epochIndex)
 ```
 
 where `T_n` is the field constant derived from
-`onym:charity:sol:nullifier:v1`, `credentialSecret` is the private witness
+`onym:charity:sol:nullifier:v1` **by the mapping pinned below** — not by
+whatever the circuit toolchain does with a string — `credentialSecret` is
+the private witness
 bound to the beneficiary's eligibility credential, `campaignId` is the
 in-field campaign identifier, and `epochIndex` is the claim window computed
 from the campaign's registered schedule:
@@ -653,6 +750,25 @@ nullifier the properties Charity.md §6.7 and §13.8 require:
 - *Not a permanent identifier*: no derivation input is a person identifier,
   `credentialSecret` never leaves the device, and no PDA seed anywhere in
   §4 is credential-derived.
+
+**Tag-to-field mapping, pinned.** A domain-separation tag is ASCII, a
+circuit constant is a field element, and the usual bridge between them —
+hash the tag, reduce modulo `r` — is the one operation §5 forbids everywhere
+in this profile. So:
+
+```text
+T = big-endian integer of the FIRST 31 BYTES of keccak256(tag)
+```
+
+Thirty-one bytes is at most `2^248 - 1`, below `r` for every input, so the
+constant is in-field by construction with no reduction and no rejection
+loop — the same "make it fit rather than fold it" discipline the digest
+limb-split uses. The mapping is applied once at circuit compile time to each
+of §5's three tags, and the resulting constants ship as vectors inside
+`fix-poseidon-syscall-differential` (§14.1) rather than being restated in
+prose: a constant that exists in both a document and a circuit is a constant
+that can differ between them, and this one sits inside the statement every
+proof commits to.
 
 The circuit MUST constrain the nullifier's derivation from the same
 `credentialSecret` that satisfies the eligibility predicate; a nullifier
@@ -786,6 +902,27 @@ value. Position 12 is this profile's only public-input divergence from the
 BNB sibling's vector, and it is deliberate: a prover-chosen expiry bound
 would make the constraint decorative.
 
+Position 12 needs a formula rather than a description, because the prover
+must reproduce it byte-identically or every honest proof fails as
+`InvalidProof`. It is the **end** of the claimed window:
+
+```text
+epochBoundaryUnix = epochStart + (epochIndex + 1) * epochSeconds
+```
+
+with `epochStart` and `epochSeconds` read from the campaign and `epochIndex`
+the value at public input 5, so the whole quantity derives from two public
+campaign fields and one claimed index. The circuit's expiry conjunct is
+`leafExpiry >= epochBoundaryUnix`: a credential must be valid through the
+*whole* window it is claimed in, not merely at the instant of submission.
+The alternatives are worse in specific ways — comparing against the window's
+start honours a credential that expires mid-window, and comparing against
+block time makes the statement depend on when the transaction lands, which
+would invalidate a still-valid proof between building and inclusion and
+break the rebuild-after-rollover path. `fix-epoch-boundary-vectors` (§14.1)
+pins the arithmetic, including the rollover case where `epochIndex` advances
+and the bound moves with it.
+
 Family-specific extensions append after position 12 and require a new family
 ID. Which additional families ship, and in what order, is an open question
 (§15.3).
@@ -810,16 +947,24 @@ this ledger make the cost a **budgeting** question rather than a feasibility
 one, and both must be stated with their caveats:
 
 1. Published upstream benchmarks for Groth16 verification on Solana
-   (`groth16-solana`, cited at a pinned commit in §18) measure the plain
-   verifier in the range of roughly 78k–109k compute units for one to eight
-   public inputs, and the BSB22 single-commitment path at roughly 211k–242k
-   over the same range, under `mollusk` with deterministically regenerated
+   (`groth16-solana`, §18 item 9) measure the plain verifier in the range
+   of roughly 78k–109k compute units, and the BSB22 single-commitment path
+   at roughly 211k–242k, under `mollusk` with deterministically regenerated
    proofs and keys. **These are upstream measurements of a verifier, not of
    this profile's circuit.**
-2. Which path applies is a property of how the circuit is generated,
+2. **That range covers one to eight public inputs. This profile's vector is
+   twelve** (§9), which is outside the measured span in the direction that
+   costs more, and cost does not have to grow linearly in that parameter.
+   Nothing here may be read as a measurement of a twelve-input verification.
+3. Which path applies is a property of how the circuit is generated,
    together with the public-input count and serialization overhead. The
-   plain path fits inside the default per-instruction compute allocation;
-   the BSB22 path requires an explicitly raised limit.
+   BSB22 path requires an explicitly raised compute-unit limit. Whether the
+   plain path at *this* profile's input count still fits inside the default
+   per-instruction allocation is **unverified** — an earlier draft asserted
+   that it does, extrapolating from the eight-input figure, which is exactly
+   the reasoning `fix-cu-benchmark` exists to replace. Until that fixture
+   reports, the profile assumes it must set an explicit limit and treats a
+   default-allocation fit as a possible saving rather than a property.
 
 Therefore, normatively:
 
@@ -840,6 +985,10 @@ Therefore, normatively:
   rather than pick a winner. The number itself is unset in this draft and
   lands with `fix-cu-benchmark`; a profile release that names no limit is
   incomplete, not permissive.
+- Both compute claims above that are not measurements — the twelve-input
+  cost and the default-allocation fit — MUST be reported as measurements or
+  dropped before a release; carrying them forward as prose is how an
+  extrapolation becomes folklore.
 - The measurement is a **release gate** (§17 item 5): until
   `fix-cu-benchmark` (§14.1) exists and reports a figure with its path, the
   verifier half of this profile is unpinned and no deployment may be
@@ -926,7 +1075,7 @@ disclosure rather than only here:
    under a policy whose predicate excludes them, which invalidates
    in-flight presentations built against the old root — the operator
    therefore SHOULD schedule root replacement at an epoch boundary, and the
-   UI MUST surface the resulting `StaleCampaignRevision`/`InvalidProof`
+   UI MUST surface the resulting `CampaignRevisionStale`/`InvalidProof`
    outcomes as a rebuild, never as a refusal of eligibility.
 
 **What the campaign admin can and cannot do to a root.** Registration binds
@@ -1041,7 +1190,15 @@ the profile's value is what it refuses.
 - `fix-poseidon-syscall-differential` — **the gating fixture** (§6). For a
   published vector set, assert that in-circuit Poseidon commitments equal
   `sol_poseidon` output byte-for-byte, across field encoding, input framing,
-  and domain separation. A failure here invalidates §6, §9, and §10.
+  and domain separation. It also publishes the three domain-separation
+  constants produced by §6's tag→field mapping, so the values compiled into
+  the circuit are checkable against the tags they claim to come from. A
+  failure here invalidates §6, §9, and §10.
+- `fix-epoch-boundary-vectors` — the §9 position-12 arithmetic: for a
+  campaign schedule and a series of epoch indices including a rollover,
+  assert `epochStart + (epochIndex + 1) * epochSeconds` as the program
+  derives it and as the prover reproduces it, and assert a leaf expiring
+  inside the window is rejected while one expiring after it is accepted.
 - `fix-cu-benchmark` — measure verification cost for this profile's compiled
   circuit at its actual public-input layout, report the verifier path it
   requires, and compare against the corresponding upstream figure under the
@@ -1137,7 +1294,14 @@ the profile's value is what it refuses.
 - `neg-cross-system-plonk-under-groth16` — a valid **BN254 PLONK** proof
   built for the BNB sibling's `membership-set-v1` statement, submitted here:
   rejected. This fixture is the one the curve check cannot supply, because
-  the curve is shared with that sibling. Its counterpart on the BNB side is
+  the curve is shared with that sibling. Its evidentiary weight is modest,
+  and the profile says so rather than trading on it: a Groth16 verifier
+  rejects PLONK bytes *structurally*, at decode, the way it rejects any
+  malformed input — so the fixture shows the two encodings do not collide,
+  not that this profile checks which statement family it is looking at. That
+  check belongs to `neg-foreign-statement`, which is why the statement tag,
+  not the `-groth16-` segment, is the separation UI-Charity.md §8.3
+  requires; the ID segments are labels on a separation the circuit enforces. Its counterpart on the BNB side is
   `neg-cross-system-groth16-under-plonk`
   ([UI-Charity-BNB.md §13.2](UI-Charity-BNB.md)), and each ships
   one-directional with a "counterpart unimplemented" marker until both
@@ -1151,8 +1315,9 @@ the profile's value is what it refuses.
 **Encoding**
 
 - `neg-out-of-field-campaign-id`, `neg-out-of-field-nullifier`,
-  `neg-out-of-field-policy-root` — each fails `ValueNotInField` at its entry
-  point, before any verifier call. The `campaign_id` fixture adds the
+  `neg-out-of-field-policy-root` — each fails its own out-of-field code
+  (§4.1) at its entry point, before any verifier call, and the fixture
+  asserts the codes are distinct rather than one code with three meanings. The `campaign_id` fixture adds the
   aliasing attack: register a valid id, then attempt `campaign_id + r` as a
   32-byte value, and assert it is rejected out-of-range rather than
   colliding — and, this ledger's addition, that no second Nullifier PDA can
@@ -1211,11 +1376,26 @@ the profile's value is what it refuses.
   whose address does not re-derive from its declared seeds:
   `AccountNotDerived`.
 
+**Staleness**
+
+- `neg-stale-campaign-revision` — a presentation bound to revision *n*
+  submitted after the campaign advanced to *n+1*: `CampaignRevisionStale`.
+  Assert the mapped behavior is re-resolve → re-consent → rebuild, that the
+  client obtained the current revision by **reading `Campaign`** rather than
+  from the error (codes carry no payload, §4.1), and that the rebuild
+  succeeds.
+- `neg-future-campaign-revision` — a presentation naming a revision ahead of
+  the campaign's: `CampaignRevisionFromFuture`, and the client does **not**
+  retry. The pair exists to prove the two directions are separate codes,
+  because on this ledger that is the only way they can be told apart.
+
 **State protection**
 
 - `neg-anchor-conflict` — every conflict shape: a different disbursement
   digest under an anchored `claimDigest`; a claim resubmission differing in
-  one stored field; a donation re-anchor with different metadata. Each
+  any field the `ClaimAnchor` stores (§4 gives the field set, and the
+  fixture walks it exhaustively rather than sampling one); and a donation
+  re-anchor with different metadata under an anchored receipt digest. Each
   asserts `AnchorConflict`, nothing overwritten, and the client mapping to a
   security event rather than a retry.
 - `neg-status-gate` — new claims and policy registrations against paused,
@@ -1392,8 +1572,10 @@ This profile is satisfied when:
    across campaign revisions, proven by the §14.2 scope fixtures — and no
    authority can close a nullifier account to undo that;
 4. every error in §4.1 is a distinct decodable code whose mapped retry class
-   the client implements, including the three non-program conditions
-   classified rather than surfaced as claim failures;
+   the client implements **without needing a payload** — conditions with
+   different retry classes have different codes, and any value the client
+   needs comes from reading account state — including the three non-program
+   conditions classified rather than surfaced as claim failures;
 5. both gating measurements are published: `fix-poseidon-syscall-differential`
    passes, and `fix-cu-benchmark` reports this circuit's cost with its
    verifier path against the corresponding upstream figure (§10);
@@ -1425,9 +1607,16 @@ This profile is satisfied when:
    <https://www.rfc-editor.org/rfc/rfc8785>
 8. Solana Attestation Service: <https://attest.solana.com>
 9. `groth16-solana` — the upstream Groth16 verifier and its published
-   compute-unit benchmarks. Cite the repository at a **pinned commit**, not
-   crates.io or docs.rs: published crate metadata and secondary sources
-   carry stale figures and stale paths.
+   compute-unit benchmarks, at commit **`43fee1a6`** (`BENCHMARKS.md`),
+   which is where §10's figures come from:
    <https://github.com/Lightprotocol/groth16-solana>
+   That hash is recorded from this profile's design input and has **not**
+   been re-verified against the upstream repository from within this
+   document's own review; the release MUST confirm it resolves and that
+   `BENCHMARKS.md` at that commit carries the quoted ranges before anything
+   relies on them, and MUST re-pin if it does not. Cite the repository at a
+   commit rather than crates.io or docs.rs in either case: published crate
+   metadata and secondary sources carry stale figures and stale paths, and
+   at least two of them contradict the current tree.
 10. Solana `alt_bn128` and `poseidon` syscalls, and the Compute Budget
     program: <https://docs.solana.com>
