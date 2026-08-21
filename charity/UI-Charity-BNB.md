@@ -158,8 +158,15 @@ UI-Charity.md §8.3 requires every profile in this family to carry a separation
 that holds independently of the proof system. This profile satisfies that
 requirement through the statement-tag constant bound into the proven
 statement, not through the curve: the `-bn254-` discriminator above is the
-weaker of the two checks, and would carry no weight at all against a sibling
-that shared this curve. The planned Stellar/Soroban and Cardano bindings both
+weaker of the two checks, and carries no weight at all against a sibling
+that shares this curve. One now does: the drafted
+[Solana profile](UI-Charity-Solana.md) verifies **Groth16 over BN254**, so
+the curve segment does not separate the two profiles and the `-plonk-`
+segment plus the statement tag are what do. Cross-proof-system rejection is
+therefore required in both directions once both circuit sets exist — this
+profile's counterpart fixture is `neg-cross-system-groth16-under-plonk`,
+named in §15 as a gap because no BN254 Groth16 circuit exists to generate
+its vector. The planned Stellar/Soroban and Cardano bindings both
 verify over BLS12-381, so they are separated from each other only by their own
 statement tags — a constraint on those profiles, stated in §8.3 where it binds
 them, not here.
@@ -875,6 +882,13 @@ and live in §13.1 as `fix-cross-campaign-derivation` and
   exists, the marker is retired only for the sibling actually run against, and
   remains for the other. (Named `neg-cross-curve-bn254-under-stellar` in draft
   0.1, when Stellar was the only planned counterpart.)
+- `neg-cross-system-groth16-under-plonk` — a valid **BN254 Groth16** proof
+  built for the [Solana sibling](UI-Charity-Solana.md)'s
+  `membership-set-v1` statement, submitted here: rejected. The curve check
+  cannot supply this rejection, because that sibling shares BN254; the
+  proof-system segment of the implementation ID and the statement tag are
+  what do. Ships with a "counterpart unimplemented" marker until BN254
+  Groth16 circuits exist to generate the vector (§15).
 - `neg-foreign-statement` — a valid BN254 proof for a *different* statement
   family with a compatible shape (the notary `sep-*` transition circuits
   are the natural donor): `InvalidProof`, because the statement tag
@@ -1050,6 +1064,13 @@ Everything below is unbuilt; this list is the work plan, not a polish list:
   backend; the operator manifest it serves (as of this draft's date)
   declares Stellar notary support only — the served bytes are
   authoritative, and no manifest anywhere declares a charity profile.
+- **Same-curve sibling**: the drafted `UI-Charity-Solana.md` shares BN254
+  and differs by proof system, so `neg-cross-system-groth16-under-plonk` —
+  a valid Groth16 proof for that sibling's statement, rejected here — is a
+  required fixture with no vector available yet, because no BN254 Groth16
+  circuit exists on either side. It ships with a "counterpart
+  unimplemented" marker until one does, in the same discipline as the
+  cross-curve pair below.
 - **BLS12-381 siblings**: neither `UI-Charity-Stellar.md` nor
   `UI-Charity-Cardano.md` exists, so the `neg-cross-curve-bn254-under-bls`
   fixture has no counterpart to run against in either direction. Whichever
@@ -1076,10 +1097,10 @@ This profile is satisfied when:
 4. every error in §4.1 is a distinct decodable selector whose mapped retry
    class the client actually implements;
 5. the §13.2 PII fixture passes at all three layers on the full happy path;
-6. cross-curve and cross-statement proofs are rejected in fixtures, in both
-   directions once a BLS12-381 sibling exists — and cross-statement rejection
-   is required on its own terms, since it is the only separation available
-   between two siblings that share a curve;
+6. cross-curve, cross-proof-system, and cross-statement proofs are rejected
+   in fixtures, in both directions once the corresponding sibling circuits
+   exist — the latter two are required on their own terms, since they are
+   the only separations available against the same-curve Solana sibling;
 7. write reconciliation survives nonce replacement, unknown outcomes, and
    pre-finality reorgs with the operation ID as the stable key and
    `conflicting_state` treated as a security event; and
